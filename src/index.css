@@ -1,6 +1,55 @@
 @import "tailwindcss";
 
-/* 护眼主题配色方案 - CSS 变量定义 */
+/* Tailwind CSS v4 主题定义 */
+@theme {
+  /* 主色调 - 温和的蓝色系 */
+  --color-primary-50: #E8F2F8;
+  --color-primary-100: #D1E5F1;
+  --color-primary-200: #A3CBE3;
+  --color-primary-300: #75B1D5;
+  --color-primary-400: #5B9BD5;
+  --color-primary-500: #4A90E2;
+  --color-primary-600: #3A7BC8;
+  --color-primary-700: #2E66A3;
+  --color-primary-800: #22517E;
+  --color-primary-900: #163C59;
+  --color-primary-950: #0B1F2D;
+
+  /* 背景色 */
+  --color-bg-primary: #FAF9F6;
+  --color-bg-secondary: #F5F5F0;
+  --color-bg-tertiary: #EFEFEA;
+  --color-bg-elevated: #FFFFFF;
+  --color-bg-hover: #F0F0EB;
+
+  /* 文字颜色 */
+  --color-text-primary: #2C3E50;
+  --color-text-secondary: #5A6C7D;
+  --color-text-tertiary: #8B9AAB;
+  --color-text-disabled: #BDC3C7;
+  --color-text-inverse: #FFFFFF;
+
+  /* 边框颜色 */
+  --color-border-light: #E5E5E5;
+  --color-border-base: #D5D5D0;
+  --color-border-dark: #C5C5C0;
+
+  /* 功能色 */
+  --color-success: #52C41A;
+  --color-success-light: #B7EB8F;
+  --color-success-dark: #389E0D;
+  --color-warning: #FAAD14;
+  --color-warning-light: #FFE58F;
+  --color-warning-dark: #D48806;
+  --color-error: #FF4D4F;
+  --color-error-light: #FFCCC7;
+  --color-error-dark: #CF1322;
+  --color-info: #4A90E2;
+  --color-info-light: #BAE7FF;
+  --color-info-dark: #096DD9;
+}
+
+/* 全局基础样式 */
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.6;
@@ -14,58 +63,9 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  /* 主色调 - 温和的蓝色系，适合长时间使用 */
-  --color-primary-50: #E8F2F8;
-  --color-primary-100: #D1E5F1;
-  --color-primary-200: #A3CBE3;
-  --color-primary-300: #75B1D5;
-  --color-primary-400: #5B9BD5;
-  --color-primary-500: #4A90E2;
-  --color-primary-600: #3A7BC8;
-  --color-primary-700: #2E66A3;
-  --color-primary-800: #22517E;
-  --color-primary-900: #163C59;
-  --color-primary-950: #0B1F2D;
-
-  /* 背景色 - 柔和的米白色和浅灰色 */
-  --color-bg-primary: #FAF9F6;
-  --color-bg-secondary: #F5F5F0;
-  --color-bg-tertiary: #EFEFEA;
-  --color-bg-elevated: #FFFFFF;
-  --color-bg-hover: #F0F0EB;
-
-  /* 文字颜色 - 深灰而非纯黑，降低对比度 */
-  --color-text-primary: #2C3E50;
-  --color-text-secondary: #5A6C7D;
-  --color-text-tertiary: #8B9AAB;
-  --color-text-disabled: #BDC3C7;
-  --color-text-inverse: #FFFFFF;
-
-  /* 边框颜色 - 柔和的灰色 */
-  --color-border-light: #E5E5E5;
-  --color-border-base: #D5D5D0;
-  --color-border-dark: #C5C5C0;
-
-  /* 功能色 - 柔和的强调色 */
-  --color-success: #52C41A;
-  --color-success-light: #B7EB8F;
-  --color-success-dark: #389E0D;
-  
-  --color-warning: #FAAD14;
-  --color-warning-light: #FFE58F;
-  --color-warning-dark: #D48806;
-  
-  --color-error: #FF4D4F;
-  --color-error-light: #FFCCC7;
-  --color-error-dark: #CF1322;
-  
-  --color-info: #4A90E2;
-  --color-info-light: #BAE7FF;
-  --color-info-dark: #096DD9;
 }
 
-/* 全局样式使用护眼配色 */
+/* 全局样式 */
 body {
   margin: 0;
   min-width: 320px;
@@ -95,7 +95,10 @@ h1 {
   font-size: 2.5em;
 }
 
-button {
+/* 移除全局 button 样式，让 Tailwind 类完全控制按钮样式 */
+/* 如果需要在没有 Tailwind 类的情况下提供默认样式，可以使用以下代码： */
+
+button:not([class*="bg-"]):not([class*="rounded-"]):not([class*="p-"]):not([class*="px-"]):not([class*="py-"]) {
   border-radius: 8px;
   border: 1px solid var(--color-border-base);
   padding: 0.6em 1.2em;
@@ -107,12 +110,4 @@ button {
   cursor: pointer;
   transition: all 0.2s ease;
 }
-button:hover {
-  background-color: var(--color-bg-hover);
-  border-color: var(--color-primary-400);
-}
-button:focus,
-button:focus-visible {
-  outline: 2px solid var(--color-primary-500);
-  outline-offset: 2px;
-}
+
