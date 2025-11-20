@@ -1,13 +1,16 @@
+import { useState } from 'react'
 import Asider from '../components/Asider'
+import ChatShell from '../components/ChatShell'
 export default function MainView() {
+    const [isCollapsed, setIsCollapsed] = useState(false)
+    
     return (
-        <div className="flex h-screen w-screen bg-bg-primary">
-            <aside className="flex h-full max-w-70 border-r border-border-base">
-                <Asider />
+        <div className="flex h-screen w-screen bg-bg-primary overflow-hidden">
+            <aside className={`flex h-full shrink-0 border-r border-border-base transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'}`}>
+                <Asider isCollapsed={isCollapsed} onToggleCollapse={() => setIsCollapsed(!isCollapsed)} />
             </aside>
-            <main className="flex-1 bg-bg-elevated text-text-primary p-6">
-                <h1 className="text-2xl font-semibold mb-4 text-text-primary">主内容区</h1>
-                <p className="text-text-secondary">这里是主内容区域，使用护眼配色方案。</p>
+            <main className="flex-1 flex flex-col items-center bg-bg-elevated text-text-primary overflow-hidden">
+                <ChatShell />
             </main>
         </div>
 

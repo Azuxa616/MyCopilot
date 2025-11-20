@@ -1,0 +1,125 @@
+{
+  "chats": [
+    {
+      "id": "chat-001",
+      "title": "如何学习 React？",
+      "messages": [
+        {
+          "id": "msg-001",
+          "role": "user",
+          "content": "你好，我想学习 React，能给我一些建议吗？",
+          "timestamp": 1704067200000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-002",
+          "role": "assistant",
+          "content": "当然可以！学习 React 的建议如下：\n\n1. **基础知识准备**\n   - 掌握 JavaScript ES6+ 语法\n   - 了解 HTML/CSS 基础\n   - 熟悉 DOM 操作概念\n\n2. **学习路径**\n   - 从官方文档开始：react.dev\n   - 学习组件化思想\n   - 掌握 JSX 语法\n   - 理解 Props 和 State\n   - 学习 Hooks（useState, useEffect 等）\n\n3. **实践项目**\n   - Todo 应用\n   - 天气应用\n   - 简单的博客系统\n\n4. **进阶学习**\n   - 状态管理（Redux, Zustand）\n   - 路由（React Router）\n   - 性能优化\n\n需要我详细解释某个部分吗？",
+          "timestamp": 1704067260000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-003",
+          "role": "user",
+          "content": "Hooks 是什么？能详细说说吗？",
+          "timestamp": 1704067320000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-004",
+          "role": "assistant",
+          "content": "Hooks 是 React 16.8 引入的新特性，允许你在函数组件中使用状态和其他 React 特性。\n\n**常用 Hooks：**\n\n1. **useState** - 管理组件状态\n```javascript\nconst [count, setCount] = useState(0);\n```\n\n2. **useEffect** - 处理副作用（数据获取、订阅等）\n```javascript\nuseEffect(() => {\n  // 副作用代码\n}, [dependencies]);\n```\n\n3. **useContext** - 访问 Context\n4. **useReducer** - 复杂状态管理\n5. **useMemo** - 性能优化（缓存计算结果）\n6. **useCallback** - 性能优化（缓存函数）\n\n**Hooks 规则：**\n- 只能在函数组件顶层调用\n- 不能在循环、条件或嵌套函数中调用\n- 自定义 Hooks 以 `use` 开头\n\n需要我展示一个完整的例子吗？",
+          "timestamp": 1704067380000,
+          "status": "sent"
+        }
+      ],
+      "createdAt": 1704067200000,
+      "updatedAt": 1704067380000,
+      "pinned": false,
+      "archived": false
+    },
+    {
+      "id": "chat-002",
+      "title": "TypeScript 类型系统",
+      "messages": [
+        {
+          "id": "msg-005",
+          "role": "user",
+          "content": "TypeScript 中的 interface 和 type 有什么区别？",
+          "timestamp": 1704153600000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-006",
+          "role": "assistant",
+          "content": "`interface` 和 `type` 在 TypeScript 中都可以用来定义类型，但它们有一些区别：\n\n**主要区别：**\n\n1. **扩展方式**\n   - `interface` 使用 `extends` 继承\n   - `type` 使用交叉类型 `&`\n\n2. **合并声明**\n   - `interface` 支持声明合并（同名接口会自动合并）\n   - `type` 不支持声明合并\n\n3. **使用场景**\n   - `interface` 更适合定义对象形状\n   - `type` 更灵活，可以定义联合类型、交叉类型、元组等\n\n**示例：**\n```typescript\n// interface\ninterface User {\n  name: string;\n}\ninterface User {\n  age: number; // 会自动合并\n}\n\n// type\ntype Status = 'active' | 'inactive'; // 联合类型\n```\n\n大多数情况下可以互换使用，建议优先使用 `interface` 定义对象类型。",
+          "timestamp": 1704153660000,
+          "status": "sent"
+        }
+      ],
+      "createdAt": 1704153600000,
+      "updatedAt": 1704153660000,
+      "pinned": true,
+      "archived": false
+    },
+    {
+      "id": "chat-003",
+      "title": "TailwindCSS 使用技巧",
+      "messages": [
+        {
+          "id": "msg-007",
+          "role": "user",
+          "content": "如何在 TailwindCSS 中实现响应式设计？",
+          "timestamp": 1704240000000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-008",
+          "role": "assistant",
+          "content": "TailwindCSS 提供了强大的响应式设计工具类，使用断点前缀即可：\n\n**默认断点：**\n- `sm`: 640px\n- `md`: 768px\n- `lg`: 1024px\n- `xl`: 1280px\n- `2xl`: 1536px\n\n**使用示例：**\n```html\n<!-- 移动端优先，然后在大屏幕上应用不同样式 -->\n<div class=\"text-sm md:text-base lg:text-lg\">\n  响应式文本\n</div>\n\n<!-- 响应式布局 -->\n<div class=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3\">\n  <!-- 内容 -->\n</div>\n```\n\n**移动端优先原则：**\n- 基础类名应用于所有屏幕\n- 添加断点前缀后，样式会在该断点及以上生效\n\n需要更多示例吗？",
+          "timestamp": 1704240060000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-009",
+          "role": "user",
+          "content": "发送中...",
+          "timestamp": 1704240120000,
+          "status": "sending"
+        }
+      ],
+      "createdAt": 1704240000000,
+      "updatedAt": 1704240120000,
+      "pinned": false,
+      "archived": false
+    },
+    {
+      "id": "chat-004",
+      "title": "新对话",
+      "messages": [],
+      "createdAt": 1704326400000,
+      "updatedAt": 1704326400000,
+      "pinned": false,
+      "archived": false
+    },
+    {
+      "id": "chat-005",
+      "title": "错误示例",
+      "messages": [
+        {
+          "id": "msg-010",
+          "role": "user",
+          "content": "这是一条会失败的消息",
+          "timestamp": 1704412800000,
+          "status": "failed",
+          "error": "网络连接失败，请检查网络设置后重试"
+        }
+      ],
+      "createdAt": 1704412800000,
+      "updatedAt": 1704412800000,
+      "pinned": false,
+      "archived": true
+    }
+  ]
+}
+
