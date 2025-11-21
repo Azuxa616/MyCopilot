@@ -51,6 +51,22 @@ export interface Message {
 }
 
 /**
+ * 聊天摘要接口（用于列表展示，不包含完整消息）
+ */
+export interface ChatSummary {
+  /** 对话唯一标识 */
+  id: string;
+  /** 对话标题 */
+  title: string;
+  /** 创建时间戳 */
+  createdAt: number;
+  /** 更新时间戳 */
+  updatedAt: number;
+  /** 消息总数（可选） */
+  messageCount?: number;
+}
+
+/**
  * 对话/会话接口
  */
 export interface Chat {
@@ -64,10 +80,6 @@ export interface Chat {
   createdAt: number;
   /** 更新时间戳 */
   updatedAt: number;
-  /** 是否已固定（可选） */
-  pinned?: boolean;
-  /** 是否已归档（可选） */
-  archived?: boolean;
 }
 
 /**

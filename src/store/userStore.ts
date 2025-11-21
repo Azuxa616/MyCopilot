@@ -8,8 +8,8 @@ interface UserStore {
 }
 
 const defaultUser: User = {
-  username: 'Azuxa616',
-  email: 'azuxa616@gmail.com', 
+  username: 'User',
+  email: 'example@email.com', 
   avatarUrl: 'https://avatars.githubusercontent.com/u/123456789?v=4',
 };
 
