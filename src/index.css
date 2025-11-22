@@ -84,16 +84,16 @@ a:hover {
   color: var(--color-primary-700);
 }
 
-
+/* 
 h1, h2, h3, h4, h5, h6 {
   color: var(--color-text-primary);
   font-weight: 600;
   line-height: 1.2;
-}
+} */
 
-h1 {
+/* h1 {
   font-size: 2.5em;
-}
+} */
 
 /* 移除全局 button 样式，让 Tailwind 类完全控制按钮样式 */
 /* 如果需要在没有 Tailwind 类的情况下提供默认样式，可以使用以下代码： */

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { Message } from '../../types/chat'
 import { MessageRole, MessageStatus } from '../../types/chat'
 import { getRelativeTime } from '../../utils/time'
-import { MarkdownRenderer } from '../MarkdownRenderer/MarkdownRenderer'
+import ReactMarkdownRenderer from '../MarkdownRenderer/ReactMarkdownRenderer'
 import Avatar from './Avatar'
 
 interface MessageCardProps {
@@ -89,8 +89,8 @@ export default function MessageCard({
       )
     }
     return (
-      <div className="max-w-none whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left">
-        <MarkdownRenderer content={message.content} />
+      <div className="max-w-none whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left font-normal">
+        <ReactMarkdownRenderer content={message.content} />
         {renderStreamingCursor()}
       </div>
     )
@@ -165,12 +165,10 @@ export default function MessageCard({
     )
   }
 
-  const effectiveUserAvatar =
-    (message as any).userAvatarUrl ?? (message as any).avatarUrl ?? undefined
-  const effectiveAssistantAvatar =
-    (message as any).assistantAvatarUrl ??
-    'https://api.dicebear.com/7.x/bottts-neutral/svg?seed=MyCopilot'
-
+  // 头像路径
+  const effectiveUserAvatar ='src/assets/img/avatar-user.png'
+  const effectiveAssistantAvatar ='src/assets/img/avatar-ai.svg'
+  console.log("isAssistant",isAssistant)
   return (
     <div
       className={`w-full flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 ${className}`}
@@ -182,7 +180,7 @@ export default function MessageCard({
           <Avatar
             src={effectiveAssistantAvatar}
             alt="MyCopilot 头像"
-            size={10}
+            size={12}
           />
         </div>
       )}
@@ -191,12 +189,12 @@ export default function MessageCard({
         <div className={bubbleClass}>{renderContent()}</div>
         {renderActions()}
       </div>
-      {isUser && (
+      {!isAssistant && (
         <div className="ml-2 shrink-0">
           <Avatar
-            src={effectiveUserAvatar || 'https://avatars.githubusercontent.com/u/123456789?v=4'}
+            src={effectiveUserAvatar}
             alt="用户头像"
-            size={10}
+            size={12}
           />
         </div>
       )}

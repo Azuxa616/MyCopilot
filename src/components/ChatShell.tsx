@@ -43,7 +43,7 @@ export default function ChatShell() {
     getTimePeriod(Date.now()) === '凌晨' ? '夜深了' : `${getTimePeriod(Date.now())}好`
 
   const assistantAvatarUrl =
-    'https://api.dicebear.com/7.x/bottts-neutral/svg?seed=MyCopilot'
+    './src/assets/img/avatar-ai.svg'
 
   // 新对话时，显示欢迎语和发送框
   if (!selectedChatId || !currentChat || !currentChat.messages.length) {
@@ -71,16 +71,18 @@ export default function ChatShell() {
     <div className="flex flex-col h-full justify-between items-center gap-6 w-full  pb-6">
       <div
         ref={messagesContainerRef}
-        className="flex flex-col gap-2 w-full overflow-y-auto flex-1 px-20"
+        className="flex flex-col gap-2 w-full overflow-y-auto flex-1 px-20 pt-10"
       >
-        {currentChat.messages.map((message) => (
+        {currentChat.messages.map((message) =>{ 
+          console.log('message',message)
+          return (
           <MessageCard
             key={message.id}
             message={message}
             userAvatarUrl={user?.avatarUrl}
             assistantAvatarUrl={assistantAvatarUrl}
           />
-        ))}
+        )})}
       </div>
       <Sender />
     </div>

@@ -1,0 +1,7 @@
+{
+    "user": {
+        "username": "User",
+        "email": "example@email.com",
+        "avatarUrl": "src/assets/img/avatar-user.png"
+    }
+}

@@ -1,8 +1,9 @@
 //Zustand - Chat状态管理
+import { createParser } from 'eventsource-parser';
 import { create } from 'zustand';
 import type { Chat, ChatSummary, Message, CreateChatParams, SendMessageParams } from '../types/chat';
 import { MessageRole, MessageStatus } from '../types/chat';
-import { mockApi } from '../utils/mockApi';
+import { api } from '../api';
 //todo: 使用persist持久化
 interface ChatStore {
     //状态 - 分层加载架构
@@ -73,13 +74,23 @@ export const useChatStore = create<ChatStore>(
         loadChatSummaries: async () => {
             set({ isLoadingSummaries: true });
             try {
-                const summaries = await mockApi.getChatSummaries();
-                set({ chatSummaries: summaries, isLoadingSummaries: false });
+                const summaries = await api.fetchChatSummaries();
+                const currentState = get();
                 
-                // 如果有聊天且没有选中，默认选中第一个
-                if (summaries.length > 0 && !get().selectedChatId) {
-                    get().setSelectedChatId(summaries[0].id);
-                }
+                // 过滤掉服务器返回的空"新对话"（消息数为0的），避免重复
+                const filteredSummaries = summaries.filter(
+                    s => !(s.title === '新对话' && s.messageCount === 0)
+                );
+                
+                // 合并服务器返回的列表和本地新创建的聊天（保留本地新创建的聊天在列表前面）
+                const localNewChats = currentState.chatSummaries.filter(
+                    local => !filteredSummaries.some(server => server.id === local.id)
+                );
+                const mergedSummaries = [...localNewChats, ...filteredSummaries];
+                
+                set({ chatSummaries: mergedSummaries, isLoadingSummaries: false });
+                
+                // 注意：不再自动选择第一个聊天，由调用方决定选择哪个聊天
             } catch (error) {
                 console.error('加载聊天列表失败:', error);
                 set({ isLoadingSummaries: false });
@@ -104,7 +115,7 @@ export const useChatStore = create<ChatStore>(
 
             set({ isLoadingMessages: true });
             try {
-                const messages = await mockApi.getChatMessages(chatId);
+                const messages = await api.fetchChatMessages(chatId);
                 const summary = get().chatSummaries.find(s => s.id === chatId);
                 
                 if (summary) {
@@ -222,22 +233,31 @@ export const useChatStore = create<ChatStore>(
         
         // 设置选中的聊天（触发消息加载）
         setSelectedChatId: (id: string) => {
+            if (!id) {
+                set({ selectedChatId: '', currentChat: null });
+                return;
+            }
+            
             set({ selectedChatId: id });
-            // 如果消息未加载，则加载
-            if (id && !get().messagesCache[id]) {
+            
+            const state = get();
+            const summary = state.chatSummaries.find(s => s.id === id);
+            const cachedMessages = state.messagesCache[id];
+            
+            // 如果消息已缓存，直接设置 currentChat
+            if (cachedMessages !== undefined && summary) {
+                set({
+                    currentChat: {
+                        ...summary,
+                        messages: cachedMessages,
+                    },
+                });
+            } else if (summary) {
+                // 如果有 summary 但消息未加载，则加载消息
                 get().loadChatMessages(id);
-            } else if (id) {
-                // 如果已缓存，直接设置 currentChat
-                const summary = get().chatSummaries.find(s => s.id === id);
-                if (summary) {
-                    set({
-                        currentChat: {
-                            ...summary,
-                            messages: get().messagesCache[id],
-                        },
-                    });
-                }
             } else {
+                // 如果 summary 不存在，可能是新创建的聊天，等待一下再重试
+                // 这种情况不应该发生，但为了安全起见，我们设置一个空状态
                 set({ currentChat: null });
             }
         },
@@ -340,6 +360,23 @@ export const useChatStore = create<ChatStore>(
             };
 
             get().addChat(newChat);
+            
+            // 创建后立即设置 currentChat，确保新聊天能正确显示
+            const summary: ChatSummary = {
+                id: newChat.id,
+                title: newChat.title,
+                createdAt: newChat.createdAt,
+                updatedAt: newChat.updatedAt,
+                messageCount: newChat.messages.length,
+            };
+            
+            set({
+                currentChat: {
+                    ...summary,
+                    messages: newChat.messages,
+                },
+            });
+            
             return newChat;
         },
 
@@ -363,21 +400,120 @@ export const useChatStore = create<ChatStore>(
             set({ isSending: true });
 
             try {
-                // TODO: 调用 API 发送消息
-                // const response = await api.sendMessage(params);
+                // 启动 AI 流式回复
+                const streamAIResponse = await api.streamAIResponse({
+                    chatId,
+                    prompt: content,
+                });
 
-                // 模拟 API 调用
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-
-                // 更新消息状态为已发送
+                // 用户消息发送成功
                 updateMessage(chatId, userMessage.id, {
                     status: MessageStatus.SENT,
                 });
 
-                // TODO: 添加 AI 回复消息
-                // const assistantMessage = await api.getAssistantResponse(chatId);
-                // addMessage(chatId, assistantMessage);
+                // 创建一个空的助手消息，占位用于后续流式追加内容
+                const assistantMessageId = `msg-${Date.now()}-assistant`;
+                const assistantMessage: Message = {
+                    id: assistantMessageId,
+                    role: MessageRole.ASSISTANT,
+                    content: '',
+                    timestamp: Date.now(),
+                    status: MessageStatus.SENDING,
+                };
 
+                addMessage(chatId, assistantMessage);
+
+                // 读取 SSE 流
+                const { stream, close } = streamAIResponse;
+                const reader = stream.getReader();
+                const decoder = new TextDecoder();
+
+                let fullContent = '';
+                let streamEnded = false;
+                let parserError: Error | null = null;
+
+                const parser = createParser((event) => {
+                    if (event.type !== 'event') {
+                        return;
+                    }
+
+                    if (event.event === 'error') {
+                        parserError = new Error(event.data || '流式读取失败');
+                        streamEnded = true;
+                        return;
+                    }
+
+                    const dataPart = event.data ?? '';
+
+                    if (event.event === 'done' || dataPart.trim() === '[DONE]') {
+                        streamEnded = true;
+                        return;
+                    }
+
+                    if (dataPart === '') {
+                        fullContent += '\n';
+                    } else {
+                        fullContent += dataPart;
+                    }
+
+                    updateMessage(chatId, assistantMessageId, {
+                        content: fullContent,
+                    });
+                });
+
+                // SSE 解析：逐字符提取并累积内容，实现打字机效果
+                const readStream = async () => {
+                    try {
+                        while (!streamEnded) {
+                            const { value, done } = await reader.read();
+                            if (done) {
+                                const flushText = decoder.decode();
+                                if (flushText) {
+                                    parser.feed(flushText);
+                                }
+                                break;
+                            }
+
+                            if (value) {
+                                const chunkText = decoder.decode(value, { stream: true });
+                                parser.feed(chunkText);
+                            }
+
+                            if (parserError) {
+                                throw parserError;
+                            }
+                        }
+
+                        if (parserError) {
+                            throw parserError;
+                        }
+                    } catch (streamError) {
+                        console.error('读取流数据失败:', streamError);
+                        // 更新消息状态为失败
+                        updateMessage(chatId, assistantMessageId, {
+                            status: MessageStatus.FAILED,
+                            error: streamError instanceof Error ? streamError.message : '流式读取失败',
+                        });
+                        throw streamError;
+                    } finally {
+                        // 确保关闭流和 reader
+                        try {
+                            reader.releaseLock();
+                            close();
+                        } catch (closeError) {
+                            // 忽略关闭错误
+                            console.warn('关闭流时出错:', closeError);
+                        }
+                    }
+                };
+
+                // 开始读取流
+                await readStream();
+
+                // 流式结束，标记助手消息已发送
+                updateMessage(chatId, assistantMessageId, {
+                    status: MessageStatus.SENT,
+                });
             } catch (error) {
                 // 更新消息状态为失败
                 updateMessage(chatId, userMessage.id, {
