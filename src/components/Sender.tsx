@@ -97,6 +97,7 @@ export default function Sender() {
                 <button title="上传文件" className="w-9 h-9 text-primary-500 rounded-full hover:bg-primary-500 hover:text-white transition-colors group flex items-center justify-center shrink-0 mb-1">
                     <IconAttachement className="w-5 h-5 text-primary-500 group-hover:text-white transition-colors" />
                 </button>
+                
                 <textarea
                     ref={textareaRef}
                     value={content}

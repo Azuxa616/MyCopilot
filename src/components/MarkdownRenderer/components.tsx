@@ -1,67 +1,12 @@
-import { isValidElement, memo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { isValidElement } from 'react'
 import type { Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
-import rehypePrismPlus from 'rehype-prism-plus'
-
-import 'prismjs/themes/prism-tomorrow.css'
-
-export interface MarkdownRendererProps {
-  content: string
-}
-
-const headingClasses = [
-  'text-[32px] font-bold text-text-primary mb-3 mt-4', // h1
-  'text-[24px] font-bold text-text-primary mb-2.5 mt-3', // h2
-  'text-[20px] font-bold text-text-primary mb-2 mt-2.5', // h3
-  'text-[18px] font-semibold text-text-primary mb-1.5 mt-2', // h4
-  'text-[16px] font-semibold text-text-secondary mb-1.5 mt-1.5', // h5
-  'text-[15px] font-semibold text-text-secondary mb-1 mt-1.5', // h6 
-] as const
-
-const languageAliasMap: Record<string, string> = {
-  js: 'javascript',
-  ts: 'typescript',
-  py: 'python',
-  sh: 'bash',
-  shell: 'bash',
-  yml: 'yaml',
-  md: 'markdown',
-  markup: 'html',
-  'c++': 'cpp',
-  'c#': 'csharp',
-  cs: 'csharp',
-  golang: 'go',
-  rs: 'rust',
-  rb: 'ruby',
-  kt: 'kotlin',
-  ps: 'powershell',
-  ps1: 'powershell',
-}
+import { headingClasses } from './constants'
+import { cx, extractLanguage } from './utils'
 
 /**
- * 合并 classNames
+ * Markdown 组件
  */
-const cx = (...classNames: Array<string | undefined | null | false>) =>
-  classNames.filter(Boolean).join(' ')
-
-const extractLanguage = (className?: string) => {
-  if (!className) {
-    return 'text'
-  }
-  const match = /language-([\w-]+)/.exec(className)
-  if (!match) {
-    return 'text'
-  }
-
-  const raw = match[1]?.toLowerCase() ?? 'text'
-  return languageAliasMap[raw] ?? raw
-}
-/**
- *  Markdown 组件
- */
-const markdownComponents: Components = {
+export const markdownComponents: Components = {
   h1: ({ node, children, ...props }) => (
     <h1 {...props} className={cx(headingClasses[0], props.className)}>
       {children}
@@ -286,24 +231,4 @@ const markdownComponents: Components = {
     )
   },
 }
-
-function ReactMarkdownRenderer({ content }: MarkdownRendererProps) {
-  if (!content) {
-    return null
-  }
-
-  return (
-    <div className="flex flex-col gap-2 text-[13px] font-normal leading-relaxed text-text-primary">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw, [rehypePrismPlus, { ignoreMissing: true }]]}
-        components={markdownComponents}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  )
-}
-
-export default memo(ReactMarkdownRenderer)
 

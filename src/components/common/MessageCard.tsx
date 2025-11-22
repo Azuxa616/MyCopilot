@@ -2,8 +2,9 @@ import type { ReactNode } from 'react'
 import type { Message } from '../../types/chat'
 import { MessageRole, MessageStatus } from '../../types/chat'
 import { getRelativeTime } from '../../utils/time'
-import ReactMarkdownRenderer from '../MarkdownRenderer/ReactMarkdownRenderer'
+import ReactMarkdownRenderer from '../MarkdownRenderer'
 import Avatar from './Avatar'
+import MessageActions from './MessageActions'
 
 interface MessageCardProps {
   /** 消息数据 */
@@ -100,43 +101,15 @@ export default function MessageCard({
   const renderActions = () => {
     if (isSystem) return null
 
-    const showRetry = isFailed && onRetry
-
     return (
-      <div className="mt-1 flex items-center justify-end gap-2 text-[11px] text-text-tertiary">
-        {statusText && <span>{statusText}</span>}
-        {onCopy && (
-          <button
-            type="button"
-            onClick={onCopy}
-            className="px-1 py-0.5 rounded-md hover:bg-bg-hover text-[11px]"
-            aria-label="复制消息内容"
-          >
-            复制
-          </button>
-        )}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            className="px-1 py-0.5 rounded-md hover:bg-bg-hover text-[11px] text-error"
-            aria-label="删除消息"
-          >
-            删除
-          </button>
-        )}
-        {showRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="px-1 py-0.5 rounded-md bg-error-light/40 text-error-dark hover:bg-error-light/60 text-[11px]"
-            aria-label="重试发送消息"
-          >
-            重试
-          </button>
-        )}
-        {extraActions}
-      </div>
+      <MessageActions
+        statusText={statusText}
+        showRetry={isFailed && !!onRetry}
+        onCopy={onCopy}
+        onDelete={onDelete}
+        onRetry={onRetry}
+        extraActions={extraActions}
+      />
     )
   }
 
