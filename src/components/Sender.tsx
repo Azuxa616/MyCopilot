@@ -1,12 +1,13 @@
 import { useRef, useEffect, useState } from 'react';
 import IconAttachement from '../assets/icon/attachment.svg?react';
 import IconSender from '../assets/icon/sender.svg?react';
+import IconGenerating from '../assets/icon/generating.svg?react';
 import { useChatStore } from '../store/chatStore';
 
 export default function Sender() {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [content, setContent] = useState('');
-    const { selectedChatId, sendMessage, createChat, isSending } = useChatStore();
+    const { selectedChatId, sendMessage, createChat, isSending, cancelStream } = useChatStore();
 
     const adjustTextareaHeight = () => {
         const textarea = textareaRef.current;
@@ -97,7 +98,7 @@ export default function Sender() {
                 <button title="上传文件" className="w-9 h-9 text-primary-500 rounded-full hover:bg-primary-500 hover:text-white transition-colors group flex items-center justify-center shrink-0 mb-1">
                     <IconAttachement className="w-5 h-5 text-primary-500 group-hover:text-white transition-colors" />
                 </button>
-                
+
                 <textarea
                     ref={textareaRef}
                     value={content}
@@ -108,14 +109,24 @@ export default function Sender() {
                     rows={1}
                 />
             </div>
-            <button 
-                title="发送" 
-                onClick={handleSend}
-                disabled={!content.trim() || isSending}
-                className="px-4 py-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors font-medium shrink-0 ml-2 mb-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-                <IconSender className="w-5 h-5 text-white transition-colors" />
-            </button>
+            {isSending ? (
+                <button 
+                    title="中断生成" 
+                    onClick={cancelStream}
+                    className="px-4 py-2 bg-primary-500/20 text-primary-500 rounded-full hover:bg-primary-500/30 transition-colors trans font-medium shrink-0 ml-2 mb-1"
+                >
+                    <IconGenerating className="w-5 h-5 text-white transition-colors animate-spin" />
+                </button>
+            ) : (
+                <button 
+                    title="发送" 
+                    onClick={handleSend}
+                    disabled={!content.trim()}
+                    className="px-4 py-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors font-medium shrink-0 ml-2 mb-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <IconSender className="w-5 h-5 text-white transition-colors" />
+                </button>
+            )}
         </div>
     )
 }

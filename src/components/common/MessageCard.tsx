@@ -99,6 +99,7 @@ export default function MessageCard({
 
   // 操作区（右下角/右上角小图标位）
   const renderActions = () => {
+    console.log("isSystem",isSystem)
     if (isSystem) return null
 
     return (

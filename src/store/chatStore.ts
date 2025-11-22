@@ -14,6 +14,7 @@ interface ChatStore {
     isSending: boolean;
     isLoadingSummaries: boolean; // 加载聊天列表状态
     isLoadingMessages: boolean; // 加载消息状态
+    abortController: AbortController | null; // 用于中断流式请求
 
     // 向后兼容：保留 chats（基于 chatSummaries 和 messagesCache 计算）
     chats: Chat[];
@@ -44,6 +45,7 @@ interface ChatStore {
     //Actions -业务方法
     createChat: (params: CreateChatParams) => Chat;
     sendMessage: (params: SendMessageParams) => Promise<void>;
+    cancelStream: () => void; // 中断当前流式生成
 
 }
 
@@ -57,6 +59,7 @@ export const useChatStore = create<ChatStore>(
         isSending: false,
         isLoadingSummaries: false,
         isLoadingMessages: false,
+        abortController: null,
         
         // 向后兼容：基于 chatSummaries 和 messagesCache 计算 chats
         get chats(): Chat[] {
@@ -385,6 +388,10 @@ export const useChatStore = create<ChatStore>(
             const { chatId, content, role = MessageRole.USER } = params;
             const { addMessage, updateMessage } = get();
 
+            // 创建 AbortController 用于中断请求
+            const abortController = new AbortController();
+            set({ abortController, isSending: true });
+
             // 创建用户消息
             const userMessage: Message = {
                 id: `msg-${Date.now()}`,
@@ -396,14 +403,24 @@ export const useChatStore = create<ChatStore>(
 
             addMessage(chatId, userMessage);
 
-            // 更新发送状态
-            set({ isSending: true });
+            // 创建一个空的助手消息，占位用于后续流式追加内容
+            const assistantMessageId = `msg-${Date.now()}-assistant`;
+            const assistantMessage: Message = {
+                id: assistantMessageId,
+                role: MessageRole.ASSISTANT,
+                content: '',
+                timestamp: Date.now(),
+                status: MessageStatus.SENDING,
+            };
+
+            addMessage(chatId, assistantMessage);
 
             try {
-                // 启动 AI 流式回复
+                // 启动 AI 流式回复，传递 AbortSignal
                 const streamAIResponse = await api.streamAIResponse({
                     chatId,
                     prompt: content,
+                    signal: abortController.signal,
                 });
 
                 // 用户消息发送成功
@@ -411,27 +428,26 @@ export const useChatStore = create<ChatStore>(
                     status: MessageStatus.SENT,
                 });
 
-                // 创建一个空的助手消息，占位用于后续流式追加内容
-                const assistantMessageId = `msg-${Date.now()}-assistant`;
-                const assistantMessage: Message = {
-                    id: assistantMessageId,
-                    role: MessageRole.ASSISTANT,
-                    content: '',
-                    timestamp: Date.now(),
-                    status: MessageStatus.SENDING,
-                };
-
-                addMessage(chatId, assistantMessage);
-
                 // 处理 SSE 流式响应
                 await handleStreamResponse({
                     chatId,
                     assistantMessageId,
                     streamAIResponse,
                     onContentUpdate: (chatId, messageId, content) => {
+                        // 检查是否已中断
+                        if (abortController.signal.aborted) {
+                            return;
+                        }
                         updateMessage(chatId, messageId, { content });
                     },
                     onError: (chatId, messageId, error) => {
+                        // 如果是中断操作，不标记为失败
+                        if (abortController.signal.aborted) {
+                            updateMessage(chatId, messageId, {
+                                status: MessageStatus.SENT,
+                            });
+                            return;
+                        }
                         updateMessage(chatId, messageId, {
                             status: MessageStatus.FAILED,
                             error,
@@ -439,18 +455,43 @@ export const useChatStore = create<ChatStore>(
                     },
                 });
 
-                // 流式结束，标记助手消息已发送
-                updateMessage(chatId, assistantMessageId, {
-                    status: MessageStatus.SENT,
-                });
+                // 流式结束，标记助手消息已发送（如果未被中断）
+                if (!abortController.signal.aborted) {
+                    updateMessage(chatId, assistantMessageId, {
+                        status: MessageStatus.SENT,
+                    });
+                }
             } catch (error) {
-                // 更新消息状态为失败
-                updateMessage(chatId, userMessage.id, {
-                    status: MessageStatus.FAILED,
-                    error: error instanceof Error ? error.message : '发送失败',
-                });
+                // 如果是中断操作，不标记为失败
+                if (abortController.signal.aborted) {
+                    updateMessage(chatId, userMessage.id, {
+                        status: MessageStatus.SENT,
+                    });
+                    updateMessage(chatId, assistantMessageId, {
+                        status: MessageStatus.SENT,
+                    });
+                } else {
+                    // 更新消息状态为失败
+                    updateMessage(chatId, userMessage.id, {
+                        status: MessageStatus.FAILED,
+                        error: error instanceof Error ? error.message : '发送失败',
+                    });
+                    updateMessage(chatId, assistantMessageId, {
+                        status: MessageStatus.FAILED,
+                        error: error instanceof Error ? error.message : '生成失败',
+                    });
+                }
             } finally {
-                set({ isSending: false });
+                set({ isSending: false, abortController: null });
+            }
+        },
+
+        // 中断当前流式生成
+        cancelStream: () => {
+            const { abortController } = get();
+            if (abortController) {
+                abortController.abort();
+                set({ abortController: null, isSending: false });
             }
         },
 
