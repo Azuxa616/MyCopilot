@@ -59,7 +59,7 @@
   color: #2C3E50;
   background-color: #FAF9F6;
 
-  font-synthesis: none;
+  font-synthesis: style;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -110,4 +110,19 @@ button:not([class*="bg-"]):not([class*="rounded-"]):not([class*="p-"]):not([clas
   cursor: pointer;
   transition: all 0.2s ease;
 }
+
+/* 加载滑块动画 */
+@keyframes slide-loading {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.animate-slide-loading {
+  animation: slide-loading 1.5s ease-in-out infinite;
+}
+
 
