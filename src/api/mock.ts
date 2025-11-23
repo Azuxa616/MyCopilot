@@ -9,6 +9,7 @@ import type { User } from '../types/user';
 import type { ApiResponse } from '../types/api';
 import { ApiStatusCode } from '../types/api';
 import type { StreamAIResponseParams, StreamAIResponseData } from './types';
+import { StreamError, AbortError } from './errors';
 import chatData from '../../mock/chat.json';
 import userData from '../../mock/user.json';
 
@@ -42,7 +43,7 @@ const MOCK_MARKDOWN_RESPONSE = `
 
 ## 列表与引用
 - 无序列表项一，包含 ~~删除线~~ 与 \`inline code\`。
-- 无序列表项二，包含 [跳转链接](https://example.com)。
+- 无序列表项二，包含 [跳转链接](https://zh-hans.react.dev/)。
 
 1. 有序列表第一项
 2. 有序列表第二项（含 **粗体** 与 *斜体*）。
@@ -209,7 +210,11 @@ const createMockSseStream = (content: string, options: MockSseOptions = {}) => {
           }
           // 发送错误事件
           if (controllerRef) {
-            controllerRef.enqueue(encoder.encode('event: error\ndata: Stream aborted\n\n'));
+            try {
+              controllerRef.enqueue(encoder.encode('event: error\ndata: Stream aborted\n\n'));
+            } catch (error) {
+              // 流可能已经关闭，忽略错误
+            }
           }
           closeStream();
         };
@@ -322,15 +327,31 @@ export const fetchUserMock = async (): Promise<ApiResponse<User>> => {
  * 模拟发送消息并返回一个简单的回复
  * 注意：实际业务中应使用 streamAIResponse 进行流式回复
  * 
- * @param _chatId 聊天 ID（当前未使用）
+ * @param chatId 聊天 ID
  * @param content 消息内容
  * @returns 模拟的助手回复消息
+ * @throws {BusinessError} 当 chatId 为 chat-005 或内容包含 "模拟失败" 时抛出错误
  */
 export const sendMessageMock = async (
-  _chatId: string,
+  chatId: string,
   content: string,
 ): Promise<ApiResponse<Message>> => {
   await delay(1000);
+
+  // 模拟失败场景：chat-005 或消息内容包含 "模拟失败"
+  if (chatId === 'chat-005' || content.includes('模拟失败')) {
+    return {
+      code: ApiStatusCode.SERVER_ERROR,
+      msg: '网络连接失败，请检查网络设置后重试',
+      data: {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+        status: 'failed',
+      } as any,
+    };
+  }
 
   return {
     code: ApiStatusCode.SUCCESS,
@@ -356,27 +377,57 @@ export const sendMessageMock = async (
 export const streamAIResponseMock = async (
   params: StreamAIResponseParams,
 ): Promise<ApiResponse<StreamAIResponseData>> => {
-  await delay(300);
+  try {
+    // 检查是否已被取消
+    if (params.signal?.aborted) {
+      throw new AbortError();
+    }
 
-  const { signal, chunkDelay, prompt: _prompt } = params;
-  void _prompt; // 当前使用固定测试文案，prompt 仅占位
+    await delay(300);
 
-  const requestId = `stream-${Date.now()}`;
-  const { stream, close, chunkCount } = createMockSseStream(MOCK_MARKDOWN_RESPONSE, {
-    signal,
-    chunkDelay,
-  });
+    // 再次检查是否在延迟期间被取消
+    if (params.signal?.aborted) {
+      throw new AbortError();
+    }
 
-  return {
-    code: ApiStatusCode.SUCCESS,
-    msg: 'AI 流式回复已开始',
-    data: {
-      stream,
-      close,
-      requestId,
-      contentType: 'text/event-stream',
-      tokenCount: chunkCount,
-    },
-  };
+    const { signal, chunkDelay, prompt, chatId } = params;
+
+    // 模拟失败场景：chat-005 或提示词包含 "模拟失败"
+    if (chatId === 'chat-005' || prompt.includes('模拟失败')) {
+      throw new StreamError(
+        '网络连接失败，请检查网络设置后重试',
+        `stream-${Date.now()}`,
+      );
+    }
+
+    const requestId = `stream-${Date.now()}`;
+    const { stream, close, chunkCount } = createMockSseStream(MOCK_MARKDOWN_RESPONSE, {
+      signal,
+      chunkDelay,
+    });
+
+    return {
+      code: ApiStatusCode.SUCCESS,
+      msg: 'AI 流式回复已开始',
+      data: {
+        stream,
+        close,
+        requestId,
+        contentType: 'text/event-stream',
+        tokenCount: chunkCount,
+      },
+    };
+  } catch (error) {
+    // 如果已经是 StreamError 或 AbortError，直接抛出
+    if (error instanceof StreamError || error instanceof AbortError) {
+      throw error;
+    }
+    // 其他错误包装为 StreamError
+    throw new StreamError(
+      `创建流式响应失败: ${error instanceof Error ? error.message : String(error)}`,
+      undefined,
+      error,
+    );
+  }
 };
 

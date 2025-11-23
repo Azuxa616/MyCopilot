@@ -19,6 +19,7 @@ import type { User } from '../types/user';
 import type { ApiResponse } from '../types/api';
 import { ApiStatusCode } from '../types/api';
 import type { StreamAIResponseParams, StreamAIResponseData } from './types';
+import { BusinessError, isApiError } from './errors';
 import {
   fetchChatSummariesMock,
   fetchChatMessagesMock,
@@ -41,19 +42,37 @@ export type { StreamAIResponseParams, StreamAIResponseData } from './types';
  * 通用响应解包工具
  * 
  * 将后端返回的 ApiResponse<T> 格式解包为业务数据类型 T
- * 如果响应码不是成功，则抛出错误
+ * 如果响应码不是成功，则抛出 BusinessError
+ * 同时捕获网络层面的错误并保持错误类型
  * 
  * @template T 业务数据类型
  * @param request API 请求 Promise
  * @returns 解包后的业务数据
- * @throws {Error} 当响应码不是成功时抛出错误
+ * @throws {BusinessError} 当响应码不是成功时抛出业务错误
+ * @throws {ApiError} 当发生网络错误、超时等时抛出对应的 API 错误
  */
 const unwrapResponse = async <T>(request: Promise<ApiResponse<T>>): Promise<T> => {
-  const response = await request;
-  if (response.code === ApiStatusCode.SUCCESS) {
-    return response.data;
+  try {
+    const response = await request;
+    if (response.code === ApiStatusCode.SUCCESS) {
+      return response.data;
+    }
+    throw new BusinessError(
+      response.msg || '请求失败',
+      response.code,
+      response.msg || '请求失败',
+    );
+  } catch (error) {
+    // 如果已经是 ApiError，直接抛出；否则包装为 BusinessError
+    if (isApiError(error)) {
+      throw error;
+    }
+    throw new BusinessError(
+      error instanceof Error ? error.message : String(error),
+      0,
+      error instanceof Error ? error.message : '未知错误',
+    );
   }
-  throw new Error(response.msg || '请求失败');
 };
 
 // ===== API 模式定义与切换（暂时硬编码）=====
@@ -249,3 +268,28 @@ export const api = {
         : streamAIResponseReal(params),
     ),
 };
+
+// ===== 导出错误类型和工具函数 =====
+
+// 导出错误类型
+export {
+  ApiError,
+  NetworkError,
+  HttpError,
+  TimeoutError,
+  BusinessError,
+  AbortError,
+  StreamError,
+} from './errors';
+
+// 导出错误工具函数
+export {
+  isApiError,
+  getErrorMessage,
+  getErrorCode,
+  isRetryableError,
+} from './errors';
+
+// 导出请求工具函数
+export { enhancedFetch, createTimeoutSignal } from './request';
+export type { RequestOptions } from './request';
