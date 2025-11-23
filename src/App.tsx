@@ -3,6 +3,7 @@ import MainView from './views/MainView'
 import { useChatStore } from './store/chatStore'
 import { useUserStore } from './store/userStore'
 import { api } from './api'
+import AlertContainer from './components/common/Alert'
 import './App.css'
 
 function App() {
@@ -44,7 +45,10 @@ function App() {
   }, []) // 移除依赖项，只在组件挂载时执行一次
 
   return (
-    <MainView />
+    <>
+      <AlertContainer />
+      <MainView />
+    </>
   )
 }
 

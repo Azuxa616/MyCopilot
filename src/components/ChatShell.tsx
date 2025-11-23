@@ -10,12 +10,17 @@ import { getTimePeriod } from '../utils/time'
 // Store
 import { useUserStore } from '../store/userStore'
 import { useChatStore } from '../store/chatStore'
+// Types
+import { MessageRole, MessageStatus } from '../types/chat'
+import type { Message } from '../types/chat'
 
 export default function ChatShell() {
   const selectedChatId = useChatStore((state) => state.selectedChatId)
   const currentChat = useChatStore((state) => state.currentChat)
   const isLoadingMessages = useChatStore((state) => state.isLoadingMessages)
   const loadChatMessages = useChatStore((state) => state.loadChatMessages)
+  const deleteMessage = useChatStore((state) => state.deleteMessage)
+  const sendMessage = useChatStore((state) => state.sendMessage)
   const { user } = useUserStore()
 
   // 聊天内容滚动容器
@@ -28,7 +33,7 @@ export default function ChatShell() {
     }
   }, [selectedChatId, currentChat, loadChatMessages])
 
-  // 当当前会话的消息变化时，自动滚动到底部
+  // 当前会话的消息变化时，自动滚动到底部
   useEffect(() => {
     const container = messagesContainerRef.current
     if (!container) return
@@ -45,7 +50,59 @@ export default function ChatShell() {
   const assistantAvatarUrl =
     './src/assets/img/avatar-ai.svg'
 
-  // 新对话时，显示欢迎语和发送框
+  // 处理重新生成（支持用户消息和助手消息）
+  const handleRegenerate = async (message: Message) => {
+    if (!selectedChatId || !currentChat) return
+
+    const messages = currentChat.messages
+    const messageIndex = messages.findIndex((msg) => msg.id === message.id)
+
+    if (message.role === MessageRole.USER) {
+      // 用户消息：查找下一条消息，如果是AI消息则删除
+      if (messageIndex >= 0 && messageIndex < messages.length - 1) {
+        const nextMessage = messages[messageIndex + 1]
+        if (nextMessage.role === MessageRole.ASSISTANT) {
+          deleteMessage(selectedChatId, nextMessage.id)
+        }
+      }
+
+      // 重新发送用户消息
+      await sendMessage({
+        chatId: selectedChatId,
+        content: message.content,
+        role: MessageRole.USER,
+      })
+    } else if (message.role === MessageRole.ASSISTANT) {
+      // 助手消息：查找上一条用户消息，重新发送
+      if (messageIndex > 0) {
+        const prevMessage = messages[messageIndex - 1]
+        if (prevMessage.role === MessageRole.USER) {
+          // 删除当前失败的助手消息
+          deleteMessage(selectedChatId, message.id)
+          
+          // 重新发送用户消息
+          await sendMessage({
+            chatId: selectedChatId,
+            content: prevMessage.content,
+            role: MessageRole.USER,
+          })
+        }
+      }
+    }
+  }
+
+  // 判断用户消息是否有后续AI回复
+  const hasNextAssistantMessage = (messageIndex: number): boolean => {
+    if (!currentChat) return false
+    const messages = currentChat.messages
+    if (messageIndex >= 0 && messageIndex < messages.length - 1) {
+      const nextMessage = messages[messageIndex + 1]
+      return nextMessage.role === MessageRole.ASSISTANT
+    }
+    return false
+  }
+
+  // 新对话状态
   if (!selectedChatId || !currentChat || !currentChat.messages.length) {
     return (
       <div className="flex flex-col h-full justify-center items-center gap-10 w-full max-w-4xl">
@@ -73,16 +130,29 @@ export default function ChatShell() {
         ref={messagesContainerRef}
         className="flex flex-col gap-2 w-full overflow-y-auto flex-1 px-20 pt-10"
       >
-        {currentChat.messages.map((message) =>{ 
-          console.log('message',message)
+        {currentChat.messages.map((message, index) => {
+          const isUserMessage = message.role === MessageRole.USER
+          const isAssistantMessage = message.role === MessageRole.ASSISTANT
+          const isFailed = message.status === MessageStatus.FAILED
+          
+          // 用户消息：如果有后续AI回复，显示重新生成按钮
+          const showRegenerate = isUserMessage && hasNextAssistantMessage(index)
+          
+          // 助手消息：如果失败，显示重试按钮
+          const showRetry = isAssistantMessage && isFailed
+          
           return (
-          <MessageCard
-            key={message.id}
-            message={message}
-            userAvatarUrl={user?.avatarUrl}
-            assistantAvatarUrl={assistantAvatarUrl}
-          />
-        )})}
+            <MessageCard
+              key={message.id}
+              message={message}
+              userAvatarUrl={user?.avatarUrl}
+              assistantAvatarUrl={assistantAvatarUrl}
+              showRegenerate={showRegenerate}
+              onRegenerate={showRegenerate ? () => handleRegenerate(message) : undefined}
+              onRetry={showRetry ? () => handleRegenerate(message) : undefined}
+            />
+          )
+        })}
       </div>
       <Sender />
     </div>

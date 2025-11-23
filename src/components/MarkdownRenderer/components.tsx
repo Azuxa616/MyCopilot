@@ -1,5 +1,7 @@
-import { isValidElement } from 'react'
+import { isValidElement, useState } from 'react'
+import type React from 'react'
 import type { Components } from 'react-markdown'
+import IconCopy from '../../assets/icon/copy.svg?react'
 import { headingClasses } from './constants'
 import { cx, extractLanguage } from './utils'
 
@@ -40,7 +42,7 @@ export const markdownComponents: Components = {
   p: ({ node, children, ...props }) => (
     <p
       {...props}
-      className={cx('mb-3 leading-relaxed text-text-primary font-normal', props.className)}
+      className={cx('text-[15px] mb-3 leading-relaxed text-text-primary font-normal', props.className)}
     >
       {children}
     </p>
@@ -48,7 +50,7 @@ export const markdownComponents: Components = {
   strong: ({ node, children, ...props }) => (
     <strong
       {...props}
-      className={cx('font-bold text-text-primary', props.className)}
+      className={cx('text-[15px] font-bold text-text-primary', props.className)}
     >
       {children}
     </strong>
@@ -56,25 +58,25 @@ export const markdownComponents: Components = {
   em: ({ node, children, ...props }) => (
     <em
       {...props}
-      className={cx('italic text-text-primary', props.className)}
+      className={cx('text-[15px] italic text-text-primary', props.className)}
     >
       {children}
     </em>
   ),
   ul: ({ node, children, ...props }) => (
-    <ul {...props} className={cx('mb-3 ml-5 list-disc', props.className)}>
+    <ul {...props} className={cx('text-[15px] mb-3 ml-5 list-disc', props.className)}>
       {children}
     </ul>
   ),
   ol: ({ node, children, ...props }) => (
-    <ol {...props} className={cx('mb-3 ml-5 list-decimal', props.className)}>
+    <ol {...props} className={cx('text-[15px] mb-3 ml-5 list-decimal', props.className)}>
       {children}
     </ol>
   ),
   li: ({ node, children, ...props }) => (
     <li
       {...props}
-      className={cx('mb-0.5 text-text-primary font-normal', props.className)}
+      className={cx('text-[15px] mb-0.5 text-text-primary font-normal', props.className)}
     >
       {children}
     </li>
@@ -83,7 +85,7 @@ export const markdownComponents: Components = {
     <blockquote
       {...props}
       className={cx(
-        'my-3 border-l-4 border-border-base bg-bg-tertiary/40 px-3 py-2 text-[13px] text-text-secondary',
+        'text-[15px] my-3 border-l-4 border-border-base bg-bg-tertiary/40 px-3 py-2 text-[13px] text-text-secondary',
         props.className,
       )}
     >
@@ -93,7 +95,7 @@ export const markdownComponents: Components = {
   hr: (props) => (
     <hr
       {...props}
-      className={cx('my-4 border-t border-border-base', props.className)}
+      className={cx('text-[15px] my-4 border-t border-border-base', props.className)}
     />
   ),
   a: ({ node, children, ...props }) => (
@@ -102,7 +104,7 @@ export const markdownComponents: Components = {
       target="_blank"
       rel="noopener noreferrer"
       className={cx(
-        'text-brand-primary underline decoration-dotted underline-offset-2 hover:text-brand-primary/80',
+        'text-[15px] bg-primary-200/30 px-1 py-0.5 rounded-md text-brand-primary underline decoration-dotted underline-offset-2 hover:text-brand-primary/80 hover:bg-bg-primary hover:border-primary-500 hover:border ',
         props.className,
       )}
     >
@@ -210,13 +212,63 @@ export const markdownComponents: Components = {
       childClassName?.split(' ').find((cls: string) => cls.startsWith('language-')) ??
       `language-${language}`
 
+    // 提取代码内容
+    const getCodeContent = (element: React.ReactElement): string => {
+      const props = element.props as { children?: React.ReactNode }
+      if (typeof props.children === 'string') {
+        return props.children
+      }
+      if (Array.isArray(props.children)) {
+        return props.children
+          .map((child: React.ReactNode) => {
+            if (typeof child === 'string') {
+              return child
+            }
+            if (isValidElement(child)) {
+              return getCodeContent(child)
+            }
+            return ''
+          })
+          .join('')
+      }
+      return ''
+    }
+
+    const codeContent = getCodeContent(child)
+    const [copied, setCopied] = useState(false)
+
+    const handleCopy = async () => {
+      try {
+        await navigator.clipboard.writeText(codeContent)
+        setCopied(true)
+        setTimeout(() => {
+          setCopied(false)
+        }, 2000)
+      } catch (err) {
+        console.error('复制失败:', err)
+      }
+    }
+
     return (
       <div
-        className="my-4 overflow-hidden rounded-lg border border-border-base bg-[#0c0c0c] text-[#f8f8f2]"
+        className="my-4 overflow-hidden rounded-lg border border-border-base bg-[#0c0c0c] text-[#f8f8f2] group"
         data-language={language}
       >
         <div className="flex items-center justify-between bg-[#1c1c1c] px-3 py-1 text-[11px] uppercase tracking-wide text-text-tertiary">
           <span>{language}</span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-primary/20 transition-colors text-text-inverse hover:text-text-tertiary `}
+            aria-label="复制代码"
+          >
+            <IconCopy className="w-3.5 h-3.5" />
+            {copied ? (
+              <span className="text-[12px]">已复制</span>
+            ) : (
+              <span className="text-[12px]">复制</span>
+            )}
+          </button>
         </div>
         <pre
           {...props}

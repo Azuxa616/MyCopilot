@@ -47,16 +47,15 @@
         {
           "id": "msg-010",
           "role": "user",
-          "content": "这是一条会失败的消息",
+          "content": "模拟失败",
           "timestamp": 1704412800000,
-          "status": "failed",
-          "error": "网络连接失败，请检查网络设置后重试"
+          "status": "sent"
         }
       ],
       "createdAt": 1704412800000,
       "updatedAt": 1704412800000,
       "pinned": false,
-      "archived": true
+      "archived": false
     }
   ]
 }
