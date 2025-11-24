@@ -355,6 +355,7 @@ export const useChatStore = create<ChatStore>(
                             content: params.initialMessage,
                             timestamp: Date.now(),
                             status: MessageStatus.SENT,
+                            attachments: [],
                         },
                     ]
                     : [],
@@ -385,7 +386,7 @@ export const useChatStore = create<ChatStore>(
 
         // 发送消息
         sendMessage: async (params) => {
-            const { chatId, content, role = MessageRole.USER } = params;
+            const { chatId, content, role = MessageRole.USER, attachments = [] } = params;
             const { addMessage, updateMessage } = get();
 
             // 创建 AbortController 用于中断请求
@@ -399,6 +400,7 @@ export const useChatStore = create<ChatStore>(
                 content,
                 timestamp: Date.now(),
                 status: MessageStatus.SENDING,
+                attachments,
             };
 
             addMessage(chatId, userMessage);
@@ -411,6 +413,7 @@ export const useChatStore = create<ChatStore>(
                 content: '',
                 timestamp: Date.now(),
                 status: MessageStatus.SENDING,
+                attachments: [],
             };
 
             addMessage(chatId, assistantMessage);

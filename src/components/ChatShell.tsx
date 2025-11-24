@@ -71,6 +71,7 @@ export default function ChatShell() {
         chatId: selectedChatId,
         content: message.content,
         role: MessageRole.USER,
+        attachments: message.attachments,
       })
     } else if (message.role === MessageRole.ASSISTANT) {
       // 助手消息：查找上一条用户消息，重新发送
@@ -85,6 +86,7 @@ export default function ChatShell() {
             chatId: selectedChatId,
             content: prevMessage.content,
             role: MessageRole.USER,
+            attachments: prevMessage.attachments,
           })
         }
       }

@@ -4,7 +4,7 @@
  * 包含所有 Mock 模式下的 API 实现，从本地 JSON 文件读取数据
  */
 
-import type { ChatSummary, Message } from '../types/chat';
+import type { ChatSummary, Message, Attachment } from '../types/chat';
 import type { User } from '../types/user';
 import type { ApiResponse } from '../types/api';
 import { ApiStatusCode } from '../types/api';
@@ -431,3 +431,103 @@ export const streamAIResponseMock = async (
   }
 };
 
+/**
+ * 生成类似 OpenAI 的文件 ID
+ * 格式：file-{24位随机字符}
+ * 
+ * @returns 文件 ID
+ */
+const generateFileId = (): string => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const randomChars = Array.from({ length: 24 }, () => 
+    chars[Math.floor(Math.random() * chars.length)]
+  ).join('');
+  return `file-${randomChars}`;
+};
+
+/**
+ * Mock: 上传附件（模拟 OpenAI Files API）
+ * 
+ * 模拟真实的 OpenAI 文件上传接口行为：
+ * - 根据文件大小模拟上传延迟
+ * - 生成类似 OpenAI 的文件 ID（file-xxx 格式）
+ * - 模拟文件大小和格式验证
+ * - 返回类似 OpenAI 的响应格式
+ * 
+ * @param attachment 附件对象（包含文件信息）
+ * @returns 上传后的附件信息（包含新生成的 OpenAI 格式文件 ID）
+ * @throws {BusinessError} 当文件过大或格式不支持时抛出错误
+ */
+export const uploadAttachmentMock = async (
+  attachment: Attachment
+): Promise<ApiResponse<Attachment>> => {
+  // 模拟文件大小验证（OpenAI 限制：最大 512MB）
+  const MAX_FILE_SIZE = 512 * 1024 * 1024; // 512MB
+  if (attachment.size > MAX_FILE_SIZE) {
+    await delay(500); // 模拟快速失败
+    return {
+      code: ApiStatusCode.BAD_REQUEST,
+      msg: `文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`,
+      data: attachment,
+    };
+  }
+
+  // 模拟不支持的文件格式（示例：某些特殊格式）
+  const unsupportedExtensions = ['.exe', '.bat', '.sh', '.dll'];
+  const fileExtension = attachment.name.substring(attachment.name.lastIndexOf('.')).toLowerCase();
+  if (unsupportedExtensions.includes(fileExtension)) {
+    await delay(500);
+    return {
+      code: ApiStatusCode.BAD_REQUEST,
+      msg: `不支持的文件格式：${fileExtension}`,
+      data: attachment,
+    };
+  }
+
+  // 根据文件大小模拟上传延迟
+  // 小文件（< 1MB）：300-800ms
+  // 中等文件（1-10MB）：800-2000ms
+  // 大文件（> 10MB）：2000-5000ms
+  let uploadDelay: number;
+  if (attachment.size < 1024 * 1024) {
+    uploadDelay = 300 + Math.random() * 500; // 300-800ms
+  } else if (attachment.size < 10 * 1024 * 1024) {
+    uploadDelay = 800 + Math.random() * 1200; // 800-2000ms
+  } else {
+    uploadDelay = 2000 + Math.random() * 3000; // 2000-5000ms
+  }
+
+  await delay(Math.floor(uploadDelay));
+
+  // 模拟网络错误（5% 概率）
+  if (Math.random() < 0.05) {
+    return {
+      code: ApiStatusCode.SERVER_ERROR,
+      msg: '网络连接失败，请稍后重试',
+      data: attachment,
+    };
+  }
+
+  // 生成 OpenAI 格式的文件 ID
+  const fileId = generateFileId();
+
+  // 返回类似 OpenAI 的响应格式
+  // OpenAI Files API 返回格式：
+  // {
+  //   "id": "file-abc123",
+  //   "object": "file",
+  //   "bytes": 120000,
+  //   "created_at": 1677610602,
+  //   "filename": "mydata.jsonl",
+  //   "purpose": "assistants",
+  //   "status": "uploaded"
+  // }
+  return {
+    code: ApiStatusCode.SUCCESS,
+    msg: '附件上传成功',
+    data: {
+      ...attachment,
+      id: fileId, // 使用新生成的 OpenAI 格式文件 ID
+    },
+  };
+}

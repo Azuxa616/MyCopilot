@@ -8,7 +8,7 @@ import Avatar from './Avatar'
 import MessageActions from './MessageActions'
 import { showMessageAlert } from './Alert'
 import IconRetry from '../../assets/icon/retry.svg?react'
-
+import AttachmentCard from '../Sender/AttachmentCard'
 interface MessageCardProps {
   /** 消息数据 */
   message: Message
@@ -78,7 +78,7 @@ export default function MessageCard({
   // 状态栏
   // 使用memo方式SSE流式响应时，避免重复渲染
   const StatusBar = useMemo(() => {
-    if (isSystem||isUser) return null
+    if (isSystem || isUser) return null
     if (isFailed) {
       return (
         <div className="w-full h-1 bg-error-light ml-0.5 relative overflow-hidden">
@@ -110,7 +110,7 @@ export default function MessageCard({
         </div>
       )
     }
-    
+
     // 如果助手消息失败，显示失败提示
     if (isAssistant && isFailed) {
       return (
@@ -122,7 +122,7 @@ export default function MessageCard({
         </div>
       )
     }
-    
+
     return (
       <div className="max-w-none px-4 py-2 whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left font-normal">
         <ReactMarkdownRenderer content={message.content} />
@@ -227,7 +227,7 @@ export default function MessageCard({
           />
         </div>
       )}
-      <div className={`flex flex-col items-${isUser ? 'end' : 'start'} w-[calc(100%-100px)] `}>
+      <div className={`flex flex-col items-${isUser ? 'end' : 'start'} gap-1 w-[calc(100%-100px)] `}>
         <RenderMeta />
 
         <div className={bubbleClass}>
@@ -235,6 +235,12 @@ export default function MessageCard({
           <RenderContent />
           <RenderStreamingCursor />
         </div>
+
+        {message.attachments.length > 0 && (
+          <div className="ml-2 shrink-0">
+            <AttachmentCard attachment={message.attachments[0]} />
+          </div>
+        )}
         <RenderActions />
       </div>
       {!isAssistant && (
@@ -246,6 +252,7 @@ export default function MessageCard({
           />
         </div>
       )}
+
     </div>
   )
 }

@@ -36,6 +36,7 @@ export default function MessageActions({
   onDelete,
   onRetry,
   onRegenerate,
+
   extraActions,
 }: MessageActionsProps) {
   return (

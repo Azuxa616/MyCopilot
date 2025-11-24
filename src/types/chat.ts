@@ -42,11 +42,13 @@ export interface Message {
   role: MessageRole;
   /** 消息内容 */
   content: string;
+  /** 附件列表 */
+  attachments: Attachment[];
   /** 创建时间戳 */
   timestamp: number;
-  /** 消息状态（可选，用于显示发送状态） */
+  /** 消息状态（用于显示发送状态） */
   status?: MessageStatus;
-  /** 错误信息（可选，当消息发送失败时） */
+  /** 错误信息（当消息发送失败时） */
   error?: string;
 }
 
@@ -100,7 +102,19 @@ export interface SendMessageParams {
   chatId: string;
   /** 消息内容 */
   content: string;
+  /** 附件列表 */
+  attachments: Attachment[];
   /** 消息角色（默认为 USER） */
   role?: MessageRole;
 }
 
+export interface Attachment {
+  /** 附件唯一标识 */
+  id: string;
+  /** 附件名称 */
+  name: string;
+  /** 附件类型 */
+  type: string;
+  /** 附件大小 */
+  size: number;
+}
