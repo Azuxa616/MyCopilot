@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import IconAttachement from '../../assets/icon/attachment.svg?react';
 import IconSender from '../../assets/icon/sender.svg?react';
 import IconGenerating from '../../assets/icon/generating.svg?react';
@@ -11,10 +11,40 @@ import { showMessageAlert } from '../common/Alert/alertUtils';
 
 export default function Sender() {
     const [content, setContent] = useState('');
-    const { selectedChatId, sendMessage, createChat, isSending, cancelStream } = useChatStore();
+    const { selectedChatId, sendMessage, createChat, isSending, cancelStream, currentChat } = useChatStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const textareaRef = useTextareaAutoHeight(content);
     const { attachments, handleUploadAttachment, handleRemoveAttachment, clearAttachments } = useAttachments();
+    const prevChatIdRef = useRef<string>('');
+    console.log('prevChatIdRef', prevChatIdRef.current);
+    // 重置 Sender 状态
+    const resetSender = useCallback(() => {
+        setContent('');
+        clearAttachments();
+        if (textareaRef.current) {
+            textareaRef.current.value = '';
+            textareaRef.current.style.height = 'auto';
+        }
+    }, [clearAttachments]);
+
+    // 监听 selectedChatId 变化，当切换到新对话时重置 Sender
+    useEffect(() => {
+        //切换到了不同的对话
+        if (selectedChatId && selectedChatId !== prevChatIdRef.current) {
+            // 检查是否是新对话
+            const isNewChat = currentChat && currentChat.messages.length === 0;
+            
+            if (isNewChat) {
+                resetSender();
+            }
+            
+            prevChatIdRef.current = selectedChatId;
+        } else if (!selectedChatId) {
+            // 没有选中的对话重置Sender
+            resetSender();
+            prevChatIdRef.current = '';
+        }
+    }, [selectedChatId, currentChat, resetSender]);
 
     const handleSend = async () => {
         const trimmedContent = content.trim();
@@ -23,35 +53,30 @@ export default function Sender() {
         }
 
         let chatId = selectedChatId;
+        const messageContent = trimmedContent;
+        const messageAttachments = [...attachments];
 
-        // 如果没有选中的聊天，创建一个新聊天
+        // 清空输入框和附件
+        resetSender();
 
-        try{
+        try {
             if (!chatId) {
-                const newChat = createChat({ initialMessage: trimmedContent });
+                // 如果没有选中的聊天，创建一个新聊天
+                const newChat = createChat({});
                 chatId = newChat.id;
                 useChatStore.getState().setSelectedChatId(chatId);
-            } else {
-                // 清空输入框
-                setContent('');
-                clearAttachments();
-                if (textareaRef.current) {
-                    textareaRef.current.value = '';
-                    textareaRef.current.style.height = 'auto';
-                }
-                // 发送消息
-                await sendMessage({
-                    chatId,
-                    content: trimmedContent,
-                    attachments,
-                });
             }
-        }catch(error){
+            
+            // 发送消息
+            await sendMessage({
+                chatId,
+                content: messageContent,
+                attachments: messageAttachments,
+            });
+        } catch (error) {
             console.error('发送消息失败:', error);
             showMessageAlert.error('发送消息失败');
         }
-        
-
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -60,7 +85,6 @@ export default function Sender() {
             e.preventDefault();
             handleSend();
         }
-        // Shift+Enter 允许默认行为（换行）
     };
 
     const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
