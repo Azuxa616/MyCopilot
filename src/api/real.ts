@@ -8,16 +8,18 @@
 import type { ChatSummary, Message } from '../types/chat';
 import type { User } from '../types/user';
 import type { ApiResponse } from '../types/api';
+import { ApiStatusCode } from '../types/api';
 import type { StreamAIResponseParams, StreamAIResponseData } from './types';
 // import { enhancedFetch } from './request';
 // import type { RequestOptions } from './request';
-// import { StreamError } from './errors';
+import { StreamError } from './errors';
+import { streamChatCompletion } from '../utils/llm';
+import { useConfigStore } from '../store/configStore';
 import {
   fetchChatSummariesMock,
   fetchChatMessagesMock,
   fetchUserMock,
   sendMessageMock,
-  streamAIResponseMock,
 } from './mock';
 
 /**
@@ -121,107 +123,41 @@ export const sendMessageReal = async (
 export const streamAIResponseReal = async (
   params: StreamAIResponseParams,
 ): Promise<ApiResponse<StreamAIResponseData>> => {
-  // TODO: 使用 fetch 调用真实后端 SSE 接口 POST /api/chats/:chatId/stream
-  // try {
-  //   const { chatId, prompt, signal } = params;
-  //   const controller = new AbortController();
-  //   
-  //   // 合并用户提供的 signal 和超时 signal
-  //   if (signal) {
-  //     signal.addEventListener('abort', () => controller.abort());
-  //   }
-  //   
-  //   const response = await fetch(`/api/chats/${chatId}/stream`, {
-  //     method: 'POST',
-  //     headers: {
-  //       'Content-Type': 'application/json',
-  //       'Accept': 'text/event-stream',
-  //     },
-  //     body: JSON.stringify({ prompt }),
-  //     signal: controller.signal,
-  //   });
-  //   
-  //   if (!response.ok) {
-  //     throw new StreamError(`流式请求失败: HTTP ${response.status}`, undefined);
-  //   }
-  //   
-  //   if (!response.body) {
-  //     throw new StreamError('响应体为空', undefined);
-  //   }
-  //   
-  //   const requestId = response.headers.get('X-Request-Id') || `stream-${Date.now()}`;
-  //   const tokenCount = parseInt(response.headers.get('X-Token-Count') || '0', 10);
-  //   
-  //   // 包装流，添加错误处理
-  //   const stream = wrapStreamWithErrorHandling(response.body, requestId);
-  //   
-  //   return {
-  //     code: ApiStatusCode.SUCCESS,
-  //     msg: 'AI 流式回复已开始',
-  //     data: {
-  //       stream,
-  //       close: () => controller.abort(),
-  //       requestId,
-  //       contentType: 'text/event-stream',
-  //       tokenCount,
-  //     },
-  //   };
-  // } catch (error) {
-  //   if (error instanceof StreamError) {
-  //     throw error;
-  //   }
-  //   throw new StreamError(
-  //     `流式请求失败: ${error instanceof Error ? error.message : String(error)}`,
-  //     undefined,
-  //     error,
-  //   );
-  // }
-  
-  // 目前先占位，仍复用 Mock 实现，保证调用方逻辑稳定
-  return streamAIResponseMock(params);
+  const config = useConfigStore.getState().openaiConfig;
+
+  if (!config) {
+    throw new StreamError('OpenAI 配置缺失，请在设置中填写 API Key、Base URL 和模型');
+  }
+
+  const messages = ensureMessagesPayload(params);
+
+  const streamData = await streamChatCompletion({
+    config,
+    messages,
+    signal: params.signal,
+  });
+
+  return {
+    code: ApiStatusCode.SUCCESS,
+    msg: 'AI 流式回复已开始',
+    data: streamData,
+  };
 };
 
-// TODO: 真实 API 接入时，取消注释以下函数用于包装 SSE 流
-// /**
-//  * 包装流并添加错误处理
-//  * 
-//  * @param stream 原始流
-//  * @param requestId 请求 ID
-//  * @returns 包装后的流
-//  */
-// function wrapStreamWithErrorHandling(
-//   stream: ReadableStream<Uint8Array>,
-//   requestId: string,
-// ): ReadableStream<Uint8Array> {
-//   const reader = stream.getReader();
-//
-//   return new ReadableStream<Uint8Array>({
-//     async start(controller) {
-//       try {
-//         while (true) {
-//           const { done, value } = await reader.read();
-//           if (done) {
-//             controller.close();
-//             break;
-//           }
-//           controller.enqueue(value);
-//         }
-//       } catch (error) {
-//         // 流读取错误
-//         controller.error(
-//           new StreamError(
-//             `流读取失败: ${error instanceof Error ? error.message : String(error)}`,
-//             requestId,
-//             error,
-//           ),
-//         );
-//       } finally {
-//         reader.releaseLock();
-//       }
-//     },
-//     cancel() {
-//       reader.cancel();
-//     },
-//   });
-// }
+//确保消息内容不为空
+function ensureMessagesPayload(params: StreamAIResponseParams): Message[] {
+  if (params.messages && params.messages.length > 0) {
+    return params.messages;
+  }
+
+  return [
+    {
+      id: `prompt-${Date.now()}`,
+      role: 'user',
+      content: params.prompt,
+      timestamp: Date.now(),
+      attachments: [],
+    },
+  ];
+}
 

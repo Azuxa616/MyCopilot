@@ -4,6 +4,7 @@ import Avatar from '../common/Avatar';
 import Switch from '../common/Switch';
 import { useUserStore } from '../../store/userStore';
 import { useConfigStore } from '../../store/configStore';
+import { showMessageAlert } from "../common/Alert/alertUtils";
 
 export interface SettingModalProps {
   open: boolean;
@@ -81,7 +82,16 @@ export default function SettingModal({ open, onOpenChange }: SettingModalProps) 
     }
 
     // 关闭模态框
-    onOpenChange(false);
+    if (formData.apiMode === "real"&&(
+      !formData.apiKey  ||
+      !formData.baseUrl  ||
+      !formData.model
+    )) {
+      showMessageAlert.error('当前API模式为真实模式，请填写完整的API配置');
+      return;
+    }else{
+      onOpenChange(false);
+    }
   };
 
   const isRealMode = formData.apiMode === 'real';

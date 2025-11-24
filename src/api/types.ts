@@ -4,6 +4,8 @@
  * 包含所有 API 相关的类型和接口定义
  */
 
+import type { Message } from '../types/chat';
+
 /**
  * AI 流式回复请求参数
  */
@@ -12,6 +14,8 @@ export interface StreamAIResponseParams {
   chatId: string;
   /** 用户输入的提示词 */
   prompt: string;
+  /** 传递给大模型的完整对话历史（可选） */
+  messages?: Message[];
   /** 可选的取消信号，用于中断流式请求 */
   signal?: AbortSignal;
   /** 

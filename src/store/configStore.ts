@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 
 interface ConfigStore {
@@ -19,14 +19,21 @@ interface ConfigStore {
 
 
 export const useConfigStore = create<ConfigStore>()(
-    (set) => ({
-        apiMode: "mock",
-        openaiConfig: undefined,
-        setApiMode: (apiMode: "mock" | "real") => set({ apiMode }),
-        setOpenaiConfig: (openaiConfig: {
-            apiKey: string;
-            baseUrl: string;
-            model: string;
-        }) => set({ openaiConfig }),
-    })
+    //持久化配置
+    persist(
+        (set) => ({
+            apiMode: "mock",
+            openaiConfig: undefined,
+            setApiMode: (apiMode: "mock" | "real") => set({ apiMode }),
+            setOpenaiConfig: (openaiConfig: {
+                apiKey: string;
+                baseUrl: string;
+                model: string;
+            }) => set({ openaiConfig }),
+        }),
+        {
+            name: 'my-copilot-config',
+            storage: createJSONStorage(() => localStorage),
+        }
+    )
 );

@@ -20,6 +20,7 @@ import type { ApiResponse } from '../types/api';
 import { ApiStatusCode } from '../types/api';
 import type { StreamAIResponseParams, StreamAIResponseData } from './types';
 import { BusinessError, isApiError } from './errors';
+import { useConfigStore } from '../store/configStore';
 import {
   fetchChatSummariesMock,
   fetchChatMessagesMock,
@@ -75,7 +76,7 @@ const unwrapResponse = async <T>(request: Promise<ApiResponse<T>>): Promise<T> =
   }
 };
 
-// ===== API 模式定义与切换（暂时硬编码）=====
+// ===== API 模式定义与切换 =====
 
 /**
  * API 模式常量
@@ -96,26 +97,12 @@ export const ApiMode = {
 export type ApiMode = (typeof ApiMode)[keyof typeof ApiMode];
 
 /**
- * 当前 API 模式（暂时硬编码为 MOCK）
- * 
- * TODO: 后续可通过 UI 或环境变量配置，提供给用户切换
- */
-let apiMode: ApiMode = ApiMode.MOCK;
-
-/**
- * 获取当前 API 模式
+ * 获取当前 API 模式（从 configStore 读取）
  * 
  * @returns 当前 API 模式
  */
-export const getApiMode = () => apiMode;
-
-/**
- * 设置 API 模式
- * 
- * @param mode 要设置的 API 模式
- */
-export const setApiMode = (mode: ApiMode) => {
-  apiMode = mode;
+export const getApiMode = (): ApiMode => {
+  return useConfigStore.getState().apiMode;
 };
 
 // ===== 统一对外 API（根据模式切换实现）=====
@@ -161,7 +148,7 @@ export const api = {
    */
   fetchChatSummaries: (): Promise<ChatSummary[]> =>
     unwrapResponse(
-      apiMode === ApiMode.MOCK ? fetchChatSummariesMock() : fetchChatSummariesReal(),
+      getApiMode() === ApiMode.MOCK ? fetchChatSummariesMock() : fetchChatSummariesReal(),
     ),
 
   /**
@@ -181,7 +168,7 @@ export const api = {
    */
   fetchChatMessages: (chatId: string): Promise<Message[]> =>
     unwrapResponse(
-      apiMode === ApiMode.MOCK
+      getApiMode() === ApiMode.MOCK
         ? fetchChatMessagesMock(chatId)
         : fetchChatMessagesReal(chatId),
     ),
@@ -199,7 +186,7 @@ export const api = {
    * ```
    */
   fetchUser: (): Promise<User> =>
-    unwrapResponse(apiMode === ApiMode.MOCK ? fetchUserMock() : fetchUserReal()),
+    unwrapResponse(getApiMode() === ApiMode.MOCK ? fetchUserMock() : fetchUserReal()),
 
   /**
    * 发送消息（非流式）
@@ -221,7 +208,7 @@ export const api = {
    */
   sendMessage: (chatId: string, content: string): Promise<Message> =>
     unwrapResponse(
-      apiMode === ApiMode.MOCK
+      getApiMode() === ApiMode.MOCK
         ? sendMessageMock(chatId, content)
         : sendMessageReal(chatId, content),
     ),
@@ -263,7 +250,7 @@ export const api = {
    */
   streamAIResponse: (params: StreamAIResponseParams): Promise<StreamAIResponseData> =>
     unwrapResponse(
-      apiMode === ApiMode.MOCK
+      getApiMode() === ApiMode.MOCK
         ? streamAIResponseMock(params)
         : streamAIResponseReal(params),
     ),
