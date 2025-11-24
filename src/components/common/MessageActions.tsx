@@ -45,7 +45,7 @@ export default function MessageActions({
         <button
           type="button"
           onClick={onCopy}
-          className="px-1 py-0.5 rounded-md hover:bg-bg-hover text-[11px]"
+          className="p-1 py-0.5 rounded-md hover:bg-bg-hover text-[11px]"
           aria-label="复制消息内容"
         >
           <IconCopy className="w-4 h-4" />

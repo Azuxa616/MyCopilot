@@ -1,108 +1,19 @@
 import { useState } from "react";
-
 //Components
-import Popover from './common/Popover';
-import Avatar from './common/Avatar';
+import ConversationNavItem from './ConversationNavItem';
+import UserInfoCard from './UserInfoCard';
+import SettingModal from './SettingModal';
+import ModeTipCard from './ModeTipCard';
 //Icons
-import IconCollapsedLeft from '../assets/icon/collapsed-left.svg?react';
-import IconCollapsedRight from '../assets/icon/collapsed-right.svg?react';
-import IconEllipsis from '../assets/icon/ellipsis.svg?react';
-import IconPlus from '../assets/icon/plus.svg?react';
-import IconDelete from '../assets/icon/delete.svg?react';
+import IconCollapsedLeft from '../../assets/icon/collapsed-left.svg?react';
+import IconCollapsedRight from '../../assets/icon/collapsed-right.svg?react';
+import IconPlus from '../../assets/icon/plus.svg?react';
 //Store
-import { useChatStore } from '../store/chatStore';
-import { useUserStore } from '../store/userStore';
+import { useChatStore } from '../../store/chatStore';
+import { useUserStore } from '../../store/userStore';
+import { useConfigStore } from '../../store/configStore';
 
-interface UserInfoCardProps {
-  username: string;
-  email: string;
-  avatarUrl: string;
-  isCollapsed: boolean;
-}
-
-interface ConversationNavItemProps {
-  id: string;
-  title: string;
-  isCollapsed: boolean;
-  isSelected: boolean;
-  onClick: () => void;
-  onDelete: () => void;
-}
-
-const ConversationNavItem = ({ title, isCollapsed, isSelected, onClick, onDelete }: ConversationNavItemProps) => {
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  const handleDelete = () => {
-    onDelete();
-    setMenuOpen(false);
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center 
-        ${isCollapsed ? 'justify-center w-full' : 'justify-between'} 
-        ${isSelected && !isCollapsed ? 'bg-bg-hover ml-2 shadow-md shadow-primary-500' : ''}
-        ${isSelected && isCollapsed ? 'bg-bg-hover text-text-inverse' : ''}
-        p-3 hover:bg-bg-hover rounded-lg transition-all duration-300 group`}
-      title={isCollapsed ? title : undefined}
-    >
-      {!isCollapsed && (
-        <>
-          <span className="pl-3 text-text-primary truncate flex-1 text-left">{title}</span>
-          <Popover
-            placement="bottom"
-            trigger="click"
-            open={menuOpen}
-            onOpenChange={setMenuOpen}
-            content={
-              <button 
-                onClick={handleDelete}
-                className="text-left min-w-24 self-center transition-colors flex justify-between items-center gap-2 border border-border-base rounded-lg p-2 px-3 bg-error-light/40 text-error-dark hover:bg-error-light/60"
-              >
-                <IconDelete className="w-4 h-4" />
-                <span>删除</span>
-              </button>
-            }
-          >
-            <button
-              className={`ml-2 hover:bg-primary-100 border border-border-base rounded-full p-1.5 shrink-0 transition-all ${
-                menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-              }`}
-              aria-label="更多操作"
-              title="更多操作"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <IconEllipsis className="w-4 h-4" />
-            </button>
-          </Popover>
-        </>
-      )}
-      {isCollapsed && (
-        <span className="text-text-primary truncate flex-1 text-center rounded-full">
-          {title.slice(0, 2)}
-        </span>
-      )}
-    </button>
-  )
-}
-
-const UserInfoCard = ({ username, email, avatarUrl, isCollapsed }: UserInfoCardProps) => {
-  return (
-    <div className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} ${isCollapsed ? 'px-2' : 'px-4'} py-3`}>
-      <Avatar src={avatarUrl} alt="avatar" size={isCollapsed ? 8 : 10} className={`shrink-0`} />
-      {!isCollapsed && (
-        <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-sm font-semibold text-text-primary truncate">{username}</span>
-          <span className="text-xs text-text-secondary truncate">{email}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-interface AsiderProps {
+export interface AsiderProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
 }
@@ -112,6 +23,7 @@ export default function Asider({
   onToggleCollapse
 }: AsiderProps) {
   const [internalIsCollapsed, setInternalIsCollapsed] = useState(false);
+  const [isSettingModalOpen, setIsSettingModalOpen] = useState(false);
   const isCollapsed = externalIsCollapsed !== undefined ? externalIsCollapsed : internalIsCollapsed;
   const handleToggleCollapse = onToggleCollapse || (() => setInternalIsCollapsed(!internalIsCollapsed));
 
@@ -122,6 +34,7 @@ export default function Asider({
   const deleteChatSummary = useChatStore((state) => state.deleteChatSummary);
   const createChat = useChatStore((state) => state.createChat);
   const user = useUserStore((state) => state.user);
+  const apiMode = useConfigStore((state) => state.apiMode);
 
   // 处理切换对话
   const handleItemClick = (chatId: string) => {
@@ -198,12 +111,14 @@ export default function Asider({
 
       {/* footer 包含用户信息+app版本信息 */}
       <footer className="flex flex-col shrink-0 border-t border-border-base bg-bg-secondary">
+        {!isCollapsed && <ModeTipCard isMock={apiMode === "mock"} />}
         {user && (
           <UserInfoCard
             username={user.username}
             email={user.email}
             avatarUrl={user.avatarUrl}
             isCollapsed={isCollapsed}
+            onClick={() => setIsSettingModalOpen(true)}
           />
         )}
         {!isCollapsed && (
@@ -213,6 +128,13 @@ export default function Asider({
           </div>
         )}
       </footer>
+
+      {/* 设置模态框 */}
+      <SettingModal
+        open={isSettingModalOpen}
+        onOpenChange={setIsSettingModalOpen}
+      />
     </div>
   )
 }
+

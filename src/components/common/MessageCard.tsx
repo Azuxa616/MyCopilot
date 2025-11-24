@@ -254,7 +254,7 @@ export default function MessageCard({
     })
   }
   //分享消息内容
-  //todo：结合model，渲染分享卡片
+  //todo：结合modal，渲染分享卡片
   // const handleShare = () => {
   //   navigator.clipboard.writeText(message.content).then(() => {
   //     showMessageAlert.info('分享成功')

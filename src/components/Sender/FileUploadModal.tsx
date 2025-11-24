@@ -1,4 +1,4 @@
-import Modal from '../common/Model';
+import Modal from '../common/Modal';
 import Uploader from '../common/Uploader';
 import AttachmentCard from './AttachmentCard';
 import type { Attachment } from '../../types/chat';

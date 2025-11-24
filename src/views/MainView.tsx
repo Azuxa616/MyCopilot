@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Asider from '../components/Asider'
+import Asider from '../components/Asider/index'
 import ChatShell from '../components/ChatShell'
 export default function MainView() {
     const [isCollapsed, setIsCollapsed] = useState(false)
