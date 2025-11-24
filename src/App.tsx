@@ -42,7 +42,7 @@ function App() {
     }
     
     initApp()
-  }, []) // 移除依赖项，只在组件挂载时执行一次
+  }, [createChat, loadChatSummaries, setSelectedChatId, setUser])
 
   return (
     <>

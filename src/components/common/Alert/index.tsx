@@ -1,35 +1,26 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import IconSuccess from '../../assets/icon/success.svg?react'
-import IconError from '../../assets/icon/error.svg?react'
-import IconWarning from '../../assets/icon/warning.svg?react'
-import IconInfo from '../../assets/icon/info.svg?react'
-// 提示类型
-export type AlertType = 'success' | 'error' | 'warning' | 'info'
+import IconSuccess from '../../../assets/icon/success.svg?react'
+import IconError from '../../../assets/icon/error.svg?react'
+import IconWarning from '../../../assets/icon/warning.svg?react'
+import IconInfo from '../../../assets/icon/info.svg?react'
+import type { AlertType, AlertItem } from './alertUtils'
+import { removeAlert, addListener, removeListener, getAlerts } from './alertUtils'
 
-// 提示项接口
-interface AlertItem {
-  id: string
-  type: AlertType
-  message: string
-  duration?: number // 自动消失时间（毫秒），默认 3000
-}
-let alertListeners: Array<(alerts: AlertItem[]) => void> = []
-let alerts: AlertItem[] = []
-
-const notifyListeners = () => {
-  alertListeners.forEach((listener) => listener([...alerts]))
-}
-
-const addAlert = (alert: Omit<AlertItem, 'id'>) => {
-  const id = `alert-${Date.now()}-${Math.random()}`
-  alerts = [...alerts, { ...alert, id }]
-  notifyListeners()
-}
-
-const removeAlert = (id: string) => {
-  alerts = alerts.filter((alert) => alert.id !== id)
-  notifyListeners()
+// TypeIcon 组件移到外部，避免在渲染期间创建
+function TypeIcon({ type }: { type: AlertType }) {
+  switch (type) {
+    case 'success':
+      return <IconSuccess className="w-4 h-4" />
+    case 'error':
+      return <IconError className="w-4 h-4" />
+    case 'warning':
+      return <IconWarning className="w-4 h-4" />
+    case 'info':
+      return <IconInfo className="w-4 h-4" />
+    default:
+      return null
+  }
 }
 
 // 单个提示项组件
@@ -72,21 +63,6 @@ function AlertItem({ alert, onRemove }: { alert: AlertItem; onRemove: (id: strin
     }
   }
 
-  const TypeIcon =()=>{
-    switch (alert.type) {
-      case 'success':
-        return <IconSuccess className="w-4 h-4" />
-      case 'error':
-        return <IconError className="w-4 h-4" />
-      case 'warning':
-        return <IconWarning className="w-4 h-4" />
-      case 'info':
-        return <IconInfo className="w-4 h-4" />
-      default:
-        return null
-    }
-  }
-
   return (
     <div
       className={`
@@ -100,7 +76,7 @@ function AlertItem({ alert, onRemove }: { alert: AlertItem; onRemove: (id: strin
       role="alert"
     >
       <div className="flex items-center justify-between gap-3">
-        <TypeIcon />
+        <TypeIcon type={alert.type} />
         <span className="text-sm font-medium flex-1">{alert.message}</span>
       </div>
     </div>
@@ -116,13 +92,15 @@ function AlertContainer() {
     const listener = (newAlerts: AlertItem[]) => {
       setAlertList(newAlerts)
     }
-    alertListeners.push(listener)
-    // 初始化时设置当前状态
-    setAlertList([...alerts])
+    addListener(listener)
+    // 初始化时设置当前状态 - 使用 setTimeout 避免在 effect 中同步调用 setState
+    setTimeout(() => {
+      setAlertList(getAlerts())
+    }, 0)
 
     // 清理函数
     return () => {
-      alertListeners = alertListeners.filter((l) => l !== listener)
+      removeListener(listener)
     }
   }, [])
 
@@ -146,20 +124,5 @@ function AlertContainer() {
   )
 }
 
-// 导出提示函数
-export const showMessageAlert = {
-  success: (message: string, duration?: number) => {
-    addAlert({ type: 'success', message, duration })
-  },
-  error: (message: string, duration?: number) => {
-    addAlert({ type: 'error', message, duration })
-  },
-  warning: (message: string, duration?: number) => {
-    addAlert({ type: 'warning', message, duration })
-  },
-  info: (message: string, duration?: number) => {
-    addAlert({ type: 'info', message, duration })
-  },
-}
-
+// 默认导出组件
 export default AlertContainer

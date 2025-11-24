@@ -6,9 +6,136 @@ import { getRelativeTime } from '../../utils/time'
 import ReactMarkdownRenderer from '../MarkdownRenderer'
 import Avatar from './Avatar'
 import MessageActions from './MessageActions'
-import { showMessageAlert } from './Alert'
+import { showMessageAlert } from './Alert/alertUtils'
 import IconRetry from '../../assets/icon/retry.svg?react'
 import AttachmentCard from '../Sender/AttachmentCard'
+
+// 将组件移到外部，避免在渲染期间创建
+interface RenderStreamingCursorProps {
+  isStreaming: boolean
+  isAssistant: boolean
+}
+
+function RenderStreamingCursor({ isStreaming, isAssistant }: RenderStreamingCursorProps) {
+  if (!isStreaming || !isAssistant) return null
+  return (
+    <span className="inline-block w-[6px] h-4 align-baseline bg-text-primary/60 animate-pulse ml-0.5" />
+  )
+}
+
+interface RenderContentProps {
+  message: Message
+  isSystem: boolean
+  isUser: boolean
+  isAssistant: boolean
+  isFailed: boolean
+  isStreaming: boolean
+}
+
+function RenderContent({ message, isSystem, isUser, isAssistant, isFailed, isStreaming }: RenderContentProps) {
+  if (isSystem) {
+    return <span className="whitespace-pre-wrap wrap-break-word">{message.content}</span>
+  }
+  if (isUser) {
+    return (
+      <div className="max-w-none whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left">
+        {message.content}
+      </div>
+    )
+  }
+
+  // 如果助手消息失败，显示失败提示
+  if (isAssistant && isFailed) {
+    return (
+      <div className="max-w-none px-4 py-3 whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left font-normal">
+        <div className="flex items-center gap-2 text-error">
+          <span className="text-error">⚠️</span>
+          <span>{message.error || '生成失败，请重试'}</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-none px-4 py-2 whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left font-normal">
+      <ReactMarkdownRenderer content={message.content} />
+      <RenderStreamingCursor isStreaming={isStreaming} isAssistant={isAssistant} />
+    </div>
+  )
+}
+
+interface RenderActionsProps {
+  isSystem: boolean
+  isAssistant: boolean
+  isFailed: boolean
+  isUser: boolean
+  onRetry?: () => void
+  onDelete?: () => void
+  onCopy: () => void
+  onRegenerate?: () => void
+  showRegenerate?: boolean
+  extraActions?: ReactNode
+}
+
+function RenderActions({
+  isSystem,
+  isAssistant,
+  isFailed,
+  isUser,
+  onRetry,
+  onDelete,
+  onCopy,
+  onRegenerate,
+  showRegenerate,
+  extraActions,
+}: RenderActionsProps) {
+  if (isSystem) return null
+
+  // 助手消息失败时，显示重试按钮
+  if (isAssistant && isFailed && onRetry) {
+    return (
+      <div className="mt-2 px-4 pb-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-3 py-1.5 rounded-md bg-error-light/40 text-error-dark hover:bg-error-light/60 text-[12px] font-medium flex items-center gap-1.5"
+          aria-label="重试生成"
+        >
+          <IconRetry className="w-4 h-4 text-error-dark" />
+          <span>重试</span>
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <MessageActions
+      sender={isUser ? 'user' : 'assistant'}
+      showRetry={isFailed && !!onRetry && isUser}
+      showRegenerate={showRegenerate && !!onRegenerate}
+      onCopy={onCopy}
+      onDelete={onDelete}
+      onRetry={onRetry}
+      onRegenerate={onRegenerate}
+      extraActions={extraActions}
+    />
+  )
+}
+
+interface RenderMetaProps {
+  isSystem: boolean
+  isUser: boolean
+}
+
+function RenderMeta({ isSystem, isUser }: RenderMetaProps) {
+  if (isSystem) return null
+  const roleLabel = isUser ? "我" : 'MyCopilot'
+  return (
+    <div className="mb-1 flex items-center gap-2 text-[11px] text-text-tertiary px-1">
+      <span>{roleLabel}</span>
+    </div>
+  )
+}
 interface MessageCardProps {
   /** 消息数据 */
   message: Message
@@ -68,13 +195,6 @@ export default function MessageCard({
     bubbleClass += ' border-error/80 bg-error-light/10'
   }
 
-  // SSE 流式光标
-  const RenderStreamingCursor = () => {
-    if (!isStreaming || !isAssistant) return null
-    return (
-      <span className="inline-block w-[6px] h-4 align-baseline bg-text-primary/60 animate-pulse ml-0.5" />
-    )
-  }
   // 状态栏
   // 使用memo方式SSE流式响应时，避免重复渲染
   const StatusBar = useMemo(() => {
@@ -96,86 +216,7 @@ export default function MessageCard({
     return (
       <div className="w-full h-1  bg-success-light animate-pulse   ml-0.5" />
     )
-  }, [isSending])
-
-  // 内容区域：使用 Markdown 渲染器渲染用户与助手消息
-  const RenderContent = () => {
-    if (isSystem) {
-      return <span className="whitespace-pre-wrap wrap-break-word">{message.content}</span>
-    }
-    if (isUser) {
-      return (
-        <div className="max-w-none whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left">
-          {message.content}
-        </div>
-      )
-    }
-
-    // 如果助手消息失败，显示失败提示
-    if (isAssistant && isFailed) {
-      return (
-        <div className="max-w-none px-4 py-3 whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left font-normal">
-          <div className="flex items-center gap-2 text-error">
-            <span className="text-error">⚠️</span>
-            <span>{message.error || '生成失败，请重试'}</span>
-          </div>
-        </div>
-      )
-    }
-
-    return (
-      <div className="max-w-none px-4 py-2 whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left font-normal">
-        <ReactMarkdownRenderer content={message.content} />
-        <RenderStreamingCursor />
-      </div>
-    )
-  }
-
-  // 操作区
-  const RenderActions = () => {
-    if (isSystem) return null
-
-    // 助手消息失败时，显示重试按钮
-    if (isAssistant && isFailed && onRetry) {
-      return (
-        <div className="mt-2 px-4 pb-2">
-          <button
-            type="button"
-            onClick={onRetry}
-            className="px-3 py-1.5 rounded-md bg-error-light/40 text-error-dark hover:bg-error-light/60 text-[12px] font-medium flex items-center gap-1.5"
-            aria-label="重试生成"
-          >
-            <IconRetry className="w-4 h-4 text-error-dark" />
-            <span>重试</span>
-          </button>
-        </div>
-      )
-    }
-
-    return (
-      <MessageActions
-        sender={isUser ? 'user' : 'assistant'}
-        showRetry={isFailed && !!onRetry && isUser}
-        showRegenerate={showRegenerate && !!onRegenerate}
-        onCopy={handleCopy}
-        onDelete={onDelete}
-        onRetry={onRetry}
-        onRegenerate={onRegenerate}
-        extraActions={extraActions}
-      />
-    )
-  }
-
-  // 时间戳 & 角色标签
-  const RenderMeta = () => {
-    if (isSystem) return null
-    const roleLabel = isUser ? "我" : 'MyCopilot'
-    return (
-      <div className="mb-1 flex items-center gap-2 text-[11px] text-text-tertiary px-1">
-        <span>{roleLabel}</span>
-      </div>
-    )
-  }
+  }, [isSending, isSystem, isUser, isFailed])
 
   // 系统消息：居中
   if (isSystem) {
@@ -185,7 +226,16 @@ export default function MessageCard({
         role="article"
         aria-label={`系统消息，时间：${timeLabel}`}
       >
-        <div className={bubbleClass}><RenderContent /></div>
+        <div className={bubbleClass}>
+          <RenderContent
+            message={message}
+            isSystem={isSystem}
+            isUser={isUser}
+            isAssistant={isAssistant}
+            isFailed={isFailed}
+            isStreaming={isStreaming ?? false}
+          />
+        </div>
       </div>
     )
   }
@@ -205,13 +255,13 @@ export default function MessageCard({
   }
   //分享消息内容
   //todo：结合model，渲染分享卡片
-  const handleShare = () => {
-    navigator.clipboard.writeText(message.content).then(() => {
-      showMessageAlert.info('分享成功')
-    }).catch(() => {
-      showMessageAlert.error('分享失败')
-    })
-  }
+  // const handleShare = () => {
+  //   navigator.clipboard.writeText(message.content).then(() => {
+  //     showMessageAlert.info('分享成功')
+  //   }).catch(() => {
+  //     showMessageAlert.error('分享失败')
+  //   })
+  // }
   return (
     <div
       className={`w-full flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 ${className}`}
@@ -228,12 +278,18 @@ export default function MessageCard({
         </div>
       )}
       <div className={`flex flex-col items-${isUser ? 'end' : 'start'} gap-1 w-[calc(100%-100px)] `}>
-        <RenderMeta />
+        <RenderMeta isSystem={isSystem} isUser={isUser} />
 
         <div className={bubbleClass}>
           {StatusBar}
-          <RenderContent />
-          <RenderStreamingCursor />
+          <RenderContent
+            message={message}
+            isSystem={isSystem}
+            isUser={isUser}
+            isAssistant={isAssistant}
+            isFailed={isFailed}
+            isStreaming={isStreaming ?? false}
+          />
         </div>
 
         {message.attachments.length > 0 && (
@@ -241,7 +297,18 @@ export default function MessageCard({
             <AttachmentCard attachment={message.attachments[0]} />
           </div>
         )}
-        <RenderActions />
+        <RenderActions
+          isSystem={isSystem}
+          isAssistant={isAssistant}
+          isFailed={isFailed}
+          isUser={isUser}
+          onRetry={onRetry}
+          onDelete={onDelete}
+          onCopy={handleCopy}
+          onRegenerate={onRegenerate}
+          showRegenerate={showRegenerate}
+          extraActions={extraActions}
+        />
       </div>
       {!isAssistant && (
         <div className="ml-2 shrink-0">

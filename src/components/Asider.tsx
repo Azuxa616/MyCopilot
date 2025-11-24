@@ -29,7 +29,7 @@ interface ConversationNavItemProps {
   onDelete: () => void;
 }
 
-const ConversationNavItem = ({ id: _id, title, isCollapsed, isSelected, onClick, onDelete }: ConversationNavItemProps) => {
+const ConversationNavItem = ({ title, isCollapsed, isSelected, onClick, onDelete }: ConversationNavItemProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const handleDelete = () => {

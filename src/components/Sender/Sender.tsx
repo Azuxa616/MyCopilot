@@ -7,7 +7,7 @@ import AttachmentCard from './AttachmentCard';
 import FileUploadModal from './FileUploadModal';
 import { useTextareaAutoHeight } from './hooks/useTextareaAutoHeight';
 import { useAttachments } from './hooks/useAttachments';
-import { showMessageAlert } from '../common/Alert';
+import { showMessageAlert } from '../common/Alert/alertUtils';
 
 export default function Sender() {
     const [content, setContent] = useState('');

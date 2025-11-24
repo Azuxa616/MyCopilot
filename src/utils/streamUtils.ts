@@ -1,6 +1,4 @@
 import { createParser } from 'eventsource-parser'
-import type { Message } from '../types/chat'
-import { MessageStatus } from '../types/chat'
 
 interface StreamAIResponseData {
   stream: ReadableStream<Uint8Array>

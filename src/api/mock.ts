@@ -5,6 +5,7 @@
  */
 
 import type { ChatSummary, Message, Attachment } from '../types/chat';
+import { MessageRole, MessageStatus } from '../types/chat';
 import type { User } from '../types/user';
 import type { ApiResponse } from '../types/api';
 import { ApiStatusCode } from '../types/api';
@@ -12,6 +13,32 @@ import type { StreamAIResponseParams, StreamAIResponseData } from './types';
 import { StreamError, AbortError } from './errors';
 import chatData from '../../mock/chat.json';
 import userData from '../../mock/user.json';
+
+// 定义 JSON 数据的类型（允许 messages 缺少 attachments）
+interface ChatDataItemMessage {
+  id: string;
+  role: string;
+  content: string;
+  timestamp: number;
+  status: string;
+  attachments?: Attachment[];
+}
+
+interface ChatDataItem {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatDataItemMessage[];
+}
+
+interface ChatData {
+  chats: ChatDataItem[];
+}
+
+interface UserData {
+  user: User;
+}
 
 /**
  * 模拟网络延迟
@@ -212,7 +239,7 @@ const createMockSseStream = (content: string, options: MockSseOptions = {}) => {
           if (controllerRef) {
             try {
               controllerRef.enqueue(encoder.encode('event: error\ndata: Stream aborted\n\n'));
-            } catch (error) {
+            } catch {
               // 流可能已经关闭，忽略错误
             }
           }
@@ -261,7 +288,7 @@ const createMockSseStream = (content: string, options: MockSseOptions = {}) => {
 export const fetchChatSummariesMock = async (): Promise<ApiResponse<ChatSummary[]>> => {
   await delay(300);
 
-  const summaries = (chatData.chats as any[]).map(chat => ({
+  const summaries = (chatData as unknown as ChatData).chats.map(chat => ({
     id: chat.id,
     title: chat.title,
     createdAt: chat.createdAt,
@@ -287,7 +314,7 @@ export const fetchChatSummariesMock = async (): Promise<ApiResponse<ChatSummary[
 export const fetchChatMessagesMock = async (chatId: string): Promise<ApiResponse<Message[]>> => {
   await delay(500);
 
-  const chats = chatData.chats as any[];
+  const chats = (chatData as unknown as ChatData).chats;
   const chat = chats.find(c => c.id === chatId);
   if (!chat) {
     return {
@@ -297,10 +324,18 @@ export const fetchChatMessagesMock = async (chatId: string): Promise<ApiResponse
     };
   }
 
+  // 将 JSON 数据转换为 Message 类型，确保 attachments 存在
+  const messages: Message[] = chat.messages.map(msg => ({
+    ...msg,
+    role: msg.role as MessageRole,
+    status: msg.status as MessageStatus,
+    attachments: msg.attachments ?? [],
+  }));
+
   return {
     code: ApiStatusCode.SUCCESS,
     msg: '获取消息成功',
-    data: chat.messages as Message[],
+    data: messages,
   };
 };
 
@@ -317,7 +352,7 @@ export const fetchUserMock = async (): Promise<ApiResponse<User>> => {
   return {
     code: ApiStatusCode.SUCCESS,
     msg: '获取用户信息成功',
-    data: (userData as any).user as User,
+    data: (userData as unknown as UserData).user,
   };
 };
 
@@ -340,17 +375,17 @@ export const sendMessageMock = async (
 
   // 模拟失败场景：chat-005 或消息内容包含 "模拟失败"
   if (chatId === 'chat-005' || content.includes('模拟失败')) {
-    return {
-      code: ApiStatusCode.SERVER_ERROR,
-      msg: '网络连接失败，请检查网络设置后重试',
-      data: {
-        id: `msg-${Date.now()}`,
-        role: 'assistant',
-        content: '',
-        timestamp: Date.now(),
-        status: 'failed',
-      } as any,
-    };
+      return {
+        code: ApiStatusCode.SERVER_ERROR,
+        msg: '网络连接失败，请检查网络设置后重试',
+        data: {
+          id: `msg-${Date.now()}`,
+          role: 'assistant' as const,
+          content: '',
+          timestamp: Date.now(),
+          status: 'failed' as const,
+        } as Message,
+      };
   }
 
   return {
@@ -358,11 +393,11 @@ export const sendMessageMock = async (
     msg: '消息发送成功',
     data: {
       id: `msg-${Date.now()}`,
-      role: 'assistant',
+      role: 'assistant' as const,
       content: `这是对 "${content}" 的模拟回复`,
       timestamp: Date.now(),
-      status: 'sent',
-    } as any,
+      status: 'sent' as const,
+    } as Message,
   };
 };
 

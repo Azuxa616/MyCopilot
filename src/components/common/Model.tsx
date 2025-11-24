@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 
 export interface ModalProps {
   /** 是否可见（受控模式） */
@@ -40,12 +40,12 @@ export default function Modal({
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : internalOpen
 
-  const setOpen = (newOpen: boolean) => {
+  const setOpen = useCallback((newOpen: boolean) => {
     if (!isControlled) {
       setInternalOpen(newOpen)
     }
     onOpenChange?.(newOpen)
-  }
+  }, [isControlled, onOpenChange])
 
   // ESC 键关闭
   useEffect(() => {
@@ -59,7 +59,7 @@ export default function Modal({
 
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [open])
+  }, [open, setOpen])
 
   // 阻止 body 滚动
   useEffect(() => {

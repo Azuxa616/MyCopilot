@@ -6,40 +6,139 @@ import { headingClasses } from './constants'
 import { cx, extractLanguage } from './utils'
 
 /**
+ * Pre 组件 - 代码块容器，包含复制功能
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+function PreComponent({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) {
+  const child = Array.isArray(children) ? children[0] : children
+  const [copied, setCopied] = useState(false)
+
+  if (!isValidElement(child)) {
+    return (
+      <pre
+        {...props}
+        className={cx(
+          'my-4 overflow-auto rounded-lg bg-[#111] px-3 py-3 font-mono text-[13px] leading-[1.6] text-[#f8f8f2]',
+          props.className as string,
+        )}
+      >
+        {children}
+      </pre>
+    )
+  }
+
+  const childClassName: string =
+    (child.props as { className?: string })?.className ?? ''
+  const language = extractLanguage(childClassName)
+  const languageClass =
+    childClassName?.split(' ').find((cls: string) => cls.startsWith('language-')) ??
+    `language-${language}`
+
+  // 提取代码内容
+  const getCodeContent = (element: React.ReactElement): string => {
+    const props = element.props as { children?: React.ReactNode }
+    if (typeof props.children === 'string') {
+      return props.children
+    }
+    if (Array.isArray(props.children)) {
+      return props.children
+        .map((child: React.ReactNode) => {
+          if (typeof child === 'string') {
+            return child
+          }
+          if (isValidElement(child)) {
+            return getCodeContent(child)
+          }
+          return ''
+        })
+        .join('')
+    }
+    return ''
+  }
+
+  const codeContent = getCodeContent(child)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(codeContent)
+      setCopied(true)
+      setTimeout(() => {
+        setCopied(false)
+      }, 2000)
+    } catch (err) {
+      console.error('复制失败:', err)
+    }
+  }
+
+  return (
+    <div
+      className="my-4 overflow-hidden rounded-lg border border-border-base bg-[#0c0c0c] text-[#f8f8f2] group"
+      data-language={language}
+    >
+      <div className="flex items-center justify-between bg-[#1c1c1c] px-3 py-1 text-[11px] uppercase tracking-wide text-text-tertiary">
+        <span>{language}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-primary/20 transition-colors text-text-inverse hover:text-text-tertiary `}
+          aria-label="复制代码"
+        >
+          <IconCopy className="w-3.5 h-3.5" />
+          {copied ? (
+            <span className="text-[12px]">已复制</span>
+          ) : (
+            <span className="text-[12px]">复制</span>
+          )}
+        </button>
+      </div>
+      <pre
+        {...props}
+        className={cx(
+          languageClass,
+          'm-0 max-h-[480px] overflow-auto px-3 py-3 font-mono text-[13px] leading-[1.6]',
+        )}
+      >
+        {child}
+      </pre>
+    </div>
+  )
+}
+
+/**
  * Markdown 组件
  */
 export const markdownComponents: Components = {
-  h1: ({ node, children, ...props }) => (
+  h1: ({ children, ...props }) => (
     <h1 {...props} className={cx(headingClasses[0], props.className)}>
       {children}
     </h1>
   ),
-  h2: ({ node, children, ...props }) => (
+  h2: ({ children, ...props }) => (
     <h2 {...props} className={cx(headingClasses[1], props.className)}>
       {children}
     </h2>
   ),
-  h3: ({ node, children, ...props }) => (
+  h3: ({ children, ...props }) => (
     <h3 {...props} className={cx(headingClasses[2], props.className)}>
       {children}
     </h3>
   ),
-  h4: ({ node, children, ...props }) => (
+  h4: ({ children, ...props }) => (
     <h4 {...props} className={cx(headingClasses[3], props.className)}>
       {children}
     </h4>
   ),
-  h5: ({ node, children, ...props }) => (
+  h5: ({ children, ...props }) => (
     <h5 {...props} className={cx(headingClasses[4], props.className)}>
       {children}
     </h5>
   ),
-  h6: ({ node, children, ...props }) => (
+  h6: ({ children, ...props }) => (
     <h6 {...props} className={cx(headingClasses[5], props.className)}>
       {children}
     </h6>
   ),
-  p: ({ node, children, ...props }) => (
+  p: ({ children, ...props }) => (
     <p
       {...props}
       className={cx('text-[15px] mb-3 leading-relaxed text-text-primary font-normal', props.className)}
@@ -47,7 +146,7 @@ export const markdownComponents: Components = {
       {children}
     </p>
   ),
-  strong: ({ node, children, ...props }) => (
+  strong: ({ children, ...props }) => (
     <strong
       {...props}
       className={cx('text-[15px] font-bold text-text-primary', props.className)}
@@ -55,7 +154,7 @@ export const markdownComponents: Components = {
       {children}
     </strong>
   ),
-  em: ({ node, children, ...props }) => (
+  em: ({ children, ...props }) => (
     <em
       {...props}
       className={cx('text-[15px] italic text-text-primary', props.className)}
@@ -63,17 +162,17 @@ export const markdownComponents: Components = {
       {children}
     </em>
   ),
-  ul: ({ node, children, ...props }) => (
+  ul: ({ children, ...props }) => (
     <ul {...props} className={cx('text-[15px] mb-3 ml-5 list-disc', props.className)}>
       {children}
     </ul>
   ),
-  ol: ({ node, children, ...props }) => (
+  ol: ({ children, ...props }) => (
     <ol {...props} className={cx('text-[15px] mb-3 ml-5 list-decimal', props.className)}>
       {children}
     </ol>
   ),
-  li: ({ node, children, ...props }) => (
+  li: ({ children, ...props }) => (
     <li
       {...props}
       className={cx('text-[15px] mb-0.5 text-text-primary font-normal', props.className)}
@@ -81,7 +180,7 @@ export const markdownComponents: Components = {
       {children}
     </li>
   ),
-  blockquote: ({ node, children, ...props }) => (
+  blockquote: ({ children, ...props }) => (
     <blockquote
       {...props}
       className={cx(
@@ -98,7 +197,7 @@ export const markdownComponents: Components = {
       className={cx('text-[15px] my-4 border-t border-border-base', props.className)}
     />
   ),
-  a: ({ node, children, ...props }) => (
+  a: ({ children, ...props }) => (
     <a
       {...props}
       target="_blank"
@@ -111,8 +210,7 @@ export const markdownComponents: Components = {
       {children}
     </a>
   ),
-  img: ({ node, alt, ...props }) => (
-    // eslint-disable-next-line jsx-a11y/alt-text
+  img: ({ alt, ...props }) => (
     <img
       {...props}
       alt={alt}
@@ -123,7 +221,7 @@ export const markdownComponents: Components = {
       )}
     />
   ),
-  table: ({ node, children, ...props }) => (
+  table: ({ children, ...props }) => (
     <div className="my-4 w-full overflow-x-auto">
       <table
         {...props}
@@ -136,7 +234,7 @@ export const markdownComponents: Components = {
       </table>
     </div>
   ),
-  thead: ({ node, children, ...props }) => (
+  thead: ({ children, ...props }) => (
     <thead
       {...props}
       className={cx('bg-bg-secondary text-text-primary', props.className)}
@@ -144,7 +242,7 @@ export const markdownComponents: Components = {
       {children}
     </thead>
   ),
-  tbody: ({ node, children, ...props }) => (
+  tbody: ({ children, ...props }) => (
     <tbody
       {...props}
       className={cx('bg-bg-primary', props.className)}
@@ -152,7 +250,7 @@ export const markdownComponents: Components = {
       {children}
     </tbody>
   ),
-  th: ({ node, children, ...props }) => (
+  th: ({ children, ...props }) => (
     <th
       {...props}
       className={cx('px-3 py-2 text-left font-semibold', props.className)}
@@ -160,7 +258,7 @@ export const markdownComponents: Components = {
       {children}
     </th>
   ),
-  td: ({ node, children, ...props }) => (
+  td: ({ children, ...props }) => (
     <td
       {...props}
       className={cx('px-3 py-2 align-top text-text-secondary', props.className)}
@@ -168,7 +266,7 @@ export const markdownComponents: Components = {
       {children}
     </td>
   ),
-  code: ({ node, className, children, ...props }) => {
+  code: ({ className, children, ...props }) => {
     const inline = !className || !className.includes('language-')
     if (inline) {
       return (
@@ -189,98 +287,8 @@ export const markdownComponents: Components = {
       </code>
     )
   },
-  pre: ({ node, children, ...props }) => {
-    const child = Array.isArray(children) ? children[0] : children
-    if (!isValidElement(child)) {
-      return (
-        <pre
-          {...props}
-          className={cx(
-            'my-4 overflow-auto rounded-lg bg-[#111] px-3 py-3 font-mono text-[13px] leading-[1.6] text-[#f8f8f2]',
-            props.className,
-          )}
-        >
-          {children}
-        </pre>
-      )
-    }
-
-    const childClassName: string =
-      (child.props as { className?: string })?.className ?? ''
-    const language = extractLanguage(childClassName)
-    const languageClass =
-      childClassName?.split(' ').find((cls: string) => cls.startsWith('language-')) ??
-      `language-${language}`
-
-    // 提取代码内容
-    const getCodeContent = (element: React.ReactElement): string => {
-      const props = element.props as { children?: React.ReactNode }
-      if (typeof props.children === 'string') {
-        return props.children
-      }
-      if (Array.isArray(props.children)) {
-        return props.children
-          .map((child: React.ReactNode) => {
-            if (typeof child === 'string') {
-              return child
-            }
-            if (isValidElement(child)) {
-              return getCodeContent(child)
-            }
-            return ''
-          })
-          .join('')
-      }
-      return ''
-    }
-
-    const codeContent = getCodeContent(child)
-    const [copied, setCopied] = useState(false)
-
-    const handleCopy = async () => {
-      try {
-        await navigator.clipboard.writeText(codeContent)
-        setCopied(true)
-        setTimeout(() => {
-          setCopied(false)
-        }, 2000)
-      } catch (err) {
-        console.error('复制失败:', err)
-      }
-    }
-
-    return (
-      <div
-        className="my-4 overflow-hidden rounded-lg border border-border-base bg-[#0c0c0c] text-[#f8f8f2] group"
-        data-language={language}
-      >
-        <div className="flex items-center justify-between bg-[#1c1c1c] px-3 py-1 text-[11px] uppercase tracking-wide text-text-tertiary">
-          <span>{language}</span>
-          <button
-            type="button"
-            onClick={handleCopy}
-            className={`flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-primary/20 transition-colors text-text-inverse hover:text-text-tertiary `}
-            aria-label="复制代码"
-          >
-            <IconCopy className="w-3.5 h-3.5" />
-            {copied ? (
-              <span className="text-[12px]">已复制</span>
-            ) : (
-              <span className="text-[12px]">复制</span>
-            )}
-          </button>
-        </div>
-        <pre
-          {...props}
-          className={cx(
-            languageClass,
-            'm-0 max-h-[480px] overflow-auto px-3 py-3 font-mono text-[13px] leading-[1.6]',
-          )}
-        >
-          {child}
-        </pre>
-      </div>
-    )
-  },
+  pre: ({ children, ...props }) => (
+    <PreComponent {...props}>{children}</PreComponent>
+  ),
 }
 

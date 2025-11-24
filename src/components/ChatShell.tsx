@@ -1,7 +1,7 @@
 // ChatShell - 聊天界面
 // 包含消息发送框，以及对话内容展示区
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 // Components
 import Sender from './Sender'
 import MessageCard from './common/MessageCard'
@@ -44,8 +44,12 @@ export default function ChatShell() {
     })
   }, [currentChat?.id, currentChat?.messages.length])
 
-  const greetingPrefix =
-    getTimePeriod(Date.now()) === '凌晨' ? '夜深了' : `${getTimePeriod(Date.now())}好`
+  // 使用 useState 初始化问候语，避免在渲染期间调用 Date.now()
+  const [greetingPrefix] = useState(() => {
+    const now = Date.now()
+    const period = getTimePeriod(now)
+    return period === '凌晨' ? '夜深了' : `${period}好`
+  })
 
   const assistantAvatarUrl =
     './src/assets/img/avatar-ai.svg'
