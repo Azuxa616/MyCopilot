@@ -2,7 +2,18 @@ import { useState, useEffect } from "react";
 import Modal from '../common/Modal';
 import Avatar from '../common/Avatar';
 import Switch from '../common/Switch';
+import userAvatar from '../../assets/img/avatar-user.png';
 import { useUserStore } from '../../store/userStore';
+
+// 头像URL处理函数
+const getAvatarUrl = (avatarUrl: string): string => {
+  // 如果是本地头像路径，使用导入的图片
+  if (avatarUrl === 'src/assets/img/avatar-user.png') {
+    return userAvatar;
+  }
+  // 否则返回原始URL（可能是网络图片）
+  return avatarUrl;
+};
 import { useConfigStore } from '../../store/configStore';
 import { showMessageAlert } from "../common/Alert/alertUtils";
 
@@ -111,7 +122,7 @@ export default function SettingModal({ open, onOpenChange }: SettingModalProps) 
           <div className="flex items-start gap-4">
             {/* 头像区 */}
             <div className="shrink-0">
-              <Avatar src={formData.avatarUrl} alt="avatar" size={12} className="shrink-0" />
+              <Avatar src={getAvatarUrl(formData.avatarUrl)} alt="avatar" size={12} className="shrink-0" />
             </div>
             {/* 用户信息输入区 */}
             <div className="flex-1 flex flex-col gap-3">

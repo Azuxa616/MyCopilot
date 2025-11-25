@@ -1,12 +1,14 @@
-import { useEffect, useRef } from 'react'
-import MainView from './views/MainView'
+import { useEffect, useRef, Suspense, lazy } from 'react'
 import { useChatStore } from './store/chatStore'
 import { useUserStore } from './store/userStore'
 import { api } from './api'
-import AlertContainer from './components/common/Alert'
 import './App.css'
 import { useConfigStore } from './store/configStore'
 import { showMessageAlert } from './components/common/Alert/alertUtils'
+
+// 懒加载主要组件
+const MainView = lazy(() => import('./views/MainView'))
+const AlertContainer = lazy(() => import('./components/common/Alert'))
 
 function App() {
   const loadChatSummaries = useChatStore((state) => state.loadChatSummaries)
@@ -77,10 +79,10 @@ function App() {
   }, [createChat, loadChatSummaries, setSelectedChatId, setUser, apiMode])
 
   return (
-    <>
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen">加载中...</div>}>
       <AlertContainer />
       <MainView />
-    </>
+    </Suspense>
   )
 }
 

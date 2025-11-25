@@ -4,6 +4,7 @@ import MessageCard from '../common/MessageCard'
 import type { Message } from '../../types/chat'
 import { MessageRole, MessageStatus } from '../../types/chat'
 import type { Virtualizer } from '@tanstack/react-virtual'
+import aiAvatar from '../../assets/img/avatar-ai.svg'
 
 interface MessageListProps {
   messages: Message[]
@@ -23,7 +24,7 @@ export default function MessageList({
   onRegenerate,
 }: MessageListProps) {
   const { user } = useUserStore()
-  const assistantAvatarUrl = './src/assets/img/avatar-ai.svg'
+  const assistantAvatarUrl = aiAvatar
   const virtualItems = virtualizer.getVirtualItems()
 
   // 判断用户消息是否有后续AI回复

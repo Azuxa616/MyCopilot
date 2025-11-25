@@ -9,6 +9,8 @@ import MessageActions from './MessageActions'
 import { showMessageAlert } from './Alert/alertUtils'
 import IconRetry from '../../assets/icon/retry.svg?react'
 import AttachmentCard from '../Sender/AttachmentCard'
+import userAvatar from '../../assets/img/avatar-user.png'
+import aiAvatar from '../../assets/img/avatar-ai.svg'
 
 // 将组件移到外部，避免在渲染期间创建
 interface RenderStreamingCursorProps {
@@ -241,8 +243,8 @@ export default function MessageCard({
   }
 
   // 头像路径
-  const effectiveUserAvatar = 'src/assets/img/avatar-user.png'
-  const effectiveAssistantAvatar = 'src/assets/img/avatar-ai.svg'
+  const effectiveUserAvatar = userAvatar
+  const effectiveAssistantAvatar = aiAvatar
   // console.log("isAssistant",isAssistant)
 
   // 复制消息内容

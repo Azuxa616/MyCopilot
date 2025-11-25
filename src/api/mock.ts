@@ -13,6 +13,7 @@ import type { StreamAIResponseParams, StreamAIResponseData } from './types';
 import { StreamError, AbortError } from './errors';
 import chatData from '../../mock/chat.json';
 import userData from '../../mock/user.json';
+import userAvatar from '../assets/img/avatar-user.png';
 
 // 定义 JSON 数据的类型（允许 messages 缺少 attachments）
 interface ChatDataItemMessage {
@@ -341,18 +342,26 @@ export const fetchChatMessagesMock = async (chatId: string): Promise<ApiResponse
 
 /**
  * Mock: 获取用户信息
- * 
- * 从本地 JSON 文件读取用户信息
- * 
+ *
+ * 从本地 JSON 文件读取用户信息，并处理头像URL
+ *
  * @returns 用户信息
  */
 export const fetchUserMock = async (): Promise<ApiResponse<User>> => {
   await delay(300);
 
+  const user = (userData as unknown as UserData).user;
+
+  // 处理头像URL：如果是本地路径则使用导入的图片
+  const processedUser: User = {
+    ...user,
+    avatarUrl: user.avatarUrl === 'src/assets/img/avatar-user.png' ? userAvatar : user.avatarUrl
+  };
+
   return {
     code: ApiStatusCode.SUCCESS,
     msg: '获取用户信息成功',
-    data: (userData as unknown as UserData).user,
+    data: processedUser,
   };
 };
 
