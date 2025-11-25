@@ -1,7 +1,7 @@
 // useMessageVirtualizer - 消息虚拟滚动 Hook
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Virtualizer } from '@tanstack/react-virtual'
-import { RefObject } from 'react'
+import type { RefObject } from 'react'
 import type { Message } from '../../../types/chat'
 
 interface UseMessageVirtualizerParams {
