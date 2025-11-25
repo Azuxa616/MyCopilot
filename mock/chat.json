@@ -56,6 +56,730 @@
       "updatedAt": 1704412800000,
       "pinned": false,
       "archived": false
+    },
+    {
+      "id": "chat-006",
+      "title": "虚拟滚动测试对话（100+ 消息）",
+      "messages": [
+        {
+          "id": "msg-100",
+          "role": "user",
+          "content": "你好，我想测试一下虚拟滚动功能，请帮我生成一个包含大量消息的对话。",
+          "timestamp": 1704500000000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-101",
+          "role": "assistant",
+          "content": "好的，我来帮你创建一个包含大量消息的对话。让我们开始吧！我会生成100多条消息来测试虚拟滚动的性能。",
+          "timestamp": 1704500060000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-102",
+          "role": "user",
+          "content": "第1轮对话 - 用户消息",
+          "timestamp": 1704500120000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-103",
+          "role": "assistant",
+          "content": "第1轮对话 - 助手回复。虚拟滚动是一种优化技术，只渲染可见区域的内容，可以大幅提升长列表的性能。",
+          "timestamp": 1704500180000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-104",
+          "role": "user",
+          "content": "第2轮对话 - 用户消息",
+          "timestamp": 1704500240000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-105",
+          "role": "assistant",
+          "content": "第2轮对话 - 助手回复。在React中，我们可以使用像 @tanstack/react-virtual 这样的库来实现虚拟滚动。",
+          "timestamp": 1704500300000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-106",
+          "role": "user",
+          "content": "第3轮对话 - 用户消息",
+          "timestamp": 1704500360000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-107",
+          "role": "assistant",
+          "content": "第3轮对话 - 助手回复。虚拟滚动的核心思想是：\n1. 只渲染可见区域的项目\n2. 使用占位符保持滚动位置\n3. 动态测量项目高度\n4. 计算可见范围并渲染对应项目",
+          "timestamp": 1704500420000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-108",
+          "role": "user",
+          "content": "第4轮对话 - 用户消息",
+          "timestamp": 1704500480000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-109",
+          "role": "assistant",
+          "content": "第4轮对话 - 助手回复。对于动态高度的项目，虚拟滚动库会自动测量每个项目的高度，并在滚动时重新计算可见区域。",
+          "timestamp": 1704500540000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-110",
+          "role": "user",
+          "content": "第5轮对话 - 用户消息",
+          "timestamp": 1704500600000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-111",
+          "role": "assistant",
+          "content": "第5轮对话 - 助手回复。继续测试虚拟滚动功能，确保在大量消息的情况下，页面依然流畅。",
+          "timestamp": 1704500660000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-112",
+          "role": "user",
+          "content": "第6轮对话 - 这是一条比较长的用户消息，用来测试不同长度的消息在虚拟滚动中的表现。虚拟滚动应该能够正确处理各种长度的消息内容。",
+          "timestamp": 1704500720000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-113",
+          "role": "assistant",
+          "content": "第6轮对话 - 助手回复。是的，虚拟滚动可以很好地处理不同高度的消息。无论消息是短还是长，虚拟滚动都会自动测量高度并正确渲染。",
+          "timestamp": 1704500780000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-114",
+          "role": "user",
+          "content": "第7轮对话 - 用户消息",
+          "timestamp": 1704500840000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-115",
+          "role": "assistant",
+          "content": "第7轮对话 - 助手回复。虚拟滚动特别适合聊天应用，因为聊天消息通常数量很多，而且高度不固定。",
+          "timestamp": 1704500900000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-116",
+          "role": "user",
+          "content": "第8轮对话 - 用户消息",
+          "timestamp": 1704500960000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-117",
+          "role": "assistant",
+          "content": "第8轮对话 - 助手回复。继续生成消息，测试虚拟滚动的性能。",
+          "timestamp": 1704501020000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-118",
+          "role": "user",
+          "content": "第9轮对话 - 用户消息",
+          "timestamp": 1704501080000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-119",
+          "role": "assistant",
+          "content": "第9轮对话 - 助手回复。虚拟滚动可以显著减少DOM节点数量，提升渲染性能。",
+          "timestamp": 1704501140000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-120",
+          "role": "user",
+          "content": "第10轮对话 - 用户消息",
+          "timestamp": 1704501200000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-121",
+          "role": "assistant",
+          "content": "第10轮对话 - 助手回复。即使有1000条消息，虚拟滚动也只会渲染可见的几十条，大大提升了性能。",
+          "timestamp": 1704501260000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-122",
+          "role": "user",
+          "content": "第11轮对话 - 用户消息",
+          "timestamp": 1704501320000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-123",
+          "role": "assistant",
+          "content": "第11轮对话 - 助手回复。继续测试，确保虚拟滚动在各种场景下都能正常工作。",
+          "timestamp": 1704501380000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-124",
+          "role": "user",
+          "content": "第12轮对话 - 用户消息",
+          "timestamp": 1704501440000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-125",
+          "role": "assistant",
+          "content": "第12轮对话 - 助手回复。虚拟滚动还需要处理自动滚动到底部的功能，当新消息到达时应该自动滚动。",
+          "timestamp": 1704501500000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-126",
+          "role": "user",
+          "content": "第13轮对话 - 用户消息",
+          "timestamp": 1704501560000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-127",
+          "role": "assistant",
+          "content": "第13轮对话 - 助手回复。同时，如果用户手动向上滚动查看历史消息，新消息到达时不应该强制滚动到底部。",
+          "timestamp": 1704501620000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-128",
+          "role": "user",
+          "content": "第14轮对话 - 用户消息",
+          "timestamp": 1704501680000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-129",
+          "role": "assistant",
+          "content": "第14轮对话 - 助手回复。这是一个智能滚动策略，需要检测用户是否在底部附近。",
+          "timestamp": 1704501740000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-130",
+          "role": "user",
+          "content": "第15轮对话 - 用户消息",
+          "timestamp": 1704501800000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-131",
+          "role": "assistant",
+          "content": "第15轮对话 - 助手回复。继续生成更多消息来测试虚拟滚动。",
+          "timestamp": 1704501860000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-132",
+          "role": "user",
+          "content": "第16轮对话 - 这是一条包含代码的用户消息：```javascript\nfunction test() {\n  console.log('Hello Virtual Scroll');\n}\n```",
+          "timestamp": 1704501920000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-133",
+          "role": "assistant",
+          "content": "第16轮对话 - 助手回复。代码块通常比较高，虚拟滚动需要正确测量代码块的高度。",
+          "timestamp": 1704501980000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-134",
+          "role": "user",
+          "content": "第17轮对话 - 用户消息",
+          "timestamp": 1704502040000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-135",
+          "role": "assistant",
+          "content": "第17轮对话 - 助手回复。Markdown渲染的内容也需要正确测量高度，包括标题、列表、引用等。",
+          "timestamp": 1704502100000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-136",
+          "role": "user",
+          "content": "第18轮对话 - 用户消息",
+          "timestamp": 1704502160000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-137",
+          "role": "assistant",
+          "content": "第18轮对话 - 助手回复。继续测试虚拟滚动功能。",
+          "timestamp": 1704502220000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-138",
+          "role": "user",
+          "content": "第19轮对话 - 用户消息",
+          "timestamp": 1704502280000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-139",
+          "role": "assistant",
+          "content": "第19轮对话 - 助手回复。虚拟滚动在处理流式更新时也需要特别注意，因为内容会动态变化。",
+          "timestamp": 1704502340000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-140",
+          "role": "user",
+          "content": "第20轮对话 - 用户消息",
+          "timestamp": 1704502400000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-141",
+          "role": "assistant",
+          "content": "第20轮对话 - 助手回复。当AI正在流式生成回复时，消息高度会不断变化，虚拟滚动需要重新测量。",
+          "timestamp": 1704502460000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-142",
+          "role": "user",
+          "content": "第21轮对话 - 用户消息",
+          "timestamp": 1704502520000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-143",
+          "role": "assistant",
+          "content": "第21轮对话 - 助手回复。继续生成消息，测试虚拟滚动的稳定性。",
+          "timestamp": 1704502580000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-144",
+          "role": "user",
+          "content": "第22轮对话 - 用户消息",
+          "timestamp": 1704502640000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-145",
+          "role": "assistant",
+          "content": "第22轮对话 - 助手回复。虚拟滚动还可以设置overscan，渲染额外的项目以提高滚动性能。",
+          "timestamp": 1704502700000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-146",
+          "role": "user",
+          "content": "第23轮对话 - 用户消息",
+          "timestamp": 1704502760000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-147",
+          "role": "assistant",
+          "content": "第23轮对话 - 助手回复。继续测试，确保虚拟滚动在各种情况下都能正常工作。",
+          "timestamp": 1704502820000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-148",
+          "role": "user",
+          "content": "第24轮对话 - 用户消息",
+          "timestamp": 1704502880000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-149",
+          "role": "assistant",
+          "content": "第24轮对话 - 助手回复。虚拟滚动是提升长列表性能的重要技术。",
+          "timestamp": 1704502940000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-150",
+          "role": "user",
+          "content": "第25轮对话 - 用户消息",
+          "timestamp": 1704503000000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-151",
+          "role": "assistant",
+          "content": "第25轮对话 - 助手回复。继续生成消息，测试虚拟滚动功能。",
+          "timestamp": 1704503060000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-152",
+          "role": "user",
+          "content": "第26轮对话 - 用户消息",
+          "timestamp": 1704503120000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-153",
+          "role": "assistant",
+          "content": "第26轮对话 - 助手回复。虚拟滚动可以显著减少内存占用，因为不需要渲染所有项目。",
+          "timestamp": 1704503180000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-154",
+          "role": "user",
+          "content": "第27轮对话 - 用户消息",
+          "timestamp": 1704503240000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-155",
+          "role": "assistant",
+          "content": "第27轮对话 - 助手回复。这对于移动设备特别重要，因为移动设备的内存和性能有限。",
+          "timestamp": 1704503300000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-156",
+          "role": "user",
+          "content": "第28轮对话 - 用户消息",
+          "timestamp": 1704503360000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-157",
+          "role": "assistant",
+          "content": "第28轮对话 - 助手回复。继续测试虚拟滚动功能。",
+          "timestamp": 1704503420000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-158",
+          "role": "user",
+          "content": "第29轮对话 - 用户消息",
+          "timestamp": 1704503480000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-159",
+          "role": "assistant",
+          "content": "第29轮对话 - 助手回复。虚拟滚动还可以提升初始渲染速度，因为只需要渲染可见区域。",
+          "timestamp": 1704503540000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-160",
+          "role": "user",
+          "content": "第30轮对话 - 用户消息",
+          "timestamp": 1704503600000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-161",
+          "role": "assistant",
+          "content": "第30轮对话 - 助手回复。这对于包含大量数据的应用来说非常重要。",
+          "timestamp": 1704503660000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-162",
+          "role": "user",
+          "content": "第31轮对话 - 用户消息",
+          "timestamp": 1704503720000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-163",
+          "role": "assistant",
+          "content": "第31轮对话 - 助手回复。继续生成消息，测试虚拟滚动的性能。",
+          "timestamp": 1704503780000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-164",
+          "role": "user",
+          "content": "第32轮对话 - 用户消息",
+          "timestamp": 1704503840000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-165",
+          "role": "assistant",
+          "content": "第32轮对话 - 助手回复。虚拟滚动是现代前端开发中的重要优化技术。",
+          "timestamp": 1704503900000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-166",
+          "role": "user",
+          "content": "第33轮对话 - 用户消息",
+          "timestamp": 1704503960000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-167",
+          "role": "assistant",
+          "content": "第33轮对话 - 助手回复。继续测试，确保虚拟滚动功能正常。",
+          "timestamp": 1704504020000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-168",
+          "role": "user",
+          "content": "第34轮对话 - 用户消息",
+          "timestamp": 1704504080000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-169",
+          "role": "assistant",
+          "content": "第34轮对话 - 助手回复。虚拟滚动可以处理各种复杂场景，包括动态高度、动态内容等。",
+          "timestamp": 1704504140000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-170",
+          "role": "user",
+          "content": "第35轮对话 - 用户消息",
+          "timestamp": 1704504200000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-171",
+          "role": "assistant",
+          "content": "第35轮对话 - 助手回复。继续生成消息，测试虚拟滚动。",
+          "timestamp": 1704504260000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-172",
+          "role": "user",
+          "content": "第36轮对话 - 用户消息",
+          "timestamp": 1704504320000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-173",
+          "role": "assistant",
+          "content": "第36轮对话 - 助手回复。虚拟滚动是提升用户体验的重要技术。",
+          "timestamp": 1704504380000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-174",
+          "role": "user",
+          "content": "第37轮对话 - 用户消息",
+          "timestamp": 1704504440000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-175",
+          "role": "assistant",
+          "content": "第37轮对话 - 助手回复。继续测试虚拟滚动功能。",
+          "timestamp": 1704504500000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-176",
+          "role": "user",
+          "content": "第38轮对话 - 用户消息",
+          "timestamp": 1704504560000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-177",
+          "role": "assistant",
+          "content": "第38轮对话 - 助手回复。虚拟滚动可以显著提升长列表的滚动性能。",
+          "timestamp": 1704504620000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-178",
+          "role": "user",
+          "content": "第39轮对话 - 用户消息",
+          "timestamp": 1704504680000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-179",
+          "role": "assistant",
+          "content": "第39轮对话 - 助手回复。继续生成消息，测试虚拟滚动。",
+          "timestamp": 1704504740000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-180",
+          "role": "user",
+          "content": "第40轮对话 - 用户消息",
+          "timestamp": 1704504800000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-181",
+          "role": "assistant",
+          "content": "第40轮对话 - 助手回复。虚拟滚动是现代Web应用的重要优化手段。",
+          "timestamp": 1704504860000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-182",
+          "role": "user",
+          "content": "第41轮对话 - 用户消息",
+          "timestamp": 1704504920000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-183",
+          "role": "assistant",
+          "content": "第41轮对话 - 助手回复。继续测试虚拟滚动功能。",
+          "timestamp": 1704504980000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-184",
+          "role": "user",
+          "content": "第42轮对话 - 用户消息",
+          "timestamp": 1704505040000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-185",
+          "role": "assistant",
+          "content": "第42轮对话 - 助手回复。虚拟滚动可以处理各种复杂的内容，包括图片、代码块、表格等。",
+          "timestamp": 1704505100000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-186",
+          "role": "user",
+          "content": "第43轮对话 - 用户消息",
+          "timestamp": 1704505160000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-187",
+          "role": "assistant",
+          "content": "第43轮对话 - 助手回复。继续生成消息，测试虚拟滚动。",
+          "timestamp": 1704505220000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-188",
+          "role": "user",
+          "content": "第44轮对话 - 用户消息",
+          "timestamp": 1704505280000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-189",
+          "role": "assistant",
+          "content": "第44轮对话 - 助手回复。虚拟滚动是提升应用性能的关键技术。",
+          "timestamp": 1704505340000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-190",
+          "role": "user",
+          "content": "第45轮对话 - 用户消息",
+          "timestamp": 1704505400000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-191",
+          "role": "assistant",
+          "content": "第45轮对话 - 助手回复。继续测试虚拟滚动功能。",
+          "timestamp": 1704505460000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-192",
+          "role": "user",
+          "content": "第46轮对话 - 用户消息",
+          "timestamp": 1704505520000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-193",
+          "role": "assistant",
+          "content": "第46轮对话 - 助手回复。虚拟滚动可以显著减少DOM操作，提升渲染性能。",
+          "timestamp": 1704505580000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-194",
+          "role": "user",
+          "content": "第47轮对话 - 用户消息",
+          "timestamp": 1704505640000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-195",
+          "role": "assistant",
+          "content": "第47轮对话 - 助手回复。继续生成消息，测试虚拟滚动。",
+          "timestamp": 1704505700000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-196",
+          "role": "user",
+          "content": "第48轮对话 - 用户消息",
+          "timestamp": 1704505760000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-197",
+          "role": "assistant",
+          "content": "第48轮对话 - 助手回复。虚拟滚动是现代前端框架的重要特性。",
+          "timestamp": 1704505820000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-198",
+          "role": "user",
+          "content": "第49轮对话 - 用户消息",
+          "timestamp": 1704505880000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-199",
+          "role": "assistant",
+          "content": "第49轮对话 - 助手回复。继续测试虚拟滚动功能。",
+          "timestamp": 1704505940000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-200",
+          "role": "user",
+          "content": "第50轮对话 - 最后一条用户消息，用来测试虚拟滚动在大量消息情况下的表现。希望虚拟滚动能够正常工作，提升应用的性能。",
+          "timestamp": 1704506000000,
+          "status": "sent"
+        },
+        {
+          "id": "msg-201",
+          "role": "assistant",
+          "content": "第50轮对话 - 最后一条助手回复。恭喜！我们已经生成了100多条消息来测试虚拟滚动功能。虚拟滚动应该能够很好地处理这些消息，只渲染可见区域的内容，从而提升应用的性能和用户体验。如果你向上滚动查看历史消息，应该能够流畅地浏览所有消息。",
+          "timestamp": 1704506060000,
+          "status": "sent"
+        }
+      ],
+      "createdAt": 1704500000000,
+      "updatedAt": 1704506060000,
+      "pinned": false,
+      "archived": false
     }
   ]
 }
