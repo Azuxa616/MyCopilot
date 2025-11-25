@@ -1,6 +1,12 @@
-import IconDelete from '../../assets/icon/delete.svg?react';
-import type { Attachment } from '../../types/chat';
-import { formatFileSize, getFileTypeDisplay } from '../../utils/file';
+// AttachmentCard - 附件卡片组件
+// 显示附件信息，支持删除操作
+
+// Types
+import type { Attachment } from '../../types/chat'
+// Utils
+import { formatFileSize, getFileTypeDisplay } from '../../utils/file'
+// Assets
+import IconDelete from '../../assets/icon/delete.svg?react'
 
 interface AttachmentCardProps {
     attachment: Attachment;

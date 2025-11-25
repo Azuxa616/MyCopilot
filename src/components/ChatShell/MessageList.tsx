@@ -1,9 +1,15 @@
 // MessageList - 消息列表组件
-import { useUserStore } from '../../store/userStore'
-import MessageCard from '../common/MessageCard'
+// 使用虚拟滚动渲染消息列表
+
+// Types
 import type { Message } from '../../types/chat'
 import { MessageRole, MessageStatus } from '../../types/chat'
 import type { Virtualizer } from '@tanstack/react-virtual'
+// Components
+import MessageCard from '../common/MessageCard'
+// Store
+import { useUserStore } from '../../store/userStore'
+// Assets
 import aiAvatar from '../../assets/img/avatar-ai.svg'
 
 interface MessageListProps {

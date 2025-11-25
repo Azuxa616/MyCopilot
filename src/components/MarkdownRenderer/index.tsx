@@ -1,11 +1,15 @@
+// MarkdownRenderer - Markdown渲染组件
+// 使用react-markdown渲染Markdown内容，支持代码高亮、GFM语法等
+
 import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import rehypePrismPlus from 'rehype-prism-plus'
-
-import 'prismjs/themes/prism-tomorrow.css'
+// Components
 import { markdownComponents } from './components'
+// Styles
+import 'prismjs/themes/prism-tomorrow.css'
 
 export interface MarkdownRendererProps {
   content: string

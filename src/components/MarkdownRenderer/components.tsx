@@ -1,9 +1,14 @@
+// MarkdownRenderer Components - Markdown组件定义
+// 定义react-markdown使用的自定义组件
+
 import { isValidElement, useState } from 'react'
 import type React from 'react'
 import type { Components } from 'react-markdown'
-import IconCopy from '../../assets/icon/copy.svg?react'
+// Utils
 import { headingClasses } from './constants'
 import { cx, extractLanguage } from './utils'
+// Assets
+import IconCopy from '../../assets/icon/copy.svg?react'
 
 /**
  * Pre 组件 - 代码块容器，包含复制功能

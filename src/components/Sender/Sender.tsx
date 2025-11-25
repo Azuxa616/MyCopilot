@@ -1,13 +1,21 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import IconAttachement from '../../assets/icon/attachment.svg?react';
-import IconSender from '../../assets/icon/sender.svg?react';
-import IconGenerating from '../../assets/icon/generating.svg?react';
-import { useChatStore } from '../../store/chatStore';
-import AttachmentCard from './AttachmentCard';
-import FileUploadModal from './FileUploadModal';
-import { useTextareaAutoHeight } from './hooks/useTextareaAutoHeight';
-import { useAttachments } from './hooks/useAttachments';
-import { showMessageAlert } from '../common/Alert/alertUtils';
+// Sender - 消息发送组件
+// 包含输入框、附件上传、发送按钮等功能
+
+import { useState, useEffect, useRef, useCallback } from 'react'
+// Components
+import AttachmentCard from './AttachmentCard'
+import FileUploadModal from './FileUploadModal'
+// Hooks
+import { useTextareaAutoHeight } from './hooks/useTextareaAutoHeight'
+import { useAttachments } from './hooks/useAttachments'
+// Store
+import { useChatStore } from '../../store/chatStore'
+// Utils
+import { showMessageAlert } from '../common/Alert/alertUtils'
+// Assets
+import IconAttachement from '../../assets/icon/attachment.svg?react'
+import IconSender from '../../assets/icon/sender.svg?react'
+import IconGenerating from '../../assets/icon/generating.svg?react'
 
 export default function Sender() {
     const [content, setContent] = useState('');

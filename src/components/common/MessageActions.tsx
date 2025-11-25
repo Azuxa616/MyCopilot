@@ -1,8 +1,11 @@
+// MessageActions - 消息操作按钮组件
+// 包含复制、删除、重试等操作按钮
+
 import type { ReactNode } from 'react'
+// Assets
 import IconCopy from '../../assets/icon/copy.svg?react'
 import IconDelete from '../../assets/icon/delete.svg?react'
 import IconRetry from '../../assets/icon/retry.svg?react'
-// todo：排查不显示的问题
 interface MessageActionsProps {
   /** 所属发送者 */
   sender: 'user' | 'assistant'

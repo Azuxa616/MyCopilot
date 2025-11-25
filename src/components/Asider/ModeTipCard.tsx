@@ -1,3 +1,6 @@
+// ModeTipCard - 模式提示卡片组件
+// 显示当前API模式（Mock/Real）的提示信息
+
 export interface ModeTipCardProps {
   isMock: boolean;
 }

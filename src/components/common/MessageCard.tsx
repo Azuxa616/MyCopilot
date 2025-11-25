@@ -1,14 +1,21 @@
+// MessageCard - 消息卡片组件
+// 显示单条消息，支持用户消息和AI回复，包含附件、操作按钮等功能
+
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
+// Types
 import type { Message } from '../../types/chat'
 import { MessageRole, MessageStatus } from '../../types/chat'
-import { getRelativeTime } from '../../utils/time'
+// Components
 import ReactMarkdownRenderer from '../MarkdownRenderer'
 import Avatar from './Avatar'
 import MessageActions from './MessageActions'
-import { showMessageAlert } from './Alert/alertUtils'
-import IconRetry from '../../assets/icon/retry.svg?react'
 import AttachmentCard from '../Sender/AttachmentCard'
+// Utils
+import { getRelativeTime } from '../../utils/time'
+import { showMessageAlert } from './Alert/alertUtils'
+// Assets
+import IconRetry from '../../assets/icon/retry.svg?react'
 import userAvatar from '../../assets/img/avatar-user.png'
 import aiAvatar from '../../assets/img/avatar-ai.svg'
 

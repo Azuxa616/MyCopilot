@@ -1,17 +1,20 @@
-import { useState } from "react";
-//Components
-import ConversationNavItem from './ConversationNavItem';
-import UserInfoCard from './UserInfoCard';
-import SettingModal from './SettingModal';
-import ModeTipCard from './ModeTipCard';
-//Icons
-import IconCollapsedLeft from '../../assets/icon/collapsed-left.svg?react';
-import IconCollapsedRight from '../../assets/icon/collapsed-right.svg?react';
-import IconPlus from '../../assets/icon/plus.svg?react';
-//Store
-import { useChatStore } from '../../store/chatStore';
-import { useUserStore } from '../../store/userStore';
-import { useConfigStore } from '../../store/configStore';
+// Asider - 侧边栏组件
+// 包含对话列表、用户信息、设置等功能
+
+import { useState } from 'react'
+// Components
+import ConversationNavItem from './ConversationNavItem'
+import UserInfoCard from './UserInfoCard'
+import SettingModal from './SettingModal'
+import ModeTipCard from './ModeTipCard'
+// Assets
+import IconCollapsedLeft from '../../assets/icon/collapsed-left.svg?react'
+import IconCollapsedRight from '../../assets/icon/collapsed-right.svg?react'
+import IconPlus from '../../assets/icon/plus.svg?react'
+// Store
+import { useChatStore } from '../../store/chatStore'
+import { useUserStore } from '../../store/userStore'
+import { useConfigStore } from '../../store/configStore'
 
 export interface AsiderProps {
   isCollapsed?: boolean;

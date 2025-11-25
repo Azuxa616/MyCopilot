@@ -1,3 +1,5 @@
+// Avatar - 头像组件
+// 显示用户或AI的头像图片
 
 interface AvatarProps {
   src: string;

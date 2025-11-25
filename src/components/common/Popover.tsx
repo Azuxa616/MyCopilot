@@ -1,8 +1,6 @@
-/**
- * Popover 气泡提示组件
- * 
- * 自动计算位置并支持响应式调整
- */
+// Popover - 气泡提示组件
+// 自动计算位置并支持响应式调整
+
 import {
   useState,
   useRef,

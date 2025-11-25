@@ -1,8 +1,13 @@
 // EmptyChatView - 空聊天视图组件
+// 显示当没有选中聊天或聊天中没有消息时的问候界面
+
 import { useState } from 'react'
-import { useUserStore } from '../../store/userStore'
-import { getTimePeriod } from '../../utils/time'
+// Components
 import Sender from '../Sender'
+// Store
+import { useUserStore } from '../../store/userStore'
+// Utils
+import { getTimePeriod } from '../../utils/time'
 
 /**
  * 空聊天视图组件

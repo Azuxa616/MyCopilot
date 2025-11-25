@@ -1,15 +1,20 @@
-import Avatar from '../common/Avatar';
-import userAvatar from '../../assets/img/avatar-user.png';
+// UserInfoCard - 用户信息卡片组件
+// 显示用户头像、用户名和邮箱
+
+// Components
+import Avatar from '../common/Avatar'
+// Assets
+import userAvatar from '../../assets/img/avatar-user.png'
 
 // 头像URL处理函数
 const getAvatarUrl = (avatarUrl: string): string => {
   // 如果是本地头像路径，使用导入的图片
   if (avatarUrl === 'src/assets/img/avatar-user.png') {
-    return userAvatar;
+    return userAvatar
   }
   // 否则返回原始URL（可能是网络图片）
-  return avatarUrl;
-};
+  return avatarUrl
+}
 
 export interface UserInfoCardProps {
   username: string;

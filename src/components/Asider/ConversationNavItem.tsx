@@ -1,7 +1,12 @@
-import { useState } from "react";
-import Popover from '../common/Popover';
-import IconEllipsis from '../../assets/icon/ellipsis.svg?react';
-import IconDelete from '../../assets/icon/delete.svg?react';
+// ConversationNavItem - 对话导航项组件
+// 显示单个对话项，支持选中、删除等操作
+
+import { useState } from 'react'
+// Components
+import Popover from '../common/Popover'
+// Assets
+import IconEllipsis from '../../assets/icon/ellipsis.svg?react'
+import IconDelete from '../../assets/icon/delete.svg?react'
 
 export interface ConversationNavItemProps {
   id: string;

@@ -1,3 +1,6 @@
+// Modal - 模态框组件
+// 提供受控/非受控模式，支持ESC关闭、遮罩层关闭等功能
+
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 
 export interface ModalProps {

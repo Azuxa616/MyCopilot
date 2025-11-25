@@ -1,4 +1,8 @@
-import React, { useRef } from 'react'
+// Uploader - 文件上传组件
+// 提供文件选择功能，并转换为Attachment对象
+
+import { useRef } from 'react'
+// Types
 import type { Attachment } from '../../types/chat'
 
 interface UploaderProps {

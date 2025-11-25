@@ -1,3 +1,6 @@
+// Switch - 开关组件
+// 用于切换布尔值的开关控件
+
 interface SwitchProps {
     value: boolean;
     onValueChange?: (value: boolean) => void;

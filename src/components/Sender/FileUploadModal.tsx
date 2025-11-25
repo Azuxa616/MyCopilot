@@ -1,7 +1,12 @@
-import Modal from '../common/Modal';
-import Uploader from '../common/Uploader';
-import AttachmentCard from './AttachmentCard';
-import type { Attachment } from '../../types/chat';
+// FileUploadModal - 文件上传模态框组件
+// 提供文件上传界面，显示已上传的附件列表
+
+// Types
+import type { Attachment } from '../../types/chat'
+// Components
+import Modal from '../common/Modal'
+import Uploader from '../common/Uploader'
+import AttachmentCard from './AttachmentCard'
 
 interface FileUploadModalProps {
     open: boolean;

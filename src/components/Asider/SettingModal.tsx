@@ -1,21 +1,28 @@
-import { useState, useEffect } from "react";
-import Modal from '../common/Modal';
-import Avatar from '../common/Avatar';
-import Switch from '../common/Switch';
-import userAvatar from '../../assets/img/avatar-user.png';
-import { useUserStore } from '../../store/userStore';
+// SettingModal - 设置模态框组件
+// 用于配置用户信息和API设置
+
+import { useState, useEffect } from 'react'
+// Components
+import Modal from '../common/Modal'
+import Avatar from '../common/Avatar'
+import Switch from '../common/Switch'
+// Assets
+import userAvatar from '../../assets/img/avatar-user.png'
+// Store
+import { useUserStore } from '../../store/userStore'
+import { useConfigStore } from '../../store/configStore'
+// Utils
+import { showMessageAlert } from '../common/Alert/alertUtils'
 
 // 头像URL处理函数
 const getAvatarUrl = (avatarUrl: string): string => {
   // 如果是本地头像路径，使用导入的图片
   if (avatarUrl === 'src/assets/img/avatar-user.png') {
-    return userAvatar;
+    return userAvatar
   }
   // 否则返回原始URL（可能是网络图片）
-  return avatarUrl;
-};
-import { useConfigStore } from '../../store/configStore';
-import { showMessageAlert } from "../common/Alert/alertUtils";
+  return avatarUrl
+}
 
 export interface SettingModalProps {
   open: boolean;

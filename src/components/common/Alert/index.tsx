@@ -1,11 +1,17 @@
+// Alert - 全局提示组件
+// 提供成功、错误、警告、信息等类型的全局提示
+
 import { useEffect, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+// Types
+import type { AlertType, AlertItem } from './alertUtils'
+// Utils
+import { removeAlert, addListener, removeListener, getAlerts } from './alertUtils'
+// Assets
 import IconSuccess from '../../../assets/icon/success.svg?react'
 import IconError from '../../../assets/icon/error.svg?react'
 import IconWarning from '../../../assets/icon/warning.svg?react'
 import IconInfo from '../../../assets/icon/info.svg?react'
-import type { AlertType, AlertItem } from './alertUtils'
-import { removeAlert, addListener, removeListener, getAlerts } from './alertUtils'
 
 // TypeIcon 组件移到外部，避免在渲染期间创建
 function TypeIcon({ type }: { type: AlertType }) {
