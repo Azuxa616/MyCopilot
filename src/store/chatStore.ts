@@ -103,8 +103,8 @@ const createConditionalStorage = () => {
             if (!isBrowser) {
                 return;
             }
-            // 检查当前模式（优先使用 configStore，如果未初始化则从 localStorage 读取）
-            const currentMode = useConfigStore.getState().apiMode || getApiModeFromStorage();
+            // 检查当前模式（使用 configStore）
+            const currentMode = useConfigStore.getState().apiMode ;
             // 只在 real 模式下写入持久化数据
             if (currentMode !== 'real') {
                 return;
