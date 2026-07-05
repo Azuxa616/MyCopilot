@@ -1,0 +1,26 @@
+{
+  "name": "@my-copilot/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1",
+    "@my-copilot/shared": "workspace:*",
+    "better-sqlite3": "^12.11.1",
+    "hono": "^4",
+    "mammoth": "^1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^3"
+  }
+}

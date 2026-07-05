@@ -3,47 +3,36 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "packageManager": "pnpm@10.22.0",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@tailwindcss/vite": "^4.1.17",
-    "@tanstack/react-virtual": "^3.13.12",
-    "eventsource-parser": "^1.0.0",
-    "prismjs": "^1.30.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-markdown": "^10.1.0",
-    "rehype-prism-plus": "^2.0.0",
-    "rehype-raw": "^7.0.0",
-    "remark-gfm": "^4.0.0",
-    "tailwindcss": "^4.1.17",
-    "zustand": "^5.0.8"
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run tsc --noEmit",
+    "preview": "vite preview",
+    "docker:build": "docker build -t my-copilot -f docker/Dockerfile .",
+    "docker:up": "docker compose -f docker/docker-compose.yml up -d"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.0",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
-    "@vitejs/plugin-react-swc": "^4.2.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.46.3",
-    "vite": "npm:rolldown-vite@7.2.2",
-    "vite-plugin-svgr": "^4.5.0"
+    "typescript-eslint": "^8.46.3"
   },
   "pnpm": {
     "overrides": {
       "vite": "npm:rolldown-vite@7.2.2"
     },
     "onlyBuiltDependencies": [
-      "@swc/core"
+      "@swc/core",
+      "better-sqlite3",
+      "esbuild"
     ]
   }
 }

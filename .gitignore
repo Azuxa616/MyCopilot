@@ -22,3 +22,29 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Database files
+*.db
+*.db-wal
+*.db-shm
+
+# Server data
+apps/server/data/
+
+# pnpm
+.pnpm-store/
+
+# Sisyphus workspace (planning artifacts, notepads, evidence)
+.sisyphus/
+
+# Playwright MCP testing artifacts
+.playwright-mcp/
+
+# Claude Code (project-level skills)
+.claude/
+
+# Agent skills (installed via `npx skills` — universal agent dir)
+.agents/
+
+# Windows artifact from bad redirect
+nul

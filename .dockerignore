@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.sisyphus
+docs
+*.md
+apps/server/data
+apps/web/node_modules
+.env
+.env.*
+!.env.example

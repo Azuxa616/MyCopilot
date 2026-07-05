@@ -1,0 +1,24 @@
+version: '3.9'
+services:
+  mycopilot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
+      - DATA_DIR=/app/data
+      - PORT=3000
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB:-10}
+      - SERVER_PUBLIC_DIR=/app/apps/web/dist
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
