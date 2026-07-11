@@ -7,6 +7,7 @@ import {
   deleteSession,
 } from '../repo/session.js';
 import { listMessagesBySession } from '../repo/message.js';
+import { listSummariesBySession } from '../repo/summary.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateSessionParams } from '@my-copilot/shared';
@@ -58,5 +59,11 @@ sessionsApp.delete('/:id', (c) => {
 sessionsApp.get('/:id/messages', (c) => {
   const id = c.req.param('id');
   const data = listMessagesBySession(id);
+  return successResponse(c, data);
+});
+
+sessionsApp.get('/:id/summaries', (c) => {
+  const id = c.req.param('id');
+  const data = listSummariesBySession(id);
   return successResponse(c, data);
 });

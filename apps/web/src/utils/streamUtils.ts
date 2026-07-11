@@ -8,6 +8,36 @@ export interface SSEStreamParams {
     onDone: (title: string) => void;
     onError: (message: string) => void;
     onAborted: () => void;
+    // Phase 2 tool-call / job events — optional, no-op if not provided.
+    onToolCallStart?: (msgId: string, index: number) => void;
+    onToolCallDelta?: (
+        msgId: string,
+        index: number,
+        id?: string,
+        name?: string,
+        argumentsDelta?: string,
+    ) => void;
+    onToolCallDone?: (
+        msgId: string,
+        index: number,
+        id: string,
+        name: string,
+        args: string,
+    ) => void;
+    onToolResult?: (
+        msgId: string,
+        toolCallId: string,
+        result: string,
+        isError: boolean,
+    ) => void;
+    onConfirmationRequired?: (
+        msgId: string,
+        toolCallId: string,
+        toolName: string,
+        args: string,
+        safetyLevel: string,
+    ) => void;
+    onJobStatus?: (jobId: string, status: string, progress?: number, error?: string) => void;
 }
 
 /**
@@ -36,6 +66,12 @@ export async function parseSSEStream({
     onDone,
     onError,
     onAborted,
+    onToolCallStart,
+    onToolCallDelta,
+    onToolCallDone,
+    onToolResult,
+    onConfirmationRequired,
+    onJobStatus,
 }: SSEStreamParams): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -96,6 +132,112 @@ export async function parseSSEStream({
             }
             case 'aborted': {
                 onAborted();
+                break;
+            }
+            case 'tool_call_start': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.messageId !== undefined && data.index !== undefined) {
+                        onToolCallStart?.(data.messageId, data.index);
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'tool_call_delta': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.messageId !== undefined && data.index !== undefined) {
+                        onToolCallDelta?.(
+                            data.messageId,
+                            data.index,
+                            data.id,
+                            data.name,
+                            data.argumentsDelta,
+                        );
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'tool_call_done': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (
+                        data.messageId !== undefined &&
+                        data.index !== undefined &&
+                        data.id !== undefined &&
+                        data.name !== undefined &&
+                        data.arguments !== undefined
+                    ) {
+                        onToolCallDone?.(
+                            data.messageId,
+                            data.index,
+                            data.id,
+                            data.name,
+                            data.arguments,
+                        );
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'tool_result': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (
+                        data.messageId !== undefined &&
+                        data.toolCallId !== undefined &&
+                        data.result !== undefined &&
+                        data.isError !== undefined
+                    ) {
+                        onToolResult?.(
+                            data.messageId,
+                            data.toolCallId,
+                            data.result,
+                            data.isError,
+                        );
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'confirmation_required': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (
+                        data.messageId !== undefined &&
+                        data.toolCallId !== undefined &&
+                        data.toolName !== undefined &&
+                        data.arguments !== undefined &&
+                        data.safetyLevel !== undefined
+                    ) {
+                        onConfirmationRequired?.(
+                            data.messageId,
+                            data.toolCallId,
+                            data.toolName,
+                            data.arguments,
+                            data.safetyLevel,
+                        );
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'job_status': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.jobId !== undefined && data.status !== undefined) {
+                        onJobStatus?.(data.jobId, data.status, data.progress, data.error);
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
                 break;
             }
             default:

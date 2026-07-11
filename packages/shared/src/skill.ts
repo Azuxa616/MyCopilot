@@ -5,6 +5,8 @@ export interface SkillFrontmatter {
   version?: string;
 }
 
+export type SkillSource = 'directory' | 'upload';
+
 export interface SkillMeta {
   id: string;
   name: string;
@@ -12,6 +14,8 @@ export interface SkillMeta {
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
+  source?: SkillSource;
+  filePath?: string;
 }
 
 export interface SkillDetail extends SkillMeta {
@@ -22,4 +26,20 @@ export interface ParsedSkill {
   frontmatter: SkillFrontmatter;
   body: string;
   raw: string;
+}
+
+export interface CreateSkillParams {
+  name: string;
+  description: string;
+  body: string;
+  source: SkillSource;
+  filePath?: string;
+  enabled?: boolean;
+}
+
+export interface UpdateSkillParams {
+  name?: string;
+  description?: string;
+  body?: string;
+  enabled?: boolean;
 }

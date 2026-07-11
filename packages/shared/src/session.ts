@@ -1,4 +1,4 @@
-export type MessageRole = 'user' | 'assistant' | 'system';
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 /**
  * Message role constants for ergonomic comparisons (e.g. `role === MessageRole.USER`).
@@ -8,7 +8,16 @@ export const MessageRole = {
   USER: 'user' as const,
   ASSISTANT: 'assistant' as const,
   SYSTEM: 'system' as const,
+  TOOL: 'tool' as const,
 } as const;
+
+/** A function call issued by the assistant (OpenAI-compatible tool_calls entry). */
+export interface ToolCall {
+  id: string;
+  name: string;
+  /** JSON-encoded arguments string (matches OpenAI tool_calls.function.arguments). */
+  arguments: string;
+}
 
 export type MessageStatus = 'sending' | 'sent' | 'failed' | 'aborted';
 
@@ -41,6 +50,10 @@ export interface Message {
   attachments: AttachmentMeta[];
   status: MessageStatus;
   error?: string;
+  /** Assistant messages that requested tool calls. */
+  toolCalls?: ToolCall[];
+  /** Tool-role messages reference the parent tool call id. */
+  toolCallId?: string;
   createdAt: number;
 }
 

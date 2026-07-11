@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@hono/node-server": "^1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@my-copilot/shared": "workspace:*",
     "better-sqlite3": "^12.11.1",
+    "gray-matter": "^4.0.3",
     "hono": "^4",
     "mammoth": "^1"
   },

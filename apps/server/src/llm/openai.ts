@@ -5,14 +5,25 @@ import type {
   AdapterStreamOptions,
 } from './base.js';
 import { ProviderError } from './base.js';
+import type { StreamEvent } from '@my-copilot/shared';
 
 const CHAT_COMPLETIONS_PATH = '/v1/chat/completions';
+
+interface OpenAIToolCallDelta {
+  index: number;
+  id?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
 
 interface OpenAIStreamChunk {
   choices?: Array<{
     delta?: {
       content?: string;
       role?: string;
+      tool_calls?: OpenAIToolCallDelta[];
     };
     finish_reason?: string | null;
   }>;
@@ -30,18 +41,25 @@ export class OpenAIAdapter implements ProviderAdapter {
     messages: ChatMessage[],
     config: AdapterConfig,
     options?: AdapterStreamOptions,
-  ): AsyncGenerator<string, void, unknown> {
+  ): AsyncGenerator<StreamEvent, void, unknown> {
     const url = buildUrl(config.baseUrl);
+
+    const serializedMessages = messages.map(serializeMessage);
 
     const body: Record<string, unknown> = {
       model: config.model,
-      messages,
+      messages: serializedMessages,
       stream: true,
     };
 
     if (options?.temperature !== undefined) body.temperature = options.temperature;
     if (options?.maxTokens !== undefined) body.max_tokens = options.maxTokens;
     if (options?.topP !== undefined) body.top_p = options.topP;
+    if (options?.tools) body.tools = options.tools;
+    if (options?.toolChoice) body.tool_choice = options.toolChoice;
+    if (options?.parallelToolCalls !== undefined) {
+      body.parallel_tool_calls = options.parallelToolCalls;
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -81,6 +99,13 @@ export class OpenAIAdapter implements ProviderAdapter {
     const decoder = new TextDecoder();
     let buffer = '';
 
+    // Accumulate tool calls across SSE chunks, keyed by index.
+    const pendingToolCalls = new Map<
+      number,
+      { id: string; name: string; arguments: string }
+    >();
+    const seenToolCallIndexes = new Set<number>();
+
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -117,9 +142,67 @@ export class OpenAIAdapter implements ProviderAdapter {
                 );
               }
 
-              const content = chunk.choices?.[0]?.delta?.content;
-              if (content) {
-                yield content;
+              const delta = chunk.choices?.[0]?.delta;
+              if (delta) {
+                const content = delta.content;
+                if (content) {
+                  yield { type: 'content', text: content };
+                }
+
+                const toolCallDeltas = delta.tool_calls;
+                if (toolCallDeltas) {
+                  for (const tc of toolCallDeltas) {
+                    if (!seenToolCallIndexes.has(tc.index)) {
+                      seenToolCallIndexes.add(tc.index);
+                      yield { type: 'tool_call_start', index: tc.index };
+                    }
+                    const id = tc.id;
+                    const name = tc.function?.name;
+                    const argsDelta = tc.function?.arguments;
+                    if (id || name || argsDelta !== undefined) {
+                      yield {
+                        type: 'tool_call_delta',
+                        index: tc.index,
+                        ...(id !== undefined ? { id } : {}),
+                        ...(name !== undefined ? { name } : {}),
+                        ...(argsDelta !== undefined ? { argumentsDelta: argsDelta } : {}),
+                      };
+                    }
+                    // Accumulate into pending map
+                    const pending = pendingToolCalls.get(tc.index) ?? {
+                      id: '',
+                      name: '',
+                      arguments: '',
+                    };
+                    if (id) pending.id = id;
+                    if (name) pending.name = name;
+                    if (argsDelta) pending.arguments += argsDelta;
+                    pendingToolCalls.set(tc.index, pending);
+                  }
+                }
+              }
+
+              const finishReason = chunk.choices?.[0]?.finish_reason;
+              if (finishReason === 'tool_calls') {
+                for (const [index, tc] of pendingToolCalls) {
+                  yield {
+                    type: 'tool_call_done',
+                    index,
+                    id: tc.id,
+                    name: tc.name,
+                    arguments: tc.arguments,
+                  };
+                }
+                yield { type: 'finish', reason: 'tool_calls' };
+                return;
+              }
+              if (finishReason === 'stop') {
+                yield { type: 'finish', reason: 'stop' };
+                return;
+              }
+              if (finishReason === 'length') {
+                yield { type: 'finish', reason: 'length' };
+                return;
               }
             } catch (err) {
               if (err instanceof ProviderError) throw err;
@@ -132,6 +215,16 @@ export class OpenAIAdapter implements ProviderAdapter {
       reader.releaseLock();
     }
   }
+}
+
+/** Serialize a ChatMessage into the OpenAI request body shape (omits null/undefined fields). */
+function serializeMessage(msg: ChatMessage): Record<string, unknown> {
+  const base: Record<string, unknown> = { role: msg.role };
+  if (msg.content !== null) base.content = msg.content;
+  if (msg.toolCalls) base.tool_calls = msg.toolCalls;
+  if (msg.toolCallId) base.tool_call_id = msg.toolCallId;
+  if (msg.name) base.name = msg.name;
+  return base;
 }
 
 function buildUrl(baseUrl: string): string {

@@ -22,6 +22,10 @@ const mockAssembleMessages = vi.fn();
 const mockRegisterStream = vi.fn();
 const mockUnregisterStream = vi.fn();
 
+const mockListEnabledTools = vi.fn(() => []);
+
+const mockRunAgentLoop = vi.fn();
+
 // Track SSE writes for assertions
 let sseWrites: Array<{ event: string; data: string }> = [];
 let onAbortCallback: (() => void) | null = null;
@@ -47,6 +51,15 @@ vi.mock('../../prompt/assembler.js', () => ({
 vi.mock('../registry.js', () => ({
   registerStream: mockRegisterStream,
   unregisterStream: mockUnregisterStream,
+}));
+vi.mock('../../repo/tool.js', () => ({
+  listEnabledTools: mockListEnabledTools,
+}));
+vi.mock('../../repo/session.js', () => ({
+  updateSession: vi.fn(),
+}));
+vi.mock('../../agent-loop/runner.js', () => ({
+  runAgentLoop: mockRunAgentLoop,
 }));
 vi.mock('hono/streaming', () => ({
   streamSSE: mockStreamSSE,
@@ -105,7 +118,7 @@ function makeParams(overrides: Record<string, unknown> = {}) {
 
 /**
  * Standard setup for a normal (success) completion scenario.
- * After calling this, call streamMessageHandler then await flushMicrotasks().
+ * Mock runAgentLoop emits content events and returns completed.
  */
 function setupNormalCompletion(chunks: string[] = ['Hello', ' ', 'World']) {
   const ac = new AbortController();
@@ -124,6 +137,7 @@ function setupNormalCompletion(chunks: string[] = ['Hello', ' ', 'World']) {
   mockGetAdapter.mockClear();
   mockRegisterStream.mockClear();
   mockUnregisterStream.mockClear();
+  mockRunAgentLoop.mockClear();
   mockAdapter.chatCompletionStream.mockClear();
 
   // Set up mock returns AFTER clearing
@@ -148,22 +162,20 @@ function setupNormalCompletion(chunks: string[] = ['Hello', ' ', 'World']) {
       createdAt: 1001,
     });
 
-  mockAssembleMessages.mockReturnValue([
-    { role: 'system', content: 'test system prompt' },
-    { role: 'user', content: 'Hello' },
-  ]);
-
   mockGetAdapter.mockReturnValue(mockAdapter);
 
-  async function* generator() {
+  // Mock runAgentLoop: emit content deltas via onEvent, then return completed
+  mockRunAgentLoop.mockImplementation(async (params: { onEvent: (e: { type: string; event?: { type: string; text: string } }) => Promise<void> }) => {
     for (const chunk of chunks) {
-      yield chunk;
+      await params.onEvent({
+        type: 'llm_event',
+        event: { type: 'content', text: chunk },
+      });
     }
-  }
-  mockAdapter.chatCompletionStream.mockReturnValue(generator());
+    return { status: 'completed', content: chunks.join('') };
+  });
 
   // streamSSE calls callback, returns Response.
-  // Errors in callback are caught to prevent unhandled rejections.
   mockStreamSSE.mockImplementation(
     (_c: unknown, cb: (stream: typeof mockStream) => Promise<void>) => {
       cb(mockStream).catch(() => {
@@ -193,7 +205,7 @@ describe('Stream Message Lifecycle', () => {
     const params = makeParams();
     streamMessageHandler(c, params);
 
-    // Wait for async generator loop to complete
+    // Wait for async writes to complete
     await flushMicrotasks();
 
     // User message saved
@@ -205,9 +217,6 @@ describe('Stream Message Lifecycle', () => {
     expect(mockRepo.createMessage).toHaveBeenCalledWith(
       expect.objectContaining({ role: 'assistant', content: '', status: 'sending' }),
     );
-
-    // assembleMessages called
-    expect(mockAssembleMessages).toHaveBeenCalled();
 
     // getAdapter called with provider type
     expect(mockGetAdapter).toHaveBeenCalledWith('openai');
@@ -224,28 +233,20 @@ describe('Stream Message Lifecycle', () => {
 
     const doneEvents = sseWrites.filter((w) => w.event === 'done');
     expect(doneEvents).toHaveLength(1);
-    expect(JSON.parse(doneEvents[0].data)).toEqual({ messageId: 'assistant-msg-1' });
-
-    // Final persist
-    expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
-      content: 'Hello World',
-      status: 'sent',
-    });
+    expect(JSON.parse(doneEvents[0].data)).toEqual({ messageId: 'assistant-msg-1', title: 'Hello' });
 
     // unregisterStream called
     expect(mockUnregisterStream).toHaveBeenCalledWith('test-session');
   });
 
-  // --- Test 2: Adapter throws error ---
+  // --- Test 2: Agent loop throws error ---
   it('adapter error: status=failed, SSE error event', async () => {
     setupNormalCompletion([]);
 
-    // Override: make generator throw after yielding partial content
-    async function* errorGenerator() {
-      yield 'partial';
+    // Override: make runAgentLoop throw
+    mockRunAgentLoop.mockImplementation(async () => {
       throw new Error('API connection failed');
-    }
-    mockAdapter.chatCompletionStream.mockReturnValue(errorGenerator());
+    });
 
     const c = makeContext();
     const params = makeParams();
@@ -260,9 +261,9 @@ describe('Stream Message Lifecycle', () => {
     expect(errData.code).toBe('stream_error');
     expect(errData.message).toContain('API connection failed');
 
-    // Status should be 'failed' with partial content
+    // Status should be 'failed'
     expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
-      content: 'partial',
+      content: '',
       status: 'failed',
       error: 'API connection failed',
     });
@@ -281,15 +282,17 @@ describe('Stream Message Lifecycle', () => {
     const ac = new AbortController();
     mockRegisterStream.mockReturnValue(ac);
 
-    // Generator yields one chunk, then aborts and throws AbortError
-    async function* abortableGenerator() {
-      yield 'partial-content';
+    // runAgentLoop yields partial content then throws AbortError
+    mockRunAgentLoop.mockImplementation(async (params: { onEvent: (e: { type: string; event?: { type: string; text: string } }) => Promise<void> }) => {
+      await params.onEvent({
+        type: 'llm_event',
+        event: { type: 'content', text: 'partial-content' },
+      });
       ac.abort(); // sets ac.signal.aborted = true
       throw Object.assign(new Error('The operation was aborted.'), {
         name: 'AbortError',
       });
-    }
-    mockAdapter.chatCompletionStream.mockReturnValue(abortableGenerator());
+    });
 
     const c = makeContext();
     const params = makeParams();
@@ -335,12 +338,6 @@ describe('Stream Message Lifecycle', () => {
     // updateMessageContent should NOT be called — all chunks complete in <1s
     expect(mockRepo.updateMessageContent).not.toHaveBeenCalled();
 
-    // Final updateMessage should have the full content
-    expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
-      content: 'abcde',
-      status: 'sent',
-    });
-
     // All 5 deltas + 1 done
     expect(sseWrites.filter((w) => w.event === 'delta')).toHaveLength(5);
     expect(sseWrites.filter((w) => w.event === 'done')).toHaveLength(1);
@@ -365,8 +362,8 @@ describe('Stream Message Lifecycle', () => {
   it('unregisterStream called in finally even on error', async () => {
     setupNormalCompletion([]);
 
-    // Make updateMessage throw to simulate DB error during success path
-    mockRepo.updateMessage.mockImplementation(() => {
+    // Make runAgentLoop throw to simulate error
+    mockRunAgentLoop.mockImplementation(async () => {
       throw new Error('DB write failed');
     });
 

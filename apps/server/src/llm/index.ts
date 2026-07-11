@@ -1,4 +1,4 @@
-export { ProviderError, type ChatMessage, type AdapterConfig, type AdapterStreamOptions, type ProviderAdapter } from './base.js';
+export { ProviderError, type ChatMessage, type AdapterConfig, type AdapterStreamOptions, type ProviderAdapter, type JsonSchemaTool } from './base.js';
 export { OpenAIAdapter } from './openai.js';
 export { OllamaAdapter } from './ollama.js';
 import type { ProviderAdapter } from './base.js';

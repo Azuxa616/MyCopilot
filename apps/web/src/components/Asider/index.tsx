@@ -59,9 +59,14 @@ export default function Asider({
     }
   };
 
-  // Navigate to settings
-  const handleSettingsClick = () => {
-    navigate('/settings/providers');
+  // Navigate to a settings sub-page
+  const goToSettings = (section: string) => {
+    navigate(`/settings/${section}`);
+  };
+
+  // Check whether a settings section is the current route (for highlight)
+  const isSettingsActive = (section: string) => {
+    return location.pathname === `/settings/${section}`;
   };
 
   return (
@@ -124,19 +129,36 @@ export default function Asider({
         </div>
       </main>
 
-      {/* footer: settings + app version */}
+      {/* footer: settings nav + app version */}
       <footer className="flex flex-col shrink-0 border-t border-border-base bg-bg-secondary">
-        <button
-          onClick={handleSettingsClick}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start'} ${isCollapsed ? 'px-2' : 'px-4'} py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors`}
-          title={isCollapsed ? "设置" : undefined}
-        >
-          {isCollapsed ? (
-            <span>⚙</span>
-          ) : (
-            <span>⚙ 设置</span>
-          )}
-        </button>
+        <div className="flex flex-col">
+          <span className={`px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-text-tertiary ${isCollapsed ? 'hidden' : ''}`}>
+            设置
+          </span>
+          {([
+            { key: 'providers', label: 'Providers', icon: '🤖' },
+            { key: 'tools', label: 'Tools', icon: '🔧' },
+            { key: 'skills', label: 'Skills', icon: '📜' },
+            { key: 'mcps', label: 'MCPs', icon: '🔌' },
+          ] as const).map((item) => {
+            const active = isSettingsActive(item.key);
+            return (
+              <button
+                key={item.key}
+                onClick={() => goToSettings(item.key)}
+                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-2'} ${isCollapsed ? 'px-2' : 'px-4'} py-2 text-sm transition-colors ${
+                  active
+                    ? 'text-primary-500 bg-primary-50'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+                }`}
+                title={isCollapsed ? item.label : undefined}
+              >
+                <span>{item.icon}</span>
+                {!isCollapsed && <span>{item.label}</span>}
+              </button>
+            );
+          })}
+        </div>
         {!isCollapsed && (
           <div className="w-full text-center text-xs py-2 text-text-tertiary bg-bg-tertiary flex flex-col items-center">
             <span>MyCopilot Demo</span>

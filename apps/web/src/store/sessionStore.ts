@@ -31,6 +31,11 @@ interface SessionStore {
     abortController: AbortController | null;
     /** Model selected for the pending (not-yet-created) session */
     pendingModelId: string | null;
+    /**
+     * Job id of an in-flight background job (async send mode), or null.
+     * ChatShell feeds this to `useJobStream` to subscribe to job progress.
+     */
+    activeJobId: string | null;
 
     // Actions - session list (layered loading)
     loadSessionSummaries: () => Promise<void>;
@@ -46,6 +51,8 @@ interface SessionStore {
     enterNewSession: () => void;
     /** Set model for pending session */
     setPendingModelId: (modelId: string | null) => void;
+    /** Set/clear the active background job id (async send mode). */
+    setActiveJobId: (jobId: string | null) => void;
 
     // Actions - message operations
     addMessage: (sessionId: string, message: Message) => void;
@@ -71,6 +78,7 @@ export const useSessionStore = create<SessionStore>()(
         isLoadingMessages: false,
         abortController: null,
         pendingModelId: null,
+        activeJobId: null,
 
         // Load session summaries from server
         loadSessionSummaries: async () => {
@@ -182,6 +190,10 @@ export const useSessionStore = create<SessionStore>()(
             set({ pendingModelId: modelId });
         },
 
+        setActiveJobId: (jobId: string | null) => {
+            set({ activeJobId: jobId });
+        },
+
         addMessage: (sessionId, message) => {
             set((state) => {
                 const updatedMessages = [...(state.messagesCache[sessionId] || []), message];
@@ -291,10 +303,29 @@ export const useSessionStore = create<SessionStore>()(
             set({ abortController, isSending: true });
 
             try {
-                const stream = await api.sendMessage({ sessionId: realSessionId, content, files });
+                const result = await api.sendMessage({ sessionId: realSessionId, content, files });
+
+                // Async mode: the server accepted the message as a background job
+                // (JSON `{ data: { jobId } }` instead of an SSE stream). Record the
+                // jobId so ChatShell can subscribe via useJobStream, add a placeholder
+                // assistant message, and stop — the job's progress is tracked separately.
+                if (result.mode === 'async') {
+                    set({ activeJobId: result.jobId });
+                    const assistantMessage: Message = {
+                        id: `job-${result.jobId}`,
+                        sessionId: realSessionId,
+                        role: 'assistant',
+                        content: '',
+                        attachments: [],
+                        status: 'sending',
+                        createdAt: Date.now(),
+                    };
+                    addMessage(realSessionId, assistantMessage);
+                    return;
+                }
 
                 await parseSSEStream({
-                    stream,
+                    stream: result.stream,
                     signal: abortController.signal,
                     onPlaceholder: (msgId) => {
                         // Create assistant placeholder message with server's msgId

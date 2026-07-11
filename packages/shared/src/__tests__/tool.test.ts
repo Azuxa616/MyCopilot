@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { ToolType, DangerLevel, ToolInputSchemaField, ToolInputSchema, Tool } from '../tool.js';
+import type { ToolType, SafetyLevel, ToolInputSchemaField, ToolInputSchema, Tool } from '../tool.js';
 
 describe('Tool types', () => {
   it('ToolType should be built-in or mcp-provided', () => {
@@ -9,13 +9,13 @@ describe('Tool types', () => {
     expect(mcp).toBe('mcp-provided');
   });
 
-  it('DangerLevel should be low, medium, or high', () => {
-    const low: DangerLevel = 'low';
-    const medium: DangerLevel = 'medium';
-    const high: DangerLevel = 'high';
-    expect(low).toBe('low');
-    expect(medium).toBe('medium');
-    expect(high).toBe('high');
+  it('SafetyLevel should be safe, restricted, or danger', () => {
+    const safe: SafetyLevel = 'safe';
+    const restricted: SafetyLevel = 'restricted';
+    const danger: SafetyLevel = 'danger';
+    expect(safe).toBe('safe');
+    expect(restricted).toBe('restricted');
+    expect(danger).toBe('danger');
   });
 
   it('should create a valid ToolInputSchemaField', () => {
@@ -45,7 +45,7 @@ describe('Tool types', () => {
       description: 'Search the web',
       inputSchema: { fields: [] },
       type: 'built-in',
-      dangerLevel: 'low',
+      safetyLevel: 'safe',
       enabled: true,
       createdAt: 1000,
       updatedAt: 1000,

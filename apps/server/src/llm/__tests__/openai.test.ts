@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { OpenAIAdapter } from '../openai.js';
 import { ProviderError } from '../base.js';
 import type { ChatMessage, AdapterConfig } from '../base.js';
+import type { StreamEvent } from '@my-copilot/shared';
 
 const originalFetch = globalThis.fetch;
 
@@ -35,12 +36,18 @@ function createSSEResponse(lines: string[], status = 200): Response {
   return new Response(stream, { status, headers: { 'content-type': 'text/event-stream' } });
 }
 
-async function collectGenerator(gen: AsyncGenerator<string, void, unknown>): Promise<string[]> {
-  const chunks: string[] = [];
-  for await (const chunk of gen) {
-    chunks.push(chunk);
+/** Collect all StreamEvents from the generator. */
+async function collectEvents(gen: AsyncGenerator<StreamEvent, void, unknown>): Promise<StreamEvent[]> {
+  const events: StreamEvent[] = [];
+  for await (const event of gen) {
+    events.push(event);
   }
-  return chunks;
+  return events;
+}
+
+/** Extract content text chunks from a StreamEvent list (preserves order). */
+function contentTexts(events: StreamEvent[]): string[] {
+  return events.filter((e) => e.type === 'content').map((e) => (e as { text: string }).text);
 }
 
 describe('OpenAIAdapter', () => {
@@ -55,7 +62,7 @@ describe('OpenAIAdapter', () => {
 
     const adapter = new OpenAIAdapter();
     const gen = adapter.chatCompletionStream(messages, createConfig());
-    const chunks = await collectGenerator(gen);
+    const chunks = contentTexts(await collectEvents(gen));
 
     expect(chunks).toEqual(['Hello', ' world']);
   });
@@ -71,7 +78,7 @@ describe('OpenAIAdapter', () => {
     const adapter = new OpenAIAdapter();
 
     await expect(
-      collectGenerator(adapter.chatCompletionStream(messages, createConfig())),
+      collectEvents(adapter.chatCompletionStream(messages, createConfig())),
     ).rejects.toThrow(ProviderError);
 
     try {
@@ -99,9 +106,9 @@ describe('OpenAIAdapter', () => {
       signal: controller.signal,
     });
 
-    const chunks: string[] = [];
-    for await (const chunk of gen) {
-      chunks.push(chunk);
+    const chunks: StreamEvent[] = [];
+    for await (const event of gen) {
+      chunks.push(event);
     }
 
     expect(chunks).toEqual([]);
@@ -119,7 +126,7 @@ describe('OpenAIAdapter', () => {
 
     const adapter = new OpenAIAdapter();
     const gen = adapter.chatCompletionStream(messages, createConfig());
-    const chunks = await collectGenerator(gen);
+    const chunks = contentTexts(await collectEvents(gen));
 
     expect(chunks).toEqual(['Hello']);
   });
@@ -136,7 +143,7 @@ describe('OpenAIAdapter', () => {
     const adapter = new OpenAIAdapter();
     const config = createConfig({ baseUrl: 'https://custom.api.com/' });
     const gen = adapter.chatCompletionStream(messages, config);
-    await collectGenerator(gen);
+    await collectEvents(gen);
 
     expect(capturedUrl).toBe('https://custom.api.com/v1/chat/completions');
   });
@@ -153,7 +160,7 @@ describe('OpenAIAdapter', () => {
     const adapter = new OpenAIAdapter();
     const config = createConfig({ baseUrl: 'https://custom.api.com/v1' });
     const gen = adapter.chatCompletionStream(messages, config);
-    await collectGenerator(gen);
+    await collectEvents(gen);
 
     expect(capturedUrl).toBe('https://custom.api.com/v1/chat/completions');
   });

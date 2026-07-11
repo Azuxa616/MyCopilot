@@ -11,6 +11,7 @@ import MessageList from './MessageList'
 import { useMessageVirtualizer } from './hooks/useMessageVirtualizer'
 import { useAutoScroll } from './hooks/useAutoScroll'
 import { useMessageRegenerate } from './hooks/useMessageRegenerate'
+import { useJobStream, TERMINAL_JOB_STATUSES } from './hooks/useJobStream'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
 import { NEW_SESSION_SENTINEL } from '../../store/sessionStore'
@@ -28,6 +29,8 @@ export default function ChatShell() {
   const updateSession = useSessionStore((state) => state.updateSession)
   const pendingModelId = useSessionStore((state) => state.pendingModelId)
   const setPendingModelId = useSessionStore((state) => state.setPendingModelId)
+  const activeJobId = useSessionStore((state) => state.activeJobId)
+  const setActiveJobId = useSessionStore((state) => state.setActiveJobId)
 
   // Get messages for current session from cache
   const messages = selectedSessionId ? (messagesCache[selectedSessionId] || []) : []
@@ -51,6 +54,9 @@ export default function ChatShell() {
 
   // Message regeneration logic
   const { handleRegenerate } = useMessageRegenerate()
+
+  // Background job progress (async send mode) — subscribes via SSE while activeJobId is set.
+  const { job, isConnected, error } = useJobStream(activeJobId)
 
   // Model selector state
   const [allModels, setAllModels] = useState<Model[]>([])
@@ -118,9 +124,45 @@ export default function ChatShell() {
     }
   }, [selectedSessionId, currentSession, loadSessionMessages])
 
+  // When the background job reaches a terminal state, refresh the session's
+  // messages from the server and clear the active job id. The cache is dropped
+  // first because sendMessage added a placeholder assistant message; without
+  // invalidation, loadSessionMessages would short-circuit on the stale cache.
+  useEffect(() => {
+    if (!job || !TERMINAL_JOB_STATUSES.includes(job.status)) return
+    if (selectedSessionId && selectedSessionId !== NEW_SESSION_SENTINEL) {
+      useSessionStore.setState((state) => {
+        const nextCache = { ...state.messagesCache }
+        delete nextCache[selectedSessionId]
+        return { messagesCache: nextCache }
+      })
+      loadSessionMessages(selectedSessionId)
+    }
+    setActiveJobId(null)
+  }, [job, selectedSessionId, loadSessionMessages, setActiveJobId])
+
   const hasNoModel = selectedSessionId === NEW_SESSION_SENTINEL
     ? !pendingModelId
     : !!currentSession && currentSession.modelId === null
+
+  // Status text for the background job progress bar.
+  const jobStatusText = error
+    ? '连接异常，重试中...'
+    : !isConnected
+      ? '连接中...'
+      : !job
+        ? '处理中...'
+        : job.status === 'pending'
+          ? '排队中...'
+          : job.status === 'running'
+            ? '处理中...'
+            : job.status === 'done'
+              ? '已完成'
+              : job.status === 'failed'
+                ? '处理失败'
+                : job.status === 'cancelled'
+                  ? '已取消'
+                  : '处理中...'
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -150,6 +192,14 @@ export default function ChatShell() {
           </select>
         )}
       </div>
+
+      {/* Background job progress bar (async send mode) */}
+      {activeJobId && (
+        <div className="shrink-0 px-4 py-2 border-b border-border-base bg-primary-50 flex items-center gap-2 text-sm text-primary-700">
+          <span className="inline-block w-3.5 h-3.5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>{jobStatusText}</span>
+        </div>
+      )}
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden">

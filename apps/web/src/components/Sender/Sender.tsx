@@ -19,7 +19,7 @@ import IconGenerating from '../../assets/icon/generating.svg?react'
 
 export default function Sender() {
     const [content, setContent] = useState('');
-    const { selectedSessionId, sendMessage, isSending, cancelStream, messagesCache } = useSessionStore();
+    const { selectedSessionId, sendMessage, isSending, cancelStream, messagesCache, activeJobId } = useSessionStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const textareaRef = useTextareaAutoHeight(content);
     const { attachments, addAttachment, removeAttachment, clearAttachments } = useAttachments();
@@ -62,9 +62,12 @@ export default function Sender() {
         ? !!pendingModelId
         : !!currentSession?.modelId;
 
+    // A background job is in flight (async send mode) — block sending until it settles.
+    const isJobActive = !!activeJobId;
+
     const handleSend = async () => {
         const trimmedContent = content.trim();
-        if (!trimmedContent || isSending) {
+        if (!trimmedContent || isSending || isJobActive) {
             return;
         }
 
@@ -166,7 +169,7 @@ export default function Sender() {
                     <button
                         title="Send"
                         onClick={handleSend}
-                        disabled={!content.trim() || !selectedSessionId}
+                        disabled={!content.trim() || !selectedSessionId || isJobActive}
                         className="px-4 py-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors font-medium shrink-0 ml-2 mb-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <IconSender className="w-5 h-5 text-white transition-colors" />

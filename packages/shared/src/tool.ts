@@ -24,3 +24,21 @@ export interface Tool {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface CreateToolParams {
+  name: string;
+  description: string;
+  inputSchema: ToolInputSchema;
+  type: ToolType;
+  dangerLevel: DangerLevel;
+  enabled?: boolean;
+}
+
+export interface UpdateToolParams {
+  name?: string;
+  description?: string;
+  inputSchema?: ToolInputSchema;
+  type?: ToolType;
+  dangerLevel?: DangerLevel;
+  enabled?: boolean;
+}

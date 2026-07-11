@@ -5,6 +5,7 @@ import type {
   AdapterStreamOptions,
 } from './base.js';
 import { ProviderError } from './base.js';
+import type { StreamEvent } from '@my-copilot/shared';
 
 const OLLAMA_CHAT_PATH = '/api/chat';
 
@@ -25,12 +26,14 @@ export class OllamaAdapter implements ProviderAdapter {
     messages: ChatMessage[],
     config: AdapterConfig,
     options?: AdapterStreamOptions,
-  ): AsyncGenerator<string, void, unknown> {
+  ): AsyncGenerator<StreamEvent, void, unknown> {
     const url = buildUrl(config.baseUrl);
+
+    const serializedMessages = messages.map(serializeMessage);
 
     const body: Record<string, unknown> = {
       model: config.model,
-      messages,
+      messages: serializedMessages,
       stream: true,
     };
 
@@ -42,6 +45,8 @@ export class OllamaAdapter implements ProviderAdapter {
       if (options.topP !== undefined) ollamaOptions.top_p = options.topP;
       body.options = ollamaOptions;
     }
+
+    if (options?.tools) body.tools = options.tools;
 
     let response: Response;
     try {
@@ -101,12 +106,13 @@ export class OllamaAdapter implements ProviderAdapter {
 
               // Check if stream is done
               if (chunk.done) {
+                yield { type: 'finish', reason: 'stop' };
                 return;
               }
 
               const content = chunk.message?.content;
               if (content) {
-                yield content;
+                yield { type: 'content', text: content };
               }
             } catch (err) {
               if (err instanceof ProviderError) throw err;
@@ -119,6 +125,16 @@ export class OllamaAdapter implements ProviderAdapter {
       reader.releaseLock();
     }
   }
+}
+
+/** Serialize a ChatMessage into the Ollama request body shape (omits null/undefined fields). */
+function serializeMessage(msg: ChatMessage): Record<string, unknown> {
+  const base: Record<string, unknown> = { role: msg.role };
+  if (msg.content !== null) base.content = msg.content;
+  if (msg.toolCalls) base.tool_calls = msg.toolCalls;
+  if (msg.toolCallId) base.tool_call_id = msg.toolCallId;
+  if (msg.name) base.name = msg.name;
+  return base;
 }
 
 function buildUrl(baseUrl: string): string {

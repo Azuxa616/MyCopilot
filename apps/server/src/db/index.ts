@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runMigrations } from '../migration/runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
@@ -32,6 +33,10 @@ export function initDatabase(dataDir: string): InstanceType<typeof Database> {
   if (!row) {
     db.prepare("INSERT INTO config (key, value) VALUES ('schema_version', '1')").run();
   }
+
+  // Run migrations after baseline schema
+  const migrationsDir = join(__dirname, '..', 'migration', 'sql');
+  runMigrations(db, migrationsDir);
 
   return db;
 }

@@ -1,6 +1,16 @@
 import { HttpError } from '../middleware/error.js';
 
-/** In-memory registry of active streaming sessions. */
+/**
+ * In-memory registry of active user-facing SSE streams.
+ *
+ * SEMANTICS:
+ * One user-facing SSE stream = one registry entry per session.
+ *
+ * Agent-loop internal LLM calls share the session's AbortController —
+ * they do NOT call `registerStream`/`unregisterStream` (that would
+ * conflict with the user-facing stream singleton). Instead, they read
+ * the signal via `getStreamSignal()` to detect user abort.
+ */
 const activeStreams = new Map<string, AbortController>();
 
 /**
@@ -36,6 +46,19 @@ export function abortStream(sessionId: string): boolean {
   ac.abort();
   activeStreams.delete(sessionId);
   return true;
+}
+
+/**
+ * Read the AbortSignal for an active stream without affecting registry state.
+ *
+ * Used by the agent loop to observe user-initiated aborts without owning the
+ * stream lifecycle (the user-facing SSE handler remains the registry owner).
+ *
+ * @returns The signal for the active stream, or `null` if none is registered.
+ */
+export function getStreamSignal(sessionId: string): AbortSignal | null {
+  const ac = activeStreams.get(sessionId);
+  return ac ? ac.signal : null;
 }
 
 /**
