@@ -239,6 +239,32 @@ describe('Stream Message Lifecycle', () => {
     expect(mockUnregisterStream).toHaveBeenCalledWith('test-session');
   });
 
+  it('persists attachment metadata and forwards extracted text to the agent loop', async () => {
+    setupNormalCompletion([]);
+    const attachmentMeta = {
+      name: 'report.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 1024,
+      textExcerpt: 'Quarterly report',
+    };
+    const attachmentText = [{ name: 'report.docx', content: 'Quarterly report full text' }];
+    const baseParams = makeParams();
+
+    streamMessageHandler(makeContext(), makeParams({
+      userMessage: { ...baseParams.userMessage, attachments: [attachmentMeta] },
+      attachments: attachmentText,
+    }));
+    await flushMicrotasks();
+
+    expect(mockRepo.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'user',
+      attachments: [attachmentMeta],
+    }));
+    expect(mockRunAgentLoop).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: attachmentText,
+    }));
+  });
+
   // --- Test 2: Agent loop throws error ---
   it('adapter error: status=failed, SSE error event', async () => {
     setupNormalCompletion([]);

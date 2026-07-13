@@ -1,3 +1,12 @@
+export const SUPPORTED_ATTACHMENT_EXTENSIONS = ['.md', '.txt', '.csv', '.docx'] as const;
+
+export const ATTACHMENT_ACCEPT = SUPPORTED_ATTACHMENT_EXTENSIONS.join(',');
+
+export const isSupportedAttachmentName = (name: string): boolean => {
+    const normalizedName = name.toLowerCase();
+    return SUPPORTED_ATTACHMENT_EXTENSIONS.some((extension) => normalizedName.endsWith(extension));
+};
+
 /**
  * 格式化文件大小
  * @param bytes 文件大小（字节）

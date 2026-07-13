@@ -12,6 +12,7 @@ import { useAttachments } from './hooks/useAttachments'
 import { useSessionStore, NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 // Utils
 import { showMessageAlert } from '../common/Alert/alertUtils'
+import { getErrorMessage } from '../../api'
 // Assets
 import IconAttachement from '../../assets/icon/attachment.svg?react'
 import IconSender from '../../assets/icon/sender.svg?react'
@@ -96,7 +97,7 @@ export default function Sender() {
             });
         } catch (error) {
             console.error('Failed to send message:', error);
-            showMessageAlert.error('Failed to send message');
+            showMessageAlert.error(getErrorMessage(error));
         }
     };
 

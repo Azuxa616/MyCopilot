@@ -40,7 +40,7 @@ export async function parseAttachment(
 
     // --- docx via mammoth ---
     if (ext === '.docx') {
-      const result = await extractRawText({ arrayBuffer: file.data.buffer });
+      const result = await extractRawText({ buffer: file.data });
       const text = result.value;
       const meta: AttachmentMeta = {
         name: file.name,

@@ -51,6 +51,7 @@ function createTestApp() {
 describe('messages route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(parseAllAttachments).mockResolvedValue({ results: [], warnings: [] });
   });
 
   it('POST / returns SSE response', async () => {
@@ -75,6 +76,32 @@ describe('messages route', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/event-stream');
     expect(streamMessageHandler).toHaveBeenCalled();
+  });
+
+  it('POST / rejects attachment parse failures before starting the model', async () => {
+    const mockSession = { id: 's1', title: 'Test', modelId: 'm1', createdAt: 1, updatedAt: 1 };
+    const mockModel = { id: 'm1', providerId: 'p1', name: 'gpt-4', enabled: true, createdAt: 1, updatedAt: 1 };
+    const mockProvider = { id: 'p1', name: 'OpenAI', type: 'openai' as const, baseUrl: 'https://api.openai.com', apiKey: 'sk-test', enabled: true, createdAt: 1, updatedAt: 1 };
+
+    vi.mocked(getSession).mockReturnValue(mockSession);
+    vi.mocked(getModel).mockReturnValue(mockModel);
+    vi.mocked(getProvider).mockReturnValue(mockProvider);
+    vi.mocked(parseAllAttachments).mockResolvedValue({
+      results: [{ success: false, error: 'Unsupported file type: .doc' }],
+      warnings: ['Failed to parse legacy.doc: Unsupported file type: .doc'],
+    });
+
+    const app = createTestApp();
+    const form = new FormData();
+    form.append('content', 'read this');
+    form.append('files[]', new File(['legacy'], 'legacy.doc', { type: 'application/msword' }));
+
+    const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as { msg: string };
+    expect(body.msg).toContain('legacy.doc');
+    expect(streamMessageHandler).not.toHaveBeenCalled();
   });
 
   it('POST / returns 404 when session not found', async () => {

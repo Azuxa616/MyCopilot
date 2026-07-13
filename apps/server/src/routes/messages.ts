@@ -50,6 +50,14 @@ messagesApp.post('/', async (c) => {
 
   // 4. Parse attachments
   const { results } = await parseAllAttachments(files);
+  const failedAttachments = results
+    .map((result, index) => ({ result, file: files[index] }))
+    .filter(({ result }) => !result.success)
+    .map(({ result, file }) => `${file?.name ?? 'attachment'}: ${result.error ?? 'Unknown parse error'}`);
+  if (failedAttachments.length > 0) {
+    throw new HttpError(422, `Attachment parsing failed: ${failedAttachments.join('; ')}`);
+  }
+
   const attachmentTexts: AttachmentText[] = results
     .filter((r): r is typeof r & { success: true; meta: { name: string }; text: string } => r.success)
     .map((r) => ({ name: r.meta!.name, content: r.text! }));

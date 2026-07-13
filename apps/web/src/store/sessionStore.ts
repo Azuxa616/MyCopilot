@@ -301,7 +301,7 @@ export const useSessionStore = create<SessionStore>()(
                 role: 'user',
                 content,
                 attachments: files?.map(f => ({ id: `att-${Date.now()}-${f.name}`, name: f.name, type: f.type, size: f.size })) || [],
-                status: 'sent',
+                status: 'sending',
                 createdAt: Date.now(),
             };
             addMessage(realSessionId, userMessage);
@@ -312,6 +312,7 @@ export const useSessionStore = create<SessionStore>()(
 
             try {
                 const result = await api.sendMessage({ sessionId: realSessionId, content, files });
+                updateMessage(realSessionId, userMessage.id, { status: 'sent' });
 
                 // Async mode: the server accepted the message as a background job
                 // (JSON `{ data: { jobId } }` instead of an SSE stream). Record the
@@ -394,6 +395,16 @@ export const useSessionStore = create<SessionStore>()(
             } catch (error) {
                 if (abortController.signal.aborted) return;
                 console.error('Send message failed:', error);
+                const cachedUserMessage = get().messagesCache[realSessionId]?.find(
+                    (message) => message.id === userMessage.id,
+                );
+                if (cachedUserMessage?.status === 'sending') {
+                    updateMessage(realSessionId, userMessage.id, {
+                        status: 'failed',
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                }
+                throw error;
             } finally {
                 set({ isSending: false, abortController: null });
             }

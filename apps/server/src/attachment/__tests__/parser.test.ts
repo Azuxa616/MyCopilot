@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { parseAttachment } from '../parser.js';
-import type { AttachmentParseResult } from '../parser.js';
 import { parseAllAttachments } from '../index.js';
 
 // ---------------------------------------------------------------------------
@@ -74,7 +73,7 @@ describe('parseAttachment', () => {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       textExcerpt: 'Document content here',
     });
-    expect(mockedExtractRawText).toHaveBeenCalledOnce();
+    expect(mockedExtractRawText).toHaveBeenCalledWith({ buffer: file.data });
   });
 
   // 4. Corrupted docx → success: false, no throw

@@ -288,10 +288,28 @@ export async function fetchWithAuth(
             if (response.status === 401) {
                 useConfigStore.getState().clearAuthToken();
             }
+
+            const contentType = response.headers.get('content-type');
+            let responseBody: unknown;
+            try {
+                responseBody = contentType?.includes('application/json')
+                    ? await response.json()
+                    : await response.text();
+            } catch {
+                responseBody = undefined;
+            }
+
+            const responseMessage =
+                typeof responseBody === 'object'
+                && responseBody !== null
+                && 'msg' in responseBody
+                && typeof responseBody.msg === 'string'
+                    ? responseBody.msg
+                    : `HTTP ${response.status}: ${response.statusText}`;
             throw new HttpError(
-                `HTTP ${response.status}: ${response.statusText}`,
+                responseMessage,
                 response.status,
-                undefined,
+                responseBody,
                 url,
                 options.method,
             );
