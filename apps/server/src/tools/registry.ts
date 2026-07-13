@@ -1,4 +1,4 @@
-import type { Tool } from '@my-copilot/shared';
+import type { Tool, ToolApproval } from '@my-copilot/shared';
 
 /** Uniform result shape produced by every tool executor (built-in or MCP). */
 export interface ToolExecutionResult {
@@ -10,6 +10,12 @@ export interface ToolExecutionResult {
 export interface ToolExecutionContext {
   signal?: AbortSignal;
   sessionId: string;
+  agentId?: string;
+  runId?: string;
+  jobId?: string;
+  advertisedTool?: Tool;
+  onConfirmationRequired?: (approval: ToolApproval) => void | Promise<void>;
+  onConfirmationSettled?: (approval: ToolApproval) => void | Promise<void>;
 }
 
 /**

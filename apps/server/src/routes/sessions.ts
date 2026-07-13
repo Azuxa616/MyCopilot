@@ -11,6 +11,7 @@ import { listSummariesBySession } from '../repo/summary.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateSessionParams } from '@my-copilot/shared';
+import { cancelToolApprovalsForSession } from '../tools/confirmation.js';
 
 export const sessionsApp = new Hono();
 
@@ -49,6 +50,7 @@ sessionsApp.patch('/:id', async (c) => {
 
 sessionsApp.delete('/:id', (c) => {
   const id = c.req.param('id');
+  cancelToolApprovalsForSession(id);
   const deleted = deleteSession(id);
   if (!deleted) {
     throw new HttpError(404, 'Session not found');

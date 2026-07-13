@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import type { Session, SessionSummary, CreateSessionParams, Message } from '@my-copilot/shared';
 import { api } from '../api';
-import { parseSSEStream } from '../utils/streamUtils';
+import { parseSSEStream, type ConfirmationEventData } from '../utils/streamUtils';
 
 // Sentinel value for a "pending" (not-yet-created) session
 export const NEW_SESSION_SENTINEL = '__new__';
@@ -36,6 +36,11 @@ interface SessionStore {
      * ChatShell feeds this to `useJobStream` to subscribe to job progress.
      */
     activeJobId: string | null;
+    /**
+     * Pending tool confirmation data received via SSE `confirmation_required`.
+     * When non-null, the ToolConfirmationDialog is shown.
+     */
+    pendingConfirmation: ConfirmationEventData | null;
 
     // Actions - session list (layered loading)
     loadSessionSummaries: () => Promise<void>;
@@ -64,6 +69,8 @@ interface SessionStore {
     updateSession: (id: string, updates: Partial<CreateSessionParams>) => Promise<void>;
     sendMessage: (params: { sessionId: string; content: string; files?: File[] }) => Promise<void>;
     cancelStream: () => void;
+    /** Resolve a pending tool confirmation (user clicked allow/deny). */
+    resolveConfirmation: (approvalId: string, approved: boolean) => Promise<void>;
 }
 
 export const useSessionStore = create<SessionStore>()(
@@ -79,6 +86,7 @@ export const useSessionStore = create<SessionStore>()(
         abortController: null,
         pendingModelId: null,
         activeJobId: null,
+        pendingConfirmation: null,
 
         // Load session summaries from server
         loadSessionSummaries: async () => {
@@ -379,6 +387,9 @@ export const useSessionStore = create<SessionStore>()(
                             updateMessage(realSessionId, sendingId, { status: 'aborted' });
                         }
                     },
+                    onConfirmationRequired: (data) => {
+                        set({ pendingConfirmation: data });
+                    },
                 });
             } catch (error) {
                 if (abortController.signal.aborted) return;
@@ -396,6 +407,17 @@ export const useSessionStore = create<SessionStore>()(
                 // Also notify server
                 api.stopStream(selectedSessionId).catch(() => {});
                 set({ abortController: null, isSending: false });
+            }
+        },
+
+        // Resolve a pending tool confirmation
+        resolveConfirmation: async (approvalId: string, approved: boolean) => {
+            try {
+                await api.confirmToolCall(approvalId, approved);
+            } catch (error) {
+                console.error('Failed to resolve tool confirmation:', error);
+            } finally {
+                set({ pendingConfirmation: null });
             }
         },
     })

@@ -9,6 +9,8 @@ import {
 } from '../repo/job.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
+import { abortJob } from '../jobs/worker.js';
+import { cancelToolApprovalsForSession } from '../tools/confirmation.js';
 
 export const jobsApp = new Hono();
 
@@ -117,6 +119,9 @@ jobsApp.get('/:id', (c) => {
 // undefined, which we surface as 404 — there's no live job to cancel.
 jobsApp.post('/:id/cancel', (c) => {
   const id = c.req.param('id');
+  const existing = getJob(id);
+  abortJob(id);
+  if (existing?.sessionId) cancelToolApprovalsForSession(existing.sessionId);
   const data = cancelJob(id);
   if (!data) {
     throw new HttpError(404, 'Job not found or already terminal');

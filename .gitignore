@@ -48,3 +48,6 @@ apps/server/data/
 
 # Windows artifact from bad redirect
 nul
+
+# opencode-server-launcher script
+opencode-server-launcher.bat

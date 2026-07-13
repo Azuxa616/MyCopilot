@@ -30,6 +30,7 @@ describe('webSearchExecutor', () => {
       },
       type: 'built-in',
       safetyLevel: 'safe',
+      sourceMcpId: null,
       enabled: true,
     });
   });

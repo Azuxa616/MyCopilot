@@ -183,6 +183,68 @@ export function completeJob(id: string, result: Record<string, unknown>): Job | 
   return row ? rowToJob(row) : undefined;
 }
 
+export function setJobWaitingForConfirmation(
+  id: string,
+  pendingApproval: Record<string, unknown>,
+): Job | undefined {
+  const existing = getJob(id);
+  if (!existing || existing.status !== 'running') return undefined;
+  const mergedResult = { ...(existing.result ?? {}), pendingApproval };
+  const row = getDb()
+    .prepare(
+      `UPDATE jobs
+       SET status = 'waiting_confirmation', result = ?, updated_at = ?
+       WHERE id = ? AND status = 'running'
+       RETURNING *`,
+    )
+    .get(JSON.stringify(mergedResult), now(), id) as JobRow | undefined;
+  return row ? rowToJob(row) : undefined;
+}
+
+export function resumeJobAfterConfirmation(id: string): Job | undefined {
+  const existing = getJob(id);
+  if (!existing || existing.status !== 'waiting_confirmation') return undefined;
+  const result = { ...(existing.result ?? {}) };
+  delete result.pendingApproval;
+  const row = getDb()
+    .prepare(
+      `UPDATE jobs
+       SET status = 'running', result = ?, updated_at = ?
+       WHERE id = ? AND status = 'waiting_confirmation'
+       RETURNING *`,
+    )
+    .get(JSON.stringify(result), now(), id) as JobRow | undefined;
+  return row ? rowToJob(row) : undefined;
+}
+
+export function updateJobResult(
+  id: string,
+  updates: Record<string, unknown>,
+): Job | undefined {
+  const existing = getJob(id);
+  if (!existing) return undefined;
+  const result = { ...(existing.result ?? {}), ...updates };
+  const row = getDb()
+    .prepare('UPDATE jobs SET result = ?, updated_at = ? WHERE id = ? RETURNING *')
+    .get(JSON.stringify(result), now(), id) as JobRow | undefined;
+  return row ? rowToJob(row) : undefined;
+}
+
+export function failWaitingJobsOnStartup(): number {
+  const timestamp = now();
+  return getDb()
+    .prepare(
+      `UPDATE jobs
+       SET status = 'failed',
+           error = 'Server restarted while waiting for tool confirmation',
+           leased_at = NULL,
+           lease_owner = NULL,
+           updated_at = ?
+       WHERE status = 'waiting_confirmation'`,
+    )
+    .run(timestamp).changes;
+}
+
 /**
  * Mark a running job as failed. `attempts` is incremented at claim time,
  * so if the current attempt count is still below `maxAttempts` the job is
@@ -264,7 +326,7 @@ export function renewJobLease(id: string, workerId: string): boolean {
     .prepare(
       `UPDATE jobs
          SET leased_at = ?, updated_at = ?
-       WHERE id = ? AND status = 'running' AND lease_owner = ?`,
+       WHERE id = ? AND status IN ('running', 'waiting_confirmation') AND lease_owner = ?`,
     )
     .run(ts, ts, id, workerId);
   return info.changes > 0;

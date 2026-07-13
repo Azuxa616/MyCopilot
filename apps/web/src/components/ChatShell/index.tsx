@@ -14,9 +14,11 @@ import { useMessageRegenerate } from './hooks/useMessageRegenerate'
 import { useJobStream, TERMINAL_JOB_STATUSES } from './hooks/useJobStream'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
+import { useConfigStore } from '../../store/configStore'
 import { NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 // API
 import { api } from '../../api'
+import { MessageRole } from '@my-copilot/shared'
 import type { Model, Provider } from '@my-copilot/shared'
 import { showMessageAlert } from '../common/Alert/alertUtils'
 
@@ -32,8 +34,17 @@ export default function ChatShell() {
   const activeJobId = useSessionStore((state) => state.activeJobId)
   const setActiveJobId = useSessionStore((state) => state.setActiveJobId)
 
-  // Get messages for current session from cache
-  const messages = selectedSessionId ? (messagesCache[selectedSessionId] || []) : []
+  // Get messages for current session from cache.
+  // Filter out:
+  //  - tool messages (role='tool') — internal tool results, shown via SSE during live chat
+  //  - assistant messages with toolCalls — intermediate tool-call requests, not user-facing.
+  //    The final assistant response is always a separate message without toolCalls.
+  //    Without this filter, refresh shows empty bubbles from intermediate rounds.
+  const messages = selectedSessionId
+    ? (messagesCache[selectedSessionId] || []).filter(
+        m => m.role !== MessageRole.TOOL && !(m.role === MessageRole.ASSISTANT && m.toolCalls)
+      )
+    : []
 
   // Chat content scroll container
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
@@ -63,6 +74,8 @@ export default function ChatShell() {
   const [providersMap, setProvidersMap] = useState<Record<string, Provider>>({})
   const [isLoadingModels, setIsLoadingModels] = useState(false)
 
+  const authToken = useConfigStore((state) => state.authToken)
+
   const loadModels = useCallback(async () => {
     setIsLoadingModels(true)
     try {
@@ -83,9 +96,13 @@ export default function ChatShell() {
     }
   }, [])
 
+  // Load models when authToken becomes available (same pattern as Layout session loading).
+  // On first visit, authToken is null on mount → loadModels would fail. After token entry,
+  // this effect re-fires and populates the model dropdown.
   useEffect(() => {
+    if (!authToken) return
     loadModels()
-  }, [loadModels])
+  }, [authToken, loadModels])
 
   // Auto-select first model when models load and no model is selected
   useEffect(() => {

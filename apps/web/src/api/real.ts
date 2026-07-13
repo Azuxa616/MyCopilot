@@ -8,7 +8,7 @@ import type {
   Session, SessionSummary, CreateSessionParams,
   Provider, CreateProviderParams, Model, CreateModelParams,
   Message,
-  Tool, CreateToolParams, UpdateToolParams,
+  Tool, UpdateToolParams,
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
   Mcp, CreateMcpParams, UpdateMcpParams,
 } from '@my-copilot/shared';
@@ -269,20 +269,6 @@ export async function fetchTools(filter?: { enabled?: boolean }): Promise<Tool[]
 }
 
 /**
- * Create a new tool
- * POST /api/tools
- */
-export async function createTool(params: CreateToolParams): Promise<Tool> {
-    const response = await enhancedFetch<{ data: Tool }>('/api/tools', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-        timeout: 30000,
-    });
-    return response.data;
-}
-
-/**
  * Update an existing tool
  * PATCH /api/tools/:id
  */
@@ -297,23 +283,20 @@ export async function updateTool(id: string, params: UpdateToolParams): Promise<
 }
 
 /**
- * Delete a tool
- * DELETE /api/tools/:id
- */
-export async function deleteTool(id: string): Promise<void> {
-    await enhancedFetch<{ data: unknown }>(`/api/tools/${id}`, {
-        method: 'DELETE',
-        timeout: 30000,
-    });
-}
-
-/**
- * Test a tool's configuration / connectivity
+ * Execute a tool with caller-supplied arguments for manual testing.
  * POST /api/tools/:id/test
+ *
+ * Safe tools return the full execution result (content + isError).
+ * Restricted/danger tools return an error indicating confirmation is required.
  */
-export async function testTool(id: string): Promise<{ code: number; msg: string }> {
-    const response = await enhancedFetch<{ data: { code: number; msg: string } }>(`/api/tools/${id}/test`, {
+export async function testTool(id: string, args?: Record<string, unknown>): Promise<{
+    content: Array<{ type: string; text: string }>;
+    isError?: boolean;
+}> {
+    const response = await enhancedFetch<{ data: { content: Array<{ type: string; text: string }>; isError?: boolean } }>(`/api/tools/${id}/test`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arguments: args ?? {} }),
         timeout: 60000,
     });
     return response.data;
@@ -339,12 +322,12 @@ export async function executeTool(params: {
 }
 
 /**
- * Approve or reject a pending tool call
- * POST /api/tools/confirm/:callId
+ * Approve or reject a pending tool confirmation
+ * POST /api/tools/confirm/:approvalId
  */
-export async function confirmToolCall(callId: string, approved: boolean): Promise<{ resolved: boolean }> {
+export async function confirmToolCall(approvalId: string, approved: boolean): Promise<{ resolved: boolean }> {
     const response = await enhancedFetch<{ data: { resolved: boolean } }>(
-        `/api/tools/confirm/${encodeURIComponent(callId)}`,
+        `/api/tools/confirm/${encodeURIComponent(approvalId)}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -356,17 +339,17 @@ export async function confirmToolCall(callId: string, approved: boolean): Promis
 }
 
 /**
- * Get status of a pending tool call
- * POST /api/tools/calls/:callId
+ * Get status of a pending tool confirmation
+ * GET /api/tools/calls/:approvalId
  */
-export async function getToolCallStatus(callId: string): Promise<{
+export async function getToolCallStatus(approvalId: string): Promise<{
     toolCall: { id: string; name: string; arguments: string };
     expiresAt: number;
 }> {
     const response = await enhancedFetch<{ data: unknown }>(
-        `/api/tools/calls/${encodeURIComponent(callId)}`,
+        `/api/tools/calls/${encodeURIComponent(approvalId)}`,
         {
-            method: 'POST',
+            method: 'GET',
             timeout: 30000,
         }
     );
@@ -510,8 +493,22 @@ export async function deleteMcp(id: string): Promise<void> {
  * Test an MCP server connection and return its available tool names
  * POST /api/mcps/:id/test
  */
-export async function testMcp(id: string): Promise<{ tools: string[] }> {
-    const response = await enhancedFetch<{ data: { tools: string[] } }>(`/api/mcps/${id}/test`, {
+export async function testMcp(id: string): Promise<{
+    success: boolean;
+    created: number;
+    updated: number;
+    disabled: number;
+    tools: Tool[];
+}> {
+    const response = await enhancedFetch<{
+        data: {
+            success: boolean;
+            created: number;
+            updated: number;
+            disabled: number;
+            tools: Tool[];
+        };
+    }>(`/api/mcps/${id}/test`, {
         method: 'POST',
         timeout: 60000,
     });

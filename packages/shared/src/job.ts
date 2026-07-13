@@ -1,4 +1,10 @@
-export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+export type JobStatus =
+  | 'pending'
+  | 'running'
+  | 'waiting_confirmation'
+  | 'done'
+  | 'failed'
+  | 'cancelled';
 
 export type JobType = 'agent-loop';
 

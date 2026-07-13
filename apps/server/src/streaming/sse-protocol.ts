@@ -74,11 +74,16 @@ export interface ToolResultEvent {
 
 /** A tool call requires user confirmation before execution. */
 export interface ConfirmationRequiredEvent {
+  approvalId: string;
   messageId: string;
   toolCallId: string;
   toolName: string;
   arguments: string;
-  dangerLevel: string;
+  resourceScope: string;
+  source: string;
+  sourceMcpId: string | null;
+  safetyLevel: string;
+  expiresAt: number;
 }
 
 /** Background job status update. */

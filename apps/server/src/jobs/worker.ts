@@ -5,7 +5,9 @@ import {
   failJob,
   reclaimStaleJobs,
   renewJobLease,
+  failWaitingJobsOnStartup,
 } from '../repo/job.js';
+import { expirePendingToolApprovals } from '../repo/tool-approval.js';
 
 /**
  * Shape of the payload written by `streamMessageHandler` when creating an
@@ -50,6 +52,7 @@ const jobHandlers = new Map<string, JobHandler>();
 
 let running = false;
 let currentJobAbort: AbortController | null = null;
+let currentJobId: string | null = null;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -74,6 +77,9 @@ export function clearJobHandlers(): void {
 export async function start(): Promise<void> {
   if (running) return;
   running = true;
+
+  failWaitingJobsOnStartup();
+  expirePendingToolApprovals();
 
   // Reclaim jobs whose lease expired before we crashed — push them
   // back to `pending` so the new worker can pick them up.
@@ -132,6 +138,7 @@ function poll(): void {
 export async function processJob(job: Job): Promise<void> {
   const ac = new AbortController();
   currentJobAbort = ac;
+  currentJobId = job.id;
 
   // Heartbeat: extend the lease periodically so a long handler is
   // not reclaimed as stale. Errors here are logged but non-fatal —
@@ -171,7 +178,14 @@ export async function processJob(job: Job): Promise<void> {
       heartbeatTimer = null;
     }
     currentJobAbort = null;
+    currentJobId = null;
   }
+}
+
+export function abortJob(id: string): boolean {
+  if (currentJobId !== id || !currentJobAbort) return false;
+  currentJobAbort.abort();
+  return true;
 }
 
 /**
@@ -230,16 +244,25 @@ export async function stop(timeoutMs: number = DEFAULT_STOP_TIMEOUT_MS): Promise
 export function registerAgentLoopHandler(): void {
   registerJobHandler('agent-loop', async (job, signal) => {
     // Dynamic imports — see function docstring.
-    const [{ runAgentLoopAsJob }, { getAdapter }, { listEnabledTools }] =
+    const [
+      { runAgentLoopAsJob },
+      { getAdapter },
+      { listEnabledTools },
+      { listRegisteredTools },
+    ] =
       await Promise.all([
         import('../agent-loop/runner.js'),
         import('../llm/index.js'),
         import('../repo/tool.js'),
+        import('../tools/registry.js'),
       ]);
 
     const payload = job.payload as unknown as AgentLoopJobPayload;
     const adapter = getAdapter(payload.adapterType);
-    const tools = listEnabledTools();
+    const tools = [
+      ...listRegisteredTools(),
+      ...listEnabledTools().filter((tool) => tool.type === 'mcp-provided'),
+    ];
 
     return runAgentLoopAsJob(
       job,

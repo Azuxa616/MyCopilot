@@ -6,7 +6,12 @@ import {
   updateMcp,
   deleteMcp,
 } from '../repo/mcp.js';
-import { listTools, disconnect } from '../mcp/index.js';
+import { deleteToolsByMcp } from '../repo/tool.js';
+import {
+  disconnect,
+  synchronizeMcpTools,
+  trySynchronizeMcpTools,
+} from '../mcp/index.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import type {
@@ -62,6 +67,7 @@ mcpsApp.post('/', async (c) => {
   if (body.enabled !== undefined) params.enabled = Boolean(body.enabled);
 
   const data = createMcp(params);
+  await trySynchronizeMcpTools(data);
   return successResponse(c, data, 201);
 });
 
@@ -80,10 +86,12 @@ mcpsApp.patch('/:id', async (c) => {
   if (body && body.config !== undefined) {
     validateMcpConfig(body.config);
   }
+  await disconnect(id).catch(() => undefined);
   const data = updateMcp(id, body as UpdateMcpParams);
   if (!data) {
     throw new HttpError(404, 'MCP not found');
   }
+  await trySynchronizeMcpTools(data);
   return successResponse(c, data);
 });
 
@@ -95,6 +103,7 @@ mcpsApp.delete('/:id', async (c) => {
   } catch {
     // best-effort — connection may already be gone
   }
+  deleteToolsByMcp(id);
   const deleted = deleteMcp(id);
   if (!deleted) {
     throw new HttpError(404, 'MCP not found');
@@ -110,11 +119,11 @@ mcpsApp.post('/:id/test', async (c) => {
   }
 
   try {
-    const tools = await listTools(id, mcp.config);
+    const result = await synchronizeMcpTools(mcp);
     return c.json({
       code: 0,
       msg: 'ok',
-      data: { success: true, tools },
+      data: { success: true, ...result },
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Connection failed';
@@ -124,4 +133,13 @@ mcpsApp.post('/:id/test', async (c) => {
       data: { success: false, error: msg },
     });
   }
+});
+
+mcpsApp.post('/:id/sync', async (c) => {
+  const id = c.req.param('id');
+  const mcp = getMcp(id);
+  if (!mcp) throw new HttpError(404, 'MCP not found');
+  if (!mcp.enabled) throw new HttpError(409, 'MCP is disabled');
+  const result = await synchronizeMcpTools(mcp);
+  return successResponse(c, result);
 });

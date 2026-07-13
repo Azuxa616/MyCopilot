@@ -1,174 +1,287 @@
-import type { ToolCall } from '@my-copilot/shared';
+import { createHash } from 'node:crypto';
+import { resolve as resolvePath } from 'node:path';
+import type {
+  SafetyLevel,
+  Tool,
+  ToolCall,
+  ToolRef,
+} from '@my-copilot/shared';
 import type { ToolExecutionResult, ToolExecutionContext } from './registry.js';
 import { getToolExecutor } from './registry.js';
-import { listTools } from '../repo/tool.js';
+import { getToolsByName } from '../repo/tool.js';
+import { getAgentToolSafetyOverride } from '../repo/agent.js';
 import { listEnabledMcps } from '../repo/mcp.js';
-import { callTool as mcpCallTool } from '../mcp/manager.js';
-import { waitForConfirmation } from './confirmation.js';
+import {
+  callTool as mcpCallTool,
+  listTools as listMcpTools,
+} from '../mcp/manager.js';
+import {
+  isConfirmedThisSession,
+  markConfirmedThisSession,
+  requestToolApproval,
+} from './confirmation.js';
 
-/** Default timeout for user confirmation of high-danger tools (5 minutes). */
-const CONFIRMATION_TIMEOUT_MS = 300_000;
+const DEFAULT_AGENT_ID = 'default';
+const STRICTNESS: Record<SafetyLevel, number> = {
+  safe: 0,
+  restricted: 1,
+  danger: 2,
+};
 
-/**
- * Execute a tool call produced by the LLM, routing it to the right backend:
- *
- *   1. Built-in executor (registered via {@link registerTool}) — fastest path.
- *   2. DB tool (`type: 'mcp-provided'`) — gated by `waitForConfirmation`
- *      when `dangerLevel === 'high'`, then routed to its owning MCP.
- *   3. Dynamically discovered MCP tool (not in DB) — best-effort MCP route.
- *
- * Any exception thrown by an executor is caught and converted to an
- * `isError: true` result so the agent loop can feed the error back to the
- * LLM rather than crashing the request.
- *
- * NOTE on DB lookup: `repo/tool.ts#getTool(id)` queries by `id`, but LLM
- * tool calls only carry the tool `name`. We therefore resolve DB tools by
- * filtering `listTools()` on `name`. This is O(n_tools) per call; for the
- * current scale (tens of tools) this is negligible and avoids touching
- * `repo/tool.ts` (out of scope for T10).
- */
+interface ExecutionTarget {
+  tool: Tool;
+  ref: ToolRef;
+  execute: (
+    args: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ) => Promise<ToolExecutionResult>;
+}
+
 export async function executeToolCall(
   toolCall: ToolCall,
   context: ToolExecutionContext,
 ): Promise<ToolExecutionResult> {
   try {
-    // 1. Built-in executor (registered in-memory).
-    const builtin = getToolExecutor(toolCall.name);
-    if (builtin) {
-      const args = JSON.parse(toolCall.arguments) as Record<string, unknown>;
-      return await builtin.execute(args, context);
-    }
+    const args = parseArguments(toolCall.arguments);
+    const target = await resolveExecutionTarget(toolCall.name, context);
+    const agentId = context.agentId ?? DEFAULT_AGENT_ID;
+    const safetyLevel = resolveEffectiveSafetyLevel(target.tool, target.ref, agentId);
+    const argumentsDigest = digest(stableSerialize(args));
+    const resourceScope = deriveResourceScope(args, argumentsDigest);
+    const cacheKey = [
+      context.sessionId,
+      agentId,
+      target.ref.id,
+      target.ref.sourceMcpId ?? '-',
+      target.ref.policyVersion,
+      resourceScope,
+      argumentsDigest,
+    ].join(':');
 
-    // 2. DB-registered tool.
-    const dbTool = listTools().find((t) => t.name === toolCall.name);
-    if (dbTool) {
-      // Gate high-danger tools on user confirmation before doing anything.
-      if (dbTool.dangerLevel === 'high') {
-        const callId = `${context.sessionId}:${toolCall.id}`;
-        const approved = await waitForConfirmation(
-          callId,
-          toolCall,
-          CONFIRMATION_TIMEOUT_MS,
-        );
-        if (!approved) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: 'text',
-                text: 'Tool execution was rejected by user',
-              },
-            ],
-          };
-        }
+    const needsConfirmation =
+      safetyLevel === 'danger' ||
+      (safetyLevel === 'restricted' && !isConfirmedThisSession(cacheKey));
+
+    if (needsConfirmation) {
+      if (!context.onConfirmationRequired) {
+        return errorResult('Tool confirmation is required but no confirmation channel is available');
       }
-
-      // DB tool without a built-in executor must be an MCP-provided tool.
-      // (Built-in type tools always have a registered executor in step 1.)
-      if (dbTool.type === 'mcp-provided') {
-        const args = JSON.parse(toolCall.arguments) as Record<string, unknown>;
-        try {
-          return await routeToMcp(toolCall.name, args, context.signal);
-        } catch (err) {
-          // We know this is an MCP tool (DB says so) but routing failed —
-          // surface the routing error rather than masking it as "unknown".
-          const message =
-            err instanceof Error ? err.message : String(err);
-          return {
-            isError: true,
-            content: [{ type: 'text', text: message }],
-          };
-        }
-      }
-
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: `No executor registered for tool "${toolCall.name}"`,
-          },
-        ],
-      };
+      const approved = await requestToolApproval({
+        approval: {
+          runId: context.runId ?? `${context.sessionId}:${toolCall.id}`,
+          jobId: context.jobId ?? null,
+          sessionId: context.sessionId,
+          agentId,
+          tool: target.ref,
+          toolCallId: toolCall.id,
+          arguments: toolCall.arguments,
+          argumentsDigest,
+          resourceScope,
+          safetyLevel,
+          policyVersion: target.ref.policyVersion,
+        },
+        signal: context.signal,
+        onRequired: context.onConfirmationRequired,
+        onSettled: context.onConfirmationSettled,
+      });
+      if (!approved) return errorResult('Tool execution was rejected or expired');
+      if (safetyLevel === 'restricted') markConfirmedThisSession(cacheKey);
     }
 
-    // 3. Fallback: dynamically discovered MCP tool not persisted in DB.
-    // If routing throws (no MCPs / all errored), we swallow and fall through
-    // to the generic "Unknown tool" return — without DB evidence we can't
-    // claim this was ever an MCP tool.
-    try {
-      const args = JSON.parse(toolCall.arguments) as Record<string, unknown>;
-      return await routeToMcp(toolCall.name, args, context.signal);
-    } catch {
-      // Fall through to "Unknown tool".
-    }
-
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `Unknown tool "${toolCall.name}"` }],
-    };
+    if (context.signal?.aborted) return errorResult('Tool execution was cancelled');
+    return await target.execute(args, context);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      isError: true,
-      content: [{ type: 'text', text: message }],
-    };
+    return errorResult(error instanceof Error ? error.message : String(error));
   }
 }
 
-/**
- * Route a tool call to the MCP server that exposes it.
- *
- * Iterates over enabled MCPs and invokes the tool on the first server that
- * accepts it. This is best-effort: if the tool name doesn't exist on any
- * MCP, every call throws and we re-throw the final error.
- *
- * The MCP manager's `callTool` requires `(mcpId, config, toolName, args)`,
- * so we must resolve both `mcpId` and `config` from the DB — which is why
- * this helper lives here rather than in the manager.
- *
- * @throws Error when no MCP is enabled, or when every enabled MCP rejects.
- */
-async function routeToMcp(
+async function resolveExecutionTarget(
   toolName: string,
-  args: Record<string, unknown>,
-  signal?: AbortSignal,
-): Promise<ToolExecutionResult> {
-  const enabledMcps = listEnabledMcps();
-  if (enabledMcps.length === 0) {
-    throw new Error(`No MCP server provides tool "${toolName}"`);
+  context: ToolExecutionContext,
+): Promise<ExecutionTarget> {
+  const advertised = context.advertisedTool;
+  if (advertised && advertised.name !== toolName) {
+    throw new Error(`Tool call name does not match advertised tool "${advertised.name}"`);
   }
 
-  let lastError: unknown;
-  for (const mcp of enabledMcps) {
-    try {
-      const raw = await mcpCallTool(
+  if (advertised?.type === 'built-in') {
+    return resolveBuiltinTarget(advertised);
+  }
+  if (advertised?.type === 'mcp-provided') {
+    return resolveMcpTarget(advertised);
+  }
+
+  const dbMatches = getToolsByName(toolName).filter((tool) => tool.enabled);
+  if (dbMatches.length > 1) {
+    throw new Error(`Tool name "${toolName}" is ambiguous`);
+  }
+  if (dbMatches[0]?.type === 'built-in') return resolveBuiltinTarget(dbMatches[0]);
+  if (dbMatches[0]?.type === 'mcp-provided') return resolveMcpTarget(dbMatches[0]);
+
+  const builtin = getToolExecutor(toolName);
+  if (builtin) return resolveBuiltinTarget(builtin.describe());
+
+  return resolveDynamicMcpTarget(toolName);
+}
+
+function resolveBuiltinTarget(tool: Tool): ExecutionTarget {
+  const executor = getToolExecutor(tool.name);
+  if (!executor) throw new Error(`No executor registered for tool "${tool.name}"`);
+  const descriptor = executor.describe();
+  const safetyLevel = stricterLevel(descriptor.safetyLevel, tool.safetyLevel);
+  const effectiveTool = { ...tool, safetyLevel };
+  return {
+    tool: effectiveTool,
+    ref: {
+      id: effectiveTool.id,
+      name: effectiveTool.name,
+      source: 'built-in',
+      sourceMcpId: null,
+      policyVersion: effectiveTool.policyVersion,
+    },
+    execute: (args, executionContext) => executor.execute(args, executionContext),
+  };
+}
+
+async function resolveMcpTarget(tool: Tool): Promise<ExecutionTarget> {
+  const mcp = await resolveMcpProvider(tool.name, tool.sourceMcpId);
+  const effectiveTool = {
+    ...tool,
+    safetyLevel: stricterLevel(tool.safetyLevel, 'restricted'),
+    sourceMcpId: mcp.id,
+  };
+  return {
+    tool: effectiveTool,
+    ref: {
+      id: effectiveTool.id,
+      name: effectiveTool.name,
+      source: 'mcp',
+      sourceMcpId: mcp.id,
+      policyVersion: effectiveTool.policyVersion,
+    },
+    execute: async (args, executionContext) => normalizeMcpResult(
+      await mcpCallTool(
         mcp.id,
         mcp.config,
-        toolName,
+        tool.name,
         args,
-        signal,
-      );
-      return normalizeMcpResult(raw);
-    } catch (err) {
-      lastError = err;
-      // Try the next MCP server.
-    }
-  }
-
-  const message =
-    lastError instanceof Error ? lastError.message : String(lastError ?? 'unknown');
-  throw new Error(`MCP tool "${toolName}" failed: ${message}`);
+        executionContext.signal,
+      ),
+    ),
+  };
 }
 
-/**
- * Coerce a raw MCP `callTool` result into the uniform `ToolExecutionResult`.
- *
- * The MCP SDK returns `{ content: Array<ContentEntry> }` where each entry is
- * a `{ type, ... }` object (text, image, etc.). For text entries we extract
- * the `.text` field; all other shapes are JSON-stringified so the LLM still
- * gets a view of them.
- */
+async function resolveDynamicMcpTarget(toolName: string): Promise<ExecutionTarget> {
+  const mcp = await resolveMcpProvider(toolName, null);
+  const policyVersion = `mcp:${mcp.id}:${mcp.updatedAt}`;
+  const tool: Tool = {
+    id: `mcp-${mcp.id}-${toolName}`,
+    name: toolName,
+    description: '',
+    inputSchema: { fields: [] },
+    type: 'mcp-provided',
+    safetyLevel: 'restricted',
+    sourceMcpId: mcp.id,
+    policyVersion,
+    enabled: true,
+    createdAt: mcp.createdAt,
+    updatedAt: mcp.updatedAt,
+  };
+  return resolveMcpTarget(tool);
+}
+
+async function resolveMcpProvider(toolName: string, preferredMcpId: string | null) {
+  const mcps = listEnabledMcps();
+  if (preferredMcpId) {
+    const preferred = mcps.find((mcp) => mcp.id === preferredMcpId);
+    if (!preferred) throw new Error(`MCP source "${preferredMcpId}" is not enabled`);
+    return preferred;
+  }
+
+  const matches = (
+    await Promise.all(
+      mcps.map(async (mcp) => {
+        try {
+          const tools = await listMcpTools(mcp.id, mcp.config);
+          return tools.some((tool) => tool.name === toolName) ? mcp : null;
+        } catch {
+          return null;
+        }
+      }),
+    )
+  ).filter((mcp): mcp is NonNullable<typeof mcp> => mcp !== null);
+
+  if (matches.length === 0) throw new Error(`Unknown tool "${toolName}"`);
+  if (matches.length > 1) throw new Error(`MCP tool "${toolName}" is ambiguous`);
+  return matches[0];
+}
+
+function resolveEffectiveSafetyLevel(
+  tool: Tool,
+  ref: ToolRef,
+  agentId: string,
+): SafetyLevel {
+  let level = ref.source === 'mcp'
+    ? stricterLevel(tool.safetyLevel, 'restricted')
+    : tool.safetyLevel;
+  const override = getAgentToolSafetyOverride(agentId, tool.id);
+  if (override !== 'inherit') level = stricterLevel(level, override);
+  return level;
+}
+
+function stricterLevel(first: SafetyLevel, second: SafetyLevel): SafetyLevel {
+  return STRICTNESS[first] >= STRICTNESS[second] ? first : second;
+}
+
+function parseArguments(raw: string): Record<string, unknown> {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Tool arguments must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function deriveResourceScope(
+  args: Record<string, unknown>,
+  argumentsDigest: string,
+): string {
+  for (const key of ['path', 'file', 'directory']) {
+    if (typeof args[key] === 'string' && args[key].trim()) {
+      return `path:${resolvePath(args[key].trim())}`;
+    }
+  }
+  if (typeof args.url === 'string') {
+    try {
+      return `origin:${new URL(args.url).origin}`;
+    } catch {
+      return `args:${argumentsDigest}`;
+    }
+  }
+  return `args:${argumentsDigest}`;
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableSerialize(child)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function digest(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function errorResult(message: string): ToolExecutionResult {
+  return {
+    isError: true,
+    content: [{ type: 'text', text: message }],
+  };
+}
+
 function normalizeMcpResult(raw: unknown): ToolExecutionResult {
   if (
     raw !== null &&
@@ -176,30 +289,24 @@ function normalizeMcpResult(raw: unknown): ToolExecutionResult {
     'content' in raw &&
     Array.isArray((raw as { content: unknown }).content)
   ) {
-    const content = (raw as { content: unknown[] }).content;
     return {
-      content: content.map((c) => {
-        // MCP text content entry: { type: 'text', text: string }
+      content: (raw as { content: unknown[] }).content.map((entry) => {
         if (
-          c !== null &&
-          typeof c === 'object' &&
-          'text' in c &&
-          typeof (c as { text: unknown }).text === 'string'
+          entry !== null &&
+          typeof entry === 'object' &&
+          'text' in entry &&
+          typeof (entry as { text: unknown }).text === 'string'
         ) {
-          return { type: 'text' as const, text: (c as { text: string }).text };
+          return { type: 'text' as const, text: (entry as { text: string }).text };
         }
         return {
           type: 'text' as const,
-          text: typeof c === 'string' ? c : JSON.stringify(c),
+          text: typeof entry === 'string' ? entry : JSON.stringify(entry),
         };
       }),
     };
   }
-
-  // Unexpected shape — surface as text so the agent loop can react.
   return {
-    content: [
-      { type: 'text', text: typeof raw === 'string' ? raw : JSON.stringify(raw) },
-    ],
+    content: [{ type: 'text', text: typeof raw === 'string' ? raw : JSON.stringify(raw) }],
   };
 }

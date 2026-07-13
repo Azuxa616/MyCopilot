@@ -45,7 +45,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(2);
+    expect(row.count).toBe(3);
 
     db.close();
   });
@@ -104,7 +104,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(2);
+    expect(row.count).toBe(3);
 
     db.close();
   });

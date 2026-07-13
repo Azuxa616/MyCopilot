@@ -1,10 +1,10 @@
-// ToolsPage - Tool list with CRUD + per-row test/enabled-toggle.
-// Built-in tools (type === 'built-in') are read-only: edit/delete disabled, show a "Built-in" badge.
+// Tools are registered by application code or synchronized from MCP servers.
 
 import { useState, useEffect, useCallback } from 'react'
-import type { Tool, DangerLevel, CreateToolParams } from '@my-copilot/shared'
+import type { Tool, SafetyLevel, UpdateToolParams } from '@my-copilot/shared'
 import { api } from '../../api'
 import ToolFormModal from '../../components/ToolFormModal'
+import ToolTestModal from '../../components/ToolTestModal'
 import { Badge } from '../../components/common/Badge'
 import { showMessageAlert } from '../../components/common/Alert/alertUtils'
 
@@ -23,22 +23,22 @@ function ToolTypeBadge({ type }: { type: Tool['type'] }) {
   )
 }
 
-const dangerLevelColorClass: Record<DangerLevel, string> = {
-  low: 'bg-green-100 text-green-700',
-  medium: 'bg-amber-100 text-amber-700',
-  high: 'bg-red-100 text-red-700',
+const safetyLevelColorClass: Record<SafetyLevel, string> = {
+  safe: 'bg-green-100 text-green-700',
+  restricted: 'bg-amber-100 text-amber-700',
+  danger: 'bg-red-100 text-red-700',
 }
 
-const dangerLevelLabel: Record<DangerLevel, string> = {
-  low: '低',
-  medium: '中',
-  high: '高',
+const safetyLevelLabel: Record<SafetyLevel, string> = {
+  safe: '安全',
+  restricted: '受限',
+  danger: '危险',
 }
 
-function DangerLevelBadge({ level }: { level: DangerLevel }) {
+function SafetyLevelBadge({ level }: { level: SafetyLevel }) {
   return (
-    <Badge colorClass={dangerLevelColorClass[level]}>
-      {dangerLevelLabel[level]}
+    <Badge colorClass={safetyLevelColorClass[level]}>
+      {safetyLevelLabel[level]}
     </Badge>
   )
 }
@@ -81,11 +81,8 @@ export function ToolsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editTool, setEditTool] = useState<Tool | undefined>()
-  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
-  const [testingIds, setTestingIds] = useState<Set<string>>(new Set())
-  const [testResults, setTestResults] = useState<
-    Record<string, { success: boolean; message: string } | null>
-  >({})
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false)
+  const [testTarget, setTestTarget] = useState<Tool | null>(null)
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
 
   const loadTools = useCallback(async () => {
@@ -105,58 +102,14 @@ export function ToolsPage() {
     loadTools()
   }, [loadTools])
 
-  const handleCreate = () => {
-    setEditTool(undefined)
-    setModalMode('create')
-    setIsModalOpen(true)
-  }
-
   const handleEdit = (tool: Tool) => {
     setEditTool(tool)
-    setModalMode('edit')
     setIsModalOpen(true)
   }
 
-  const handleDelete = async (tool: Tool) => {
-    if (!confirm(`确定要删除工具「${tool.name}」吗？此操作不可恢复。`)) return
-    try {
-      await api.deleteTool(tool.id)
-      setTools((prev) => prev.filter((t) => t.id !== tool.id))
-      showMessageAlert.success('Tool 已删除')
-    } catch (error) {
-      console.error('Failed to delete tool:', error)
-      showMessageAlert.error('删除 Tool 失败')
-    }
-  }
-
-  const handleTest = async (tool: Tool) => {
-    setTestingIds((prev) => new Set(prev).add(tool.id))
-    setTestResults((prev) => ({ ...prev, [tool.id]: null }))
-    try {
-      const result = await api.testTool(tool.id)
-      const success = result.code === 0
-      setTestResults((prev) => ({
-        ...prev,
-        [tool.id]: {
-          success,
-          message: success ? '测试成功' : `失败: ${result.msg}`,
-        },
-      }))
-    } catch (error) {
-      setTestResults((prev) => ({
-        ...prev,
-        [tool.id]: {
-          success: false,
-          message: `失败: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      }))
-    } finally {
-      setTestingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(tool.id)
-        return next
-      })
-    }
+  const handleOpenTest = (tool: Tool) => {
+    setTestTarget(tool)
+    setIsTestModalOpen(true)
   }
 
   const handleToggleEnabled = async (tool: Tool) => {
@@ -176,21 +129,12 @@ export function ToolsPage() {
     }
   }
 
-  const handleModalSubmit = async (
-    params: CreateToolParams | Partial<CreateToolParams>,
-  ) => {
+  const handleModalSubmit = async (params: UpdateToolParams) => {
     try {
-      if (modalMode === 'create') {
-        const created = await api.createTool(params as CreateToolParams)
-        setTools((prev) => [...prev, created])
-        showMessageAlert.success('Tool 创建成功')
-      } else if (editTool) {
-        const updated = await api.updateTool(
-          editTool.id,
-          params as Partial<CreateToolParams>,
-        )
+      if (editTool) {
+        const updated = await api.updateTool(editTool.id, params)
         setTools((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
-        showMessageAlert.success('Tool 更新成功')
+        showMessageAlert.success('工具安全策略已更新')
       }
     } catch (error) {
       console.error('Failed to save tool:', error)
@@ -202,20 +146,28 @@ export function ToolsPage() {
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium text-text-primary">工具管理</h2>
-        <button
-          onClick={handleCreate}
-          className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
+        <div>
+          <h2 className="text-lg font-medium text-text-primary">工具管理</h2>
+          <p className="mt-1 text-xs text-text-secondary">
+            内置工具由应用代码注册；MCP 工具会在连接或测试时自动同步。
+          </p>
+        </div>
+        <a
+          href="/settings/mcps"
+          className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-100"
         >
-          + 新建 Tool
-        </button>
+          管理 MCP 来源
+        </a>
       </div>
 
       {/* Tool list */}
       {isLoading ? (
         <div className="text-sm text-text-secondary">加载中...</div>
       ) : tools.length === 0 ? (
-        <div className="text-sm text-text-secondary">暂无 Tool，点击上方按钮创建</div>
+        <div className="rounded-xl border border-dashed border-border-base px-6 py-10 text-center">
+          <p className="text-sm text-text-secondary">尚未注册或同步任何工具</p>
+          <p className="mt-1 text-xs text-text-tertiary">添加 MCP Server 后，工具会自动出现在这里。</p>
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {tools.map((tool) => {
@@ -231,7 +183,7 @@ export function ToolsPage() {
                       {tool.name}
                     </span>
                     <ToolTypeBadge type={tool.type} />
-                    <DangerLevelBadge level={tool.dangerLevel} />
+                    <SafetyLevelBadge level={tool.safetyLevel} />
                     {isBuiltIn && (
                       <span className="text-xs text-text-tertiary italic">
                         （只读）
@@ -244,17 +196,6 @@ export function ToolsPage() {
                   <span className="text-xs text-text-tertiary">
                     {tool.inputSchema.fields.length} 个参数
                   </span>
-                  {testResults[tool.id] && (
-                    <span
-                      className={`text-xs ${
-                        testResults[tool.id]!.success
-                          ? 'text-green-600'
-                          : 'text-error-500'
-                      }`}
-                    >
-                      {testResults[tool.id]!.message}
-                    </span>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0 pl-4">
@@ -264,11 +205,10 @@ export function ToolsPage() {
                     onToggle={() => handleToggleEnabled(tool)}
                   />
                   <button
-                    onClick={() => handleTest(tool)}
-                    disabled={testingIds.has(tool.id)}
-                    className="px-3 py-1.5 text-xs bg-bg-primary border border-border-base text-text-primary rounded-lg hover:bg-bg-hover transition-colors disabled:opacity-50"
+                    onClick={() => handleOpenTest(tool)}
+                    className="px-3 py-1.5 text-xs bg-bg-primary border border-border-base text-text-primary rounded-lg hover:bg-bg-hover transition-colors"
                   >
-                    {testingIds.has(tool.id) ? '测试中...' : '测试'}
+                    测试
                   </button>
                   <button
                     onClick={() => handleEdit(tool)}
@@ -276,13 +216,6 @@ export function ToolsPage() {
                     className="px-3 py-1.5 text-xs bg-bg-primary border border-border-base text-text-primary rounded-lg hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     编辑
-                  </button>
-                  <button
-                    onClick={() => handleDelete(tool)}
-                    disabled={isBuiltIn}
-                    className="px-3 py-1.5 text-xs bg-error-50 border border-error-200 text-error-600 rounded-lg hover:bg-error-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    删除
                   </button>
                 </div>
               </div>
@@ -294,9 +227,14 @@ export function ToolsPage() {
       <ToolFormModal
         open={isModalOpen}
         onOpenChange={setIsModalOpen}
-        mode={modalMode}
         tool={editTool}
         onSubmit={handleModalSubmit}
+      />
+
+      <ToolTestModal
+        open={isTestModalOpen}
+        onOpenChange={setIsTestModalOpen}
+        tool={testTarget}
       />
     </div>
   )

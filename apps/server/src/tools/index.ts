@@ -18,9 +18,13 @@ export type {
 export { executeToolCall } from './executor.js';
 
 export {
-  waitForConfirmation,
-  resolveConfirmation,
-  getPendingConfirmation,
+  requestToolApproval,
+  resolveToolApproval,
+  getPendingToolApproval,
+  isConfirmedThisSession,
+  markConfirmedThisSession,
+  clearSessionConfirmations,
+  clearToolConfirmations,
+  cancelToolApprovalsForSession,
   clearPendingConfirmations,
-  ConfirmationRejectedError,
 } from './confirmation.js';

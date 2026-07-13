@@ -13,8 +13,13 @@ vi.mock('../../repo/mcp.js', () => ({
 }));
 
 vi.mock('../../mcp/index.js', () => ({
-  listTools: vi.fn(),
   disconnect: vi.fn().mockResolvedValue(undefined),
+  synchronizeMcpTools: vi.fn(),
+  trySynchronizeMcpTools: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../../repo/tool.js', () => ({
+  deleteToolsByMcp: vi.fn(),
 }));
 
 import {
@@ -24,7 +29,12 @@ import {
   updateMcp,
   deleteMcp,
 } from '../../repo/mcp.js';
-import { listTools, disconnect } from '../../mcp/index.js';
+import {
+  disconnect,
+  synchronizeMcpTools,
+  trySynchronizeMcpTools,
+} from '../../mcp/index.js';
+import { deleteToolsByMcp } from '../../repo/tool.js';
 
 function createTestApp() {
   const app = new Hono();
@@ -52,6 +62,12 @@ function mockMcp(overrides: Partial<Record<string, unknown>> = {}) {
 describe('mcps route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(synchronizeMcpTools).mockResolvedValue({
+      created: 0,
+      updated: 0,
+      disabled: 0,
+      tools: [],
+    });
   });
 
   it('GET / returns list of mcps', async () => {
@@ -237,6 +253,7 @@ describe('mcps route', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.data.deleted).toBe(true);
+    expect(deleteToolsByMcp).toHaveBeenCalledWith('m1');
   });
 
   it('DELETE /:id returns 404 when not found', async () => {
@@ -251,7 +268,12 @@ describe('mcps route', () => {
     const mcp = mockMcp();
     vi.mocked(getMcp).mockReturnValue(mcp);
     const tools = [{ id: 't1', name: 'readFile' }] as any;
-    vi.mocked(listTools).mockResolvedValue(tools);
+    vi.mocked(synchronizeMcpTools).mockResolvedValue({
+      created: 1,
+      updated: 0,
+      disabled: 0,
+      tools,
+    });
 
     const app = createTestApp();
     const res = await app.request('/m1/test', { method: 'POST' });
@@ -260,7 +282,8 @@ describe('mcps route', () => {
     expect(body.code).toBe(0);
     expect(body.data.success).toBe(true);
     expect(body.data.tools).toEqual(tools);
-    expect(listTools).toHaveBeenCalledWith('m1', mcp.config);
+    expect(body.data.created).toBe(1);
+    expect(synchronizeMcpTools).toHaveBeenCalledWith(mcp);
   });
 
   it('POST /:id/test returns 404 when mcp not found', async () => {
@@ -274,7 +297,7 @@ describe('mcps route', () => {
   it('POST /:id/test returns failure envelope when connection fails', async () => {
     const mcp = mockMcp();
     vi.mocked(getMcp).mockReturnValue(mcp);
-    vi.mocked(listTools).mockRejectedValue(new Error('spawn ENOENT'));
+    vi.mocked(synchronizeMcpTools).mockRejectedValue(new Error('spawn ENOENT'));
 
     const app = createTestApp();
     const res = await app.request('/m1/test', { method: 'POST' });
@@ -294,5 +317,17 @@ describe('mcps route', () => {
     const body = await res.json() as any;
     expect(body.data.deleted).toBe(true);
     expect(disconnect).toHaveBeenCalledWith('m1');
+  });
+
+  it('disables synchronized tools when an MCP is disabled', async () => {
+    const updated = mockMcp({ enabled: false });
+    vi.mocked(updateMcp).mockReturnValue(updated);
+    const response = await createTestApp().request('/m1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(response.status).toBe(200);
+    expect(trySynchronizeMcpTools).toHaveBeenCalledWith(updated);
   });
 });

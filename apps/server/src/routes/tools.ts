@@ -1,53 +1,49 @@
 import { Hono } from 'hono';
 import {
   listTools,
-  listEnabledTools,
   getTool,
-  createTool,
   updateTool,
-  deleteTool,
 } from '../repo/tool.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import { executeToolCall } from '../tools/executor.js';
+import { listRegisteredTools } from '../tools/registry.js';
 import {
-  resolveConfirmation,
-  getPendingConfirmation,
+  resolveToolApproval,
+  getPendingToolApproval,
 } from '../tools/confirmation.js';
-import type { CreateToolParams, UpdateToolParams, ToolCall } from '@my-copilot/shared';
+import type {
+  SafetyLevel,
+  UpdateToolParams,
+  ToolCall,
+} from '@my-copilot/shared';
 
 export const toolsApp = new Hono();
 
 toolsApp.get('/', (c) => {
   const enabledFilter = c.req.query('enabled');
-  let data;
+  const registeredTools = listRegisteredTools();
+  const managedTools = listTools().filter((tool) => tool.type === 'mcp-provided');
+  const allTools = [...registeredTools, ...managedTools];
+  let data = allTools;
   if (enabledFilter === 'true') {
-    data = listEnabledTools();
+    data = allTools.filter((tool) => tool.enabled);
   } else if (enabledFilter === 'false') {
-    data = listTools().filter((t) => !t.enabled);
-  } else {
-    data = listTools();
+    data = allTools.filter((tool) => !tool.enabled);
   }
   return successResponse(c, data);
 });
 
-toolsApp.post('/', async (c) => {
-  const body = await c.req.json<CreateToolParams>();
-
-  if (!body.name || !body.description || !body.type || !body.dangerLevel) {
-    throw new HttpError(400, 'Missing required fields: name, description, type, dangerLevel');
-  }
-  if (!body.inputSchema || !Array.isArray(body.inputSchema.fields)) {
-    throw new HttpError(400, 'Missing or invalid inputSchema');
-  }
-
-  const data = createTool(body);
-  return successResponse(c, data, 201);
+toolsApp.post('/', () => {
+  throw new HttpError(
+    405,
+    'Tools cannot be created manually; register built-ins in code or sync an MCP server',
+  );
 });
 
 toolsApp.get('/:id', (c) => {
   const id = c.req.param('id');
-  const data = getTool(id);
+  const data = getTool(id) ?? listRegisteredTools().find((tool) => tool.id === id);
   if (!data) {
     throw new HttpError(404, 'Tool not found');
   }
@@ -57,6 +53,25 @@ toolsApp.get('/:id', (c) => {
 toolsApp.patch('/:id', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json<UpdateToolParams>();
+  const existing = getTool(id);
+  if (!existing) {
+    const builtin = listRegisteredTools().find((tool) => tool.id === id);
+    if (builtin) throw new HttpError(403, 'Built-in tools are read-only');
+    throw new HttpError(404, 'Tool not found');
+  }
+  if (existing.type !== 'mcp-provided') {
+    throw new HttpError(403, 'Built-in tools are read-only');
+  }
+  const unsupportedFields = Object.keys(body).filter(
+    (key) => key !== 'safetyLevel' && key !== 'enabled',
+  );
+  if (unsupportedFields.length > 0) {
+    throw new HttpError(400, 'Only safetyLevel and enabled can be updated');
+  }
+  if (body.safetyLevel !== undefined) assertSafetyLevel(body.safetyLevel);
+  if (body.safetyLevel === 'safe') {
+    throw new HttpError(400, 'MCP-provided tools cannot be marked safe');
+  }
   const data = updateTool(id, body);
   if (!data) {
     throw new HttpError(404, 'Tool not found');
@@ -64,22 +79,43 @@ toolsApp.patch('/:id', async (c) => {
   return successResponse(c, data);
 });
 
-toolsApp.delete('/:id', (c) => {
-  const id = c.req.param('id');
-  const deleted = deleteTool(id);
-  if (!deleted) {
-    throw new HttpError(404, 'Tool not found');
-  }
-  return successResponse(c, { deleted });
+toolsApp.delete('/:id', () => {
+  throw new HttpError(
+    405,
+    'Tools are removed by unregistering built-ins or deleting their MCP server',
+  );
 });
 
-toolsApp.post('/:id/test', (c) => {
+/**
+ * POST /:id/test — execute a tool with caller-supplied arguments for manual testing.
+ *
+ * Body: { arguments: Record<string, unknown> }
+ *
+ * Safe tools execute directly and return the full result (content + isError).
+ * Restricted/danger tools return an error indicating confirmation is required —
+ * they can only be exercised through the agent loop (chat) where the full
+ * confirmation flow (SSE → approval dialog → resolve) is wired up.
+ */
+toolsApp.post('/:id/test', async (c) => {
   const id = c.req.param('id');
-  const tool = getTool(id);
+  const tool = getTool(id) ?? listRegisteredTools().find((item) => item.id === id);
   if (!tool) {
     throw new HttpError(404, 'Tool not found');
   }
-  return successResponse(c, { code: 0, msg: 'test placeholder' });
+
+  const body = await c.req.json<{ arguments?: Record<string, unknown> }>().catch(() => ({ arguments: {} }));
+
+  const toolCall: ToolCall = {
+    id: `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: tool.name,
+    arguments: JSON.stringify(body.arguments ?? {}),
+  };
+
+  const result = await executeToolCall(toolCall, {
+    sessionId: `test-session:${id}`,
+    agentId: 'test',
+  });
+  return successResponse(c, result);
 });
 
 // --- Tool execution & confirmation (T10) ---------------------------------
@@ -130,14 +166,17 @@ toolsApp.post('/execute', async (c) => {
  * by the executor, so the client must use the same value it received when
  * the call was blocked.
  */
-toolsApp.post('/confirm/:callId', async (c) => {
-  const callId = c.req.param('callId');
+toolsApp.post('/confirm/:approvalId', async (c) => {
+  const approvalId = c.req.param('approvalId');
   const body = await c.req.json<{ approved: boolean }>();
-  const resolved = resolveConfirmation(callId, body.approved);
-  if (!resolved) {
-    throw new HttpError(404, 'No pending confirmation for this callId');
+  if (typeof body.approved !== 'boolean') {
+    throw new HttpError(400, 'approved must be a boolean');
   }
-  return successResponse(c, { resolved: true });
+  const approval = resolveToolApproval(approvalId, body.approved);
+  if (!approval) {
+    throw new HttpError(404, 'No pending confirmation for this approvalId');
+  }
+  return successResponse(c, approval);
 });
 
 /**
@@ -147,11 +186,17 @@ toolsApp.post('/confirm/:callId', async (c) => {
  * timestamp so the frontend can render a "confirm within X seconds" UI.
  * 404 if the call isn't pending (already resolved or unknown).
  */
-toolsApp.post('/calls/:callId', (c) => {
-  const callId = c.req.param('callId');
-  const pending = getPendingConfirmation(callId);
+toolsApp.get('/calls/:approvalId', (c) => {
+  const approvalId = c.req.param('approvalId');
+  const pending = getPendingToolApproval(approvalId);
   if (!pending) {
-    throw new HttpError(404, 'No pending confirmation for this callId');
+    throw new HttpError(404, 'No pending confirmation for this approvalId');
   }
   return successResponse(c, pending);
 });
+
+function assertSafetyLevel(level: SafetyLevel): void {
+  if (!['safe', 'restricted', 'danger'].includes(level)) {
+    throw new HttpError(400, 'Invalid safetyLevel');
+  }
+}

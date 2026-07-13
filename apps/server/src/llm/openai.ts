@@ -221,7 +221,19 @@ export class OpenAIAdapter implements ProviderAdapter {
 function serializeMessage(msg: ChatMessage): Record<string, unknown> {
   const base: Record<string, unknown> = { role: msg.role };
   if (msg.content !== null) base.content = msg.content;
-  if (msg.toolCalls) base.tool_calls = msg.toolCalls;
+  if (msg.toolCalls) {
+    // OpenAI requires each tool_calls entry to have:
+    //   { id, type: "function", function: { name, arguments } }
+    // Our internal ToolCall is flat ({ id, name, arguments }), so wrap it here.
+    base.tool_calls = msg.toolCalls.map((tc) => ({
+      id: tc.id,
+      type: 'function' as const,
+      function: {
+        name: tc.name,
+        arguments: tc.arguments,
+      },
+    }));
+  }
   if (msg.toolCallId) base.tool_call_id = msg.toolCallId;
   if (msg.name) base.name = msg.name;
   return base;

@@ -9,7 +9,14 @@
  * This makes it usable from a request-bound SSE handler today and from a
  * background job in Step B without changes.
  */
-import type { Message, ToolCall, StreamEvent, Tool, Job } from '@my-copilot/shared';
+import type {
+  Job,
+  Message,
+  StreamEvent,
+  Tool,
+  ToolApproval,
+  ToolCall,
+} from '@my-copilot/shared';
 import type {
   ChatMessage,
   AdapterConfig,
@@ -24,6 +31,10 @@ import { createMessage, updateMessage } from '../repo/message.js';
 import { createSummary, getLatestSummary } from '../repo/summary.js';
 import { executeToolCall } from '../tools/executor.js';
 import { toolInputSchemaToJsonSchema } from '../utils/schema-adapter.js';
+import {
+  resumeJobAfterConfirmation,
+  setJobWaitingForConfirmation,
+} from '../repo/job.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +66,8 @@ export type AgentLoopEvent =
       type: 'tool_result';
       toolResult: { callId: string; result: string; isError: boolean };
     }
+  | { type: 'tool_confirmation_required'; approval: ToolApproval }
+  | { type: 'tool_confirmation_settled'; approval: ToolApproval }
   | { type: 'agent_loop_end'; endReason: AgentLoopStatus };
 
 /** Callback signature for `onEvent`. May be sync or async. */
@@ -65,6 +78,9 @@ export type AgentLoopEventCallback = (
 /** Parameters for runAgentLoop. */
 export interface RunAgentLoopParams {
   sessionId: string;
+  agentId?: string;
+  jobId?: string;
+  runId?: string;
   /** The placeholder assistant message ID (for persisting streamed content). */
   userMessageId: string;
   /** Message history (mutated in-place with synthetic tool messages). */
@@ -224,7 +240,10 @@ export async function runAgentLoop(
 ): Promise<AgentLoopResult> {
   const {
     sessionId,
+    agentId = 'default',
+    jobId,
     userMessageId,
+    runId = userMessageId,
     history,
     userContent,
     attachments,
@@ -240,6 +259,7 @@ export async function runAgentLoop(
 
   let fullContent = '';
   const addedMessages: Message[] = [];
+  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
 
   // Convert Tool[] to JsonSchemaTool[] for LLM adapter
   const jsonTools: JsonSchemaTool[] = tools.map((t) => ({
@@ -355,7 +375,18 @@ export async function runAgentLoop(
       // 9. Execute all tool calls in parallel.
       const toolResults = await Promise.all(
         toolCalls.map((tc) =>
-          executeToolCall(tc, { sessionId, signal: abortSignal }),
+          executeToolCall(tc, {
+            sessionId,
+            agentId,
+            jobId,
+            runId,
+            signal: abortSignal,
+            advertisedTool: toolsByName.get(tc.name),
+            onConfirmationRequired: (approval) =>
+              onEvent({ type: 'tool_confirmation_required', approval }),
+            onConfirmationSettled: (approval) =>
+              onEvent({ type: 'tool_confirmation_settled', approval }),
+          }),
         ),
       );
 
@@ -463,6 +494,7 @@ async function safeEmit(
  */
 export interface AgentLoopJobContext {
   sessionId: string;
+  agentId?: string;
   /** Placeholder assistant message ID (created by the HTTP handler). */
   userMessageId: string;
   history: Message[];
@@ -495,9 +527,19 @@ export async function runAgentLoopAsJob(
 
   const result = await runAgentLoop({
     ...context,
+    jobId: job.id,
+    runId: job.id,
     abortSignal: signal,
     onEvent: (event) => {
       events.push(event);
+      if (event.type === 'tool_confirmation_required') {
+        setJobWaitingForConfirmation(
+          job.id,
+          event.approval as unknown as Record<string, unknown>,
+        );
+      } else if (event.type === 'tool_confirmation_settled') {
+        resumeJobAfterConfirmation(job.id);
+      }
     },
   });
 

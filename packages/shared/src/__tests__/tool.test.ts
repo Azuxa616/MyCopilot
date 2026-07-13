@@ -46,6 +46,8 @@ describe('Tool types', () => {
       inputSchema: { fields: [] },
       type: 'built-in',
       safetyLevel: 'safe',
+      sourceMcpId: null,
+      policyVersion: 'v1',
       enabled: true,
       createdAt: 1000,
       updatedAt: 1000,

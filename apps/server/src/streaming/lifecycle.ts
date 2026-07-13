@@ -6,6 +6,7 @@ import { updateSession } from '../repo/session.js';
 import { createJob } from '../repo/job.js';
 import { getAdapter } from '../llm/index.js';
 import { listEnabledTools } from '../repo/tool.js';
+import { listRegisteredTools } from '../tools/registry.js';
 import { runAgentLoop } from '../agent-loop/runner.js';
 import type { AgentLoopEvent } from '../agent-loop/runner.js';
 import type { AttachmentText } from '../prompt/assembler.js';
@@ -58,7 +59,10 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
   };
 
   // Advertise enabled tools to the LLM (empty list in Phase 1).
-  const enabledTools = listEnabledTools();
+  const enabledTools = [
+    ...listRegisteredTools(),
+    ...listEnabledTools().filter((tool) => tool.type === 'mcp-provided'),
+  ];
 
   // ─── Async mode (Step B): enqueue a job and return immediately ───
   // When AGENT_ASYNC_MODE=true the client does not hold an SSE connection;
@@ -81,6 +85,7 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         enabledTools,
       },
       sessionId,
+      maxAttempts: 1,
     });
 
     // Confirm placeholder is in `sending` state (no-op if already sending).
@@ -285,6 +290,26 @@ async function handleAgentEvent(
       });
       break;
     }
+    case 'tool_confirmation_required': {
+      await deps.stream.writeSSE({
+        event: 'confirmation_required',
+        data: JSON.stringify({
+          approvalId: event.approval.approvalId,
+          messageId: deps.assistantMsgId,
+          toolCallId: event.approval.toolCallId,
+          toolName: event.approval.tool.name,
+          arguments: event.approval.arguments,
+          resourceScope: event.approval.resourceScope,
+          source: event.approval.tool.source,
+          sourceMcpId: event.approval.tool.sourceMcpId,
+          safetyLevel: event.approval.safetyLevel,
+          expiresAt: event.approval.expiresAt,
+        }),
+      });
+      break;
+    }
+    case 'tool_confirmation_settled':
+      break;
     case 'agent_loop_end':
       // Terminal — handled in the main flow after runAgentLoop returns.
       break;

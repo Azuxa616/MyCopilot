@@ -185,6 +185,8 @@ function makeTool(name = 'echo'): Tool {
     inputSchema: { fields: [] },
     type: 'built-in',
     safetyLevel: 'safe',
+    sourceMcpId: null,
+    policyVersion: `test:${name}:v1`,
     enabled: true,
     createdAt: 0,
     updatedAt: 0,

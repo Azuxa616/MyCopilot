@@ -120,7 +120,8 @@ describe('mcp manager', () => {
     expect(tool.name).toBe('readFile');
     expect(tool.description).toBe('reads a file');
     expect(tool.type).toBe('mcp-provided');
-    expect(tool.safetyLevel).toBe('safe');
+    expect(tool.safetyLevel).toBe('restricted');
+    expect(tool.sourceMcpId).toBe('m3');
     expect(tool.enabled).toBe(true);
     expect(tool.inputSchema.fields).toEqual([
       { name: 'path', type: 'string', description: 'file path', required: true },

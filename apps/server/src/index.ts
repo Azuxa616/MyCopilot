@@ -22,9 +22,9 @@ import { mcpsApp } from './routes/mcps.js';
 import { jobsApp } from './routes/jobs.js';
 import { listAllEnabledModels } from './repo/model.js';
 import { registerTool } from './tools/registry.js';
-import { webSearchExecutor, httpFetchExecutor } from './tools/builtins/index.js';
+import { builtinExecutors } from './tools/builtins/index.js';
 import { syncDirectorySkills } from './skills/index.js';
-import { disconnectAll } from './mcp/index.js';
+import { disconnectAll, synchronizeAllEnabledMcps } from './mcp/index.js';
 import { start as startJobWorker, stop as stopJobWorker, registerAgentLoopHandler } from './jobs/worker.js';
 
 // Resolve dataDir first (needed for db init before full config load)
@@ -74,11 +74,7 @@ app.get('/api/models', (c) => {
 // loop. registerTool throws on double-registration (e.g. HMR in dev), so wrap
 // each call defensively.
 function registerBuiltInTools() {
-  const builtins: Array<[string, typeof webSearchExecutor]> = [
-    ['web_search', webSearchExecutor],
-    ['http_fetch', httpFetchExecutor],
-  ];
-  for (const [name, executor] of builtins) {
+  for (const { name, executor } of builtinExecutors) {
     try {
       registerTool(name, executor);
     } catch (err) {
@@ -89,6 +85,10 @@ function registerBuiltInTools() {
 }
 
 registerBuiltInTools();
+
+void synchronizeAllEnabledMcps().then(({ synchronized, failed }) => {
+  console.log(`[mcp] startup tool sync: ${synchronized} synchronized, ${failed} failed`);
+});
 
 // Sync directory skills (create/update/delete) into the DB. Only runs when
 // SKILLS_DIR is configured; missing directory is a no-op inside the scanner.

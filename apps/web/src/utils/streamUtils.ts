@@ -1,5 +1,19 @@
 import { createParser } from 'eventsource-parser';
 
+/** Payload extracted from a `confirmation_required` SSE event. */
+export interface ConfirmationEventData {
+    approvalId: string;
+    messageId: string;
+    toolCallId: string;
+    toolName: string;
+    arguments: string;
+    resourceScope: string;
+    source: string;
+    sourceMcpId: string | null;
+    safetyLevel: string;
+    expiresAt: number;
+}
+
 export interface SSEStreamParams {
     stream: ReadableStream<Uint8Array>;
     signal?: AbortSignal;
@@ -30,13 +44,7 @@ export interface SSEStreamParams {
         result: string,
         isError: boolean,
     ) => void;
-    onConfirmationRequired?: (
-        msgId: string,
-        toolCallId: string,
-        toolName: string,
-        args: string,
-        safetyLevel: string,
-    ) => void;
+    onConfirmationRequired?: (data: ConfirmationEventData) => void;
     onJobStatus?: (jobId: string, status: string, progress?: number, error?: string) => void;
 }
 
@@ -210,19 +218,25 @@ export async function parseSSEStream({
                 try {
                     const data = JSON.parse(event.data || '{}');
                     if (
+                        data.approvalId !== undefined &&
                         data.messageId !== undefined &&
                         data.toolCallId !== undefined &&
                         data.toolName !== undefined &&
                         data.arguments !== undefined &&
                         data.safetyLevel !== undefined
                     ) {
-                        onConfirmationRequired?.(
-                            data.messageId,
-                            data.toolCallId,
-                            data.toolName,
-                            data.arguments,
-                            data.safetyLevel,
-                        );
+                        onConfirmationRequired?.({
+                            approvalId: data.approvalId,
+                            messageId: data.messageId,
+                            toolCallId: data.toolCallId,
+                            toolName: data.toolName,
+                            arguments: data.arguments,
+                            resourceScope: data.resourceScope ?? '',
+                            source: data.source ?? '',
+                            sourceMcpId: data.sourceMcpId ?? null,
+                            safetyLevel: data.safetyLevel,
+                            expiresAt: data.expiresAt ?? 0,
+                        });
                     }
                 } catch {
                     // Ignore parse errors

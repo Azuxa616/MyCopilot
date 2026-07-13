@@ -33,6 +33,7 @@ interface TestState {
   loading: boolean
   success: boolean
   toolNames: string[]
+  syncSummary?: string
   error?: string
 }
 
@@ -133,6 +134,9 @@ export function McpsPage() {
         success?: boolean
         error?: string
         tools?: unknown[]
+        created?: number
+        updated?: number
+        disabled?: number
       }
       const success = r.success !== false
       const toolNames = Array.isArray(r.tools)
@@ -140,7 +144,15 @@ export function McpsPage() {
         : []
       setTests((prev) => ({
         ...prev,
-        [mcp.id]: { loading: false, success, toolNames, error: r.error },
+        [mcp.id]: {
+          loading: false,
+          success,
+          toolNames,
+          error: r.error,
+          syncSummary: success
+            ? `新增 ${r.created ?? 0} · 更新 ${r.updated ?? 0} · 禁用 ${r.disabled ?? 0}`
+            : undefined,
+        },
       }))
       if (success) {
         showMessageAlert.success(
@@ -226,7 +238,7 @@ export function McpsPage() {
                       disabled={test?.loading}
                       className="px-3 py-1.5 text-xs bg-bg-elevated border border-border-base text-text-primary rounded-lg hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {test?.loading ? '测试中...' : '测试'}
+                      {test?.loading ? '同步中...' : '测试并同步'}
                     </button>
                     <button
                       onClick={() => openEdit(mcp)}
@@ -257,6 +269,7 @@ export function McpsPage() {
                         <span className="font-medium">
                           连接成功 · {test.toolNames.length} 个工具
                         </span>
+                        {test.syncSummary && <span>{test.syncSummary}</span>}
                         {test.toolNames.length > 0 && (
                           <span className="font-mono break-words">
                             {test.toolNames.join(', ')}
