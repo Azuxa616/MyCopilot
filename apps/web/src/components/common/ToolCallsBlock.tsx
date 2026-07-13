@@ -16,10 +16,12 @@ function prettyPrintArguments(raw: string): string {
 
 interface ToolCallItemProps {
   toolCall: ToolCall
+  /** 开发模式下额外展示 toolCall.id 与无截断参数（来自 import.meta.env.DEV，prod 构建 tree-shake 掉）。 */
+  debugMode?: boolean
 }
 
 /** 单个工具调用的折叠块。拆为独立组件以隔离 state 并遵守 rerender-no-inline-components。 */
-function ToolCallItem({ toolCall }: ToolCallItemProps) {
+function ToolCallItem({ toolCall, debugMode = false }: ToolCallItemProps) {
   const [expanded, setExpanded] = useState(false)
 
   const prettyArgs = useMemo(() => prettyPrintArguments(toolCall.arguments), [toolCall.arguments])
@@ -50,9 +52,16 @@ function ToolCallItem({ toolCall }: ToolCallItemProps) {
         )}
       </button>
       {expanded && hasArgs && (
-        <pre className="m-0 max-h-[200px] overflow-auto px-2.5 pb-2.5 pt-1 font-mono text-[11px] leading-relaxed text-text-secondary bg-bg-tertiary/40 border-t border-border-light">
-          {prettyArgs}
-        </pre>
+        <div className="px-2.5 pb-2.5 pt-1 bg-bg-tertiary/40 border-t border-border-light">
+          {debugMode && (
+            <div className="font-mono text-[10px] text-text-tertiary mb-1 break-all" title="toolCall.id">
+              {toolCall.id}
+            </div>
+          )}
+          <pre className="m-0 max-h-[200px] overflow-auto font-mono text-[11px] leading-relaxed text-text-secondary">
+            {prettyArgs}
+          </pre>
+        </div>
       )}
     </div>
   )
@@ -63,22 +72,24 @@ interface ToolCallsBlockProps {
   message: {
     toolCalls?: ToolCall[]
   }
+  /** 开发模式下额外展示 toolCall.id（默认 false，prod 构建会被 tree-shake）。 */
+  debugMode?: boolean
 }
 
 /**
  * 渲染消息的工具调用块。
  * - 仅当 message.toolCalls 非空数组时渲染（空数组或 undefined → 不渲染）
  * - 正常模式始终可见，补齐后端已有但 UI 未渲染的能力
- * - toolCall.id 不在此模式显示（留待 T9 debug 模式）
+ * - debugMode=true 时在展开的 ToolCallItem 内额外显示 toolCall.id（仅 DEV）
  */
-export default function ToolCallsBlock({ message }: ToolCallsBlockProps) {
+export default function ToolCallsBlock({ message, debugMode = false }: ToolCallsBlockProps) {
   const toolCalls = message.toolCalls
   if (!toolCalls || toolCalls.length === 0) return null
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2">
       {toolCalls.map((tc) => (
-        <ToolCallItem key={tc.id} toolCall={tc} />
+        <ToolCallItem key={tc.id} toolCall={tc} debugMode={debugMode} />
       ))}
     </div>
   )

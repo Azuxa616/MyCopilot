@@ -4,7 +4,6 @@ import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { ReactElement } from 'react'
 import type { ToolCall } from '@my-copilot/shared'
 
 import ToolCallsBlock from './ToolCallsBlock'
@@ -13,12 +12,12 @@ import ToolCallsBlock from './ToolCallsBlock'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /** Minimal render helper — mounts a React element into jsdom and returns the container. */
-function renderToolCallsBlock(message: { toolCalls?: ToolCall[] }) {
+function renderToolCallsBlock(message: { toolCalls?: ToolCall[] }, debugMode = false) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
   act(() => {
-    root.render(<ToolCallsBlock message={message} />)
+    root.render(<ToolCallsBlock message={message} debugMode={debugMode} />)
   })
   return {
     container,
@@ -117,6 +116,38 @@ describe('ToolCallsBlock', () => {
     // Two emoji icons should be present
     const emojis = container.textContent?.match(/🔧/g)
     expect(emojis?.length).toBe(2)
+
+    unmount()
+  })
+
+  it('shows toolCall.id when debugMode is true', () => {
+    const { container, unmount } = renderToolCallsBlock({ toolCalls: [mockToolCall] }, true)
+
+    // Expand the tool call to reveal the id (id only shows inside expanded content)
+    const toolNameElement = screen.getAllByText('test_tool')[0]
+    const button = toolNameElement.closest('button') as HTMLButtonElement
+    act(() => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    // The id should now be rendered
+    expect(container.textContent).toContain('call-123')
+
+    unmount()
+  })
+
+  it('hides toolCall.id when debugMode is false', () => {
+    const { container, unmount } = renderToolCallsBlock({ toolCalls: [mockToolCall] }, false)
+
+    // Expand the tool call — even when expanded, the id must NOT appear
+    const toolNameElement = screen.getAllByText('test_tool')[0]
+    const button = toolNameElement.closest('button') as HTMLButtonElement
+    act(() => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    // The id string must never be present in the DOM
+    expect(container.textContent).not.toContain('call-123')
 
     unmount()
   })

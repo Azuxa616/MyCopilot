@@ -320,7 +320,7 @@ export default function MessageCard({
         </div>
 
         {/* NEW: Render tool calls block if present */}
-        <ToolCallsBlock message={message} />
+        <ToolCallsBlock message={message} debugMode={import.meta.env.DEV} />
 
         {message.attachments.length > 0 && (
           <div className="ml-2 shrink-0">

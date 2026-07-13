@@ -4,6 +4,10 @@
 
 import Modal from '../common/Modal'
 import { useDebugStore } from '../../store/debugStore'
+import GitEnvSection from './sections/GitEnvSection'
+import ApiConfigSection from './sections/ApiConfigSection'
+import StoreSnapshotSection from './sections/StoreSnapshotSection'
+import BackendRuntimeSection from './sections/BackendRuntimeSection'
 
 export default function DebugModal() {
   // Gating layer 1 — must be the first executable statement.
@@ -22,51 +26,23 @@ export default function DebugModal() {
       width="640px"
     >
       <div data-testid="debug-modal" className="flex flex-col gap-5">
-        {/* Section 1 — filled by T6 */}
-        <section>
-          <h4 className="text-sm font-semibold text-text-primary mb-1.5">
-            Git &amp; Environment
-          </h4>
-          <p className="text-xs text-text-tertiary">
-            Version, commit, and build environment details.
-          </p>
-        </section>
+        {/* Section 1 — Git & Environment (filled by T6) */}
+        <GitEnvSection />
 
         <hr className="border-border-base" />
 
-        {/* Section 2 — filled by T6 */}
-        <section>
-          <h4 className="text-sm font-semibold text-text-primary mb-1.5">
-            API Configuration
-          </h4>
-          <p className="text-xs text-text-tertiary">
-            Active provider, model, endpoint, and auth status.
-          </p>
-        </section>
+        {/* Section 2 — API Configuration */}
+        <ApiConfigSection />
 
         <hr className="border-border-base" />
 
-        {/* Section 3 — filled by T7 */}
-        <section>
-          <h4 className="text-sm font-semibold text-text-primary mb-1.5">
-            Store Snapshot
-          </h4>
-          <p className="text-xs text-text-tertiary">
-            Serialized Zustand store state for debugging.
-          </p>
-        </section>
+        {/* Section 3 — Store Snapshot */}
+        <StoreSnapshotSection />
 
         <hr className="border-border-base" />
 
-        {/* Section 4 — filled by T7 */}
-        <section>
-          <h4 className="text-sm font-semibold text-text-primary mb-1.5">
-            Backend Runtime
-          </h4>
-          <p className="text-xs text-text-tertiary">
-            Server health, database, and job worker status.
-          </p>
-        </section>
+        {/* Section 4 — filled by T8 */}
+        <BackendRuntimeSection />
 
         <hr className="border-border-base" />
 
