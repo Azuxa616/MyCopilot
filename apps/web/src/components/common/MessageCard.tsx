@@ -137,9 +137,10 @@ interface RenderMetaProps {
   isUser: boolean
   isTool: boolean
   toolCallId?: string
+  messageId?: string
 }
 
-function RenderMeta({ isSystem, isUser, isTool, toolCallId }: RenderMetaProps) {
+function RenderMeta({ isSystem, isUser, isTool, toolCallId, messageId }: RenderMetaProps) {
   if (isSystem) return null
   if (isTool) {
     // tool 角色消息：显示工具响应标识（toolCallId 取短形式）
@@ -155,6 +156,11 @@ function RenderMeta({ isSystem, isUser, isTool, toolCallId }: RenderMetaProps) {
   return (
     <div className="mb-1 flex items-center gap-2 text-[11px] text-text-tertiary px-1">
       <span>{roleLabel}</span>
+      {import.meta.env.DEV && messageId && (
+        <span className="text-[10px] text-text-tertiary font-mono">
+          mid:{messageId.slice(0, 8)}
+        </span>
+      )}
     </div>
   )
 }
@@ -305,6 +311,7 @@ export default function MessageCard({
           isUser={isUser}
           isTool={message.role === MessageRole.TOOL}
           toolCallId={message.toolCallId}
+          messageId={message.id}
         />
 
         <div className={bubbleClass}>

@@ -14,10 +14,17 @@ const Asider = lazy(() => import('../components/Asider/index'))
 const AlertContainer = lazy(() => import('../components/common/Alert'))
 const TokenModal = lazy(() => import('../components/TokenModal'))
 
-// Debug overlay — lazy + conditional so prod builds strip debug code entirely
-// (gating layer 2; layer 1 is the early-return inside each component).
-const DebugBadge = lazy(() => import('../components/debug/DebugBadge'))
-const DebugModal = lazy(() => import('../components/debug/DebugModal'))
+// Debug overlay — the lazy import itself is gated on DEV so the dynamic
+// import is dead code in prod and rollup never emits a chunk for it.
+// (Gating layer 2; layer 1 is the early-return inside each component.)
+// In prod, `import.meta.env.DEV` is literally replaced with `false`, making
+// the lazy() call unreachable and fully tree-shakeable.
+const DebugBadge = import.meta.env.DEV
+  ? lazy(() => import('../components/debug/DebugBadge'))
+  : null
+const DebugModal = import.meta.env.DEV
+  ? lazy(() => import('../components/debug/DebugModal'))
+  : null
 
 export function Layout() {
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -90,7 +97,7 @@ export function Layout() {
       </Suspense>
 
       {/* Debug overlay — dev only, double-gated (conditional import + early return) */}
-      {import.meta.env.DEV && (
+      {import.meta.env.DEV && DebugBadge && DebugModal && (
         <Suspense fallback={null}>
           <DebugBadge />
           <DebugModal />

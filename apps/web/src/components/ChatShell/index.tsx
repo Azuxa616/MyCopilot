@@ -186,6 +186,11 @@ export default function ChatShell() {
       {/* Model selector bar */}
       <div className="shrink-0 px-4 py-2 border-b border-border-base bg-bg-elevated flex items-center gap-3">
         <span className="text-sm text-text-secondary shrink-0">模型</span>
+        {import.meta.env.DEV && currentSession?.id && (
+          <span className="text-[10px] text-text-tertiary font-mono ml-2">
+            sid:{currentSession.id.slice(0, 8)}
+          </span>
+        )}
         {isLoadingModels ? (
           <span className="text-sm text-text-tertiary">加载中...</span>
         ) : (

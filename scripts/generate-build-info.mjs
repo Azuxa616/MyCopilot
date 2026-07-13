@@ -1,7 +1,8 @@
-#!/usr/bin/env node
-
 /**
  * Generate build-info JSON containing git metadata for the debug panel.
+ * NOTE: No shebang — this file is imported by vite.config.ts as a module,
+ * and rolldown's parser rejects shebangs in bundled imports. Invoke as
+ * `node scripts/generate-build-info.mjs --output <path>` from the CLI.
  *
  * Design goals:
  *  - Fail-soft: NEVER crashes the build. If git is unavailable, not installed,
