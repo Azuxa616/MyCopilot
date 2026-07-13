@@ -34,10 +34,13 @@ function cleanup() {
 }
 
 // ── Start server ──
+// MYCOPILOT_DEBUG enables the /api/debug endpoint for local dev. Docker/prod
+// never sets this flag, so the endpoint stays absent in production.
 const server = spawn('pnpm', ['--filter', 'server', 'dev'], {
   stdio: 'inherit',
   shell: true,
   windowsHide: true,
+  env: { ...process.env, MYCOPILOT_DEBUG: '1' },
 });
 
 // ── Wait for /api/health ──

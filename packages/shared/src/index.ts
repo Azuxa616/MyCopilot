@@ -8,3 +8,4 @@ export * from './mcp.js';
 export * from './stream-event.js';
 export * from './job.js';
 export * from './context.js';
+export * from './debug.js';

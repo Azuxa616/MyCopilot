@@ -11,6 +11,7 @@ import ReactMarkdownRenderer from '../MarkdownRenderer'
 import Avatar from './Avatar'
 import MessageActions from './MessageActions'
 import AttachmentCard from '../Sender/AttachmentCard'
+import ToolCallsBlock from './ToolCallsBlock'
 // Utils
 import { getRelativeTime } from '../../utils/time'
 import { showMessageAlert } from './Alert/alertUtils'
@@ -134,10 +135,22 @@ function RenderActions({
 interface RenderMetaProps {
   isSystem: boolean
   isUser: boolean
+  isTool: boolean
+  toolCallId?: string
 }
 
-function RenderMeta({ isSystem, isUser }: RenderMetaProps) {
+function RenderMeta({ isSystem, isUser, isTool, toolCallId }: RenderMetaProps) {
   if (isSystem) return null
+  if (isTool) {
+    // tool 角色消息：显示工具响应标识（toolCallId 取短形式）
+    const shortId = toolCallId ? toolCallId.length > 12 ? `${toolCallId.slice(0, 10)}…` : toolCallId : ''
+    return (
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-text-tertiary px-1">
+        <span aria-hidden>🔧</span>
+        <span>工具响应{shortId ? ` · ${shortId}` : ''}</span>
+      </div>
+    )
+  }
   const roleLabel = isUser ? "我" : 'MyCopilot'
   return (
     <div className="mb-1 flex items-center gap-2 text-[11px] text-text-tertiary px-1">
@@ -287,7 +300,12 @@ export default function MessageCard({
         </div>
       )}
       <div className={`flex flex-col items-${isUser ? 'end' : 'start'} gap-1 w-[calc(100%-100px)] `}>
-        <RenderMeta isSystem={isSystem} isUser={isUser} />
+        <RenderMeta
+          isSystem={isSystem}
+          isUser={isUser}
+          isTool={message.role === MessageRole.TOOL}
+          toolCallId={message.toolCallId}
+        />
 
         <div className={bubbleClass}>
           {StatusBar}
@@ -300,6 +318,9 @@ export default function MessageCard({
             isStreaming={isStreaming ?? false}
           />
         </div>
+
+        {/* NEW: Render tool calls block if present */}
+        <ToolCallsBlock message={message} />
 
         {message.attachments.length > 0 && (
           <div className="ml-2 shrink-0">

@@ -20,6 +20,7 @@ import { toolsApp } from './routes/tools.js';
 import { createSkillsApp } from './routes/skills.js';
 import { mcpsApp } from './routes/mcps.js';
 import { jobsApp } from './routes/jobs.js';
+import { debugRoutes } from './routes/debug.js';
 import { listAllEnabledModels } from './repo/model.js';
 import { registerTool } from './tools/registry.js';
 import { builtinExecutors } from './tools/builtins/index.js';
@@ -62,6 +63,14 @@ app.route('/api/tools', toolsApp);
 app.route('/api/skills', createSkillsApp({ skillsDir }));
 app.route('/api/mcps', mcpsApp);
 app.route('/api/jobs', jobsApp);
+
+// Debug route — mounted ONLY when MYCOPILOT_DEBUG === '1' (explicit opt-in).
+// Docker/prod never sets this flag, so the endpoint is fully absent (404),
+// not 401/403, which avoids leaking that the endpoint exists. Auth still
+// applies because this registration happens after the tokenAuthMiddleware.
+if (process.env.MYCOPILOT_DEBUG === '1') {
+  app.route('/api/debug', debugRoutes);
+}
 
 // List all enabled models (used by chat page dropdown)
 app.get('/api/models', (c) => {

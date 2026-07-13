@@ -14,6 +14,11 @@ const Asider = lazy(() => import('../components/Asider/index'))
 const AlertContainer = lazy(() => import('../components/common/Alert'))
 const TokenModal = lazy(() => import('../components/TokenModal'))
 
+// Debug overlay — lazy + conditional so prod builds strip debug code entirely
+// (gating layer 2; layer 1 is the early-return inside each component).
+const DebugBadge = lazy(() => import('../components/debug/DebugBadge'))
+const DebugModal = lazy(() => import('../components/debug/DebugModal'))
+
 export function Layout() {
   const [isCollapsed, setIsCollapsed] = useState(false)
 
@@ -83,6 +88,14 @@ export function Layout() {
           />
         )}
       </Suspense>
+
+      {/* Debug overlay — dev only, double-gated (conditional import + early return) */}
+      {import.meta.env.DEV && (
+        <Suspense fallback={null}>
+          <DebugBadge />
+          <DebugModal />
+        </Suspense>
+      )}
     </div>
   )
 }
