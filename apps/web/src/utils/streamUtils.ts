@@ -19,7 +19,7 @@ export interface SSEStreamParams {
     signal?: AbortSignal;
     onPlaceholder: (msgId: string) => void;
     onDelta: (content: string) => void;
-    onDone: (title: string) => void;
+    onDone: (title: string, content?: string) => void;
     onError: (message: string) => void;
     onAborted: () => void;
     // Phase 2 tool-call / job events — optional, no-op if not provided.
@@ -122,7 +122,7 @@ export async function parseSSEStream({
             case 'done': {
                 try {
                     const data = JSON.parse(event.data || '{}');
-                    onDone(data.title || '');
+                    onDone(data.title || '', data.content);
                 } catch {
                     onDone('');
                 }

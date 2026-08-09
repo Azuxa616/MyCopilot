@@ -199,7 +199,16 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
       } else {
         await stream.writeSSE({
           event: 'done',
-          data: JSON.stringify({ messageId: assistantMsg.id, title }),
+          data: JSON.stringify({
+            messageId: assistantMsg.id,
+            title,
+            // Authoritative final content from the runner (last iteration's
+            // text only). The client uses this to override the locally-
+            // accumulated SSE deltas, which would otherwise concatenate
+            // text from every agent-loop iteration into the placeholder
+            // message (e.g. "好的，我来调用一下…好的，我再调用一次…").
+            content: result.content,
+          }),
         });
       }
     } catch (err) {

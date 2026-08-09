@@ -358,12 +358,20 @@ export const useSessionStore = create<SessionStore>()(
                             updateMessage(realSessionId, sendingId, { content: lastMsg.content + deltaContent });
                         }
                     },
-                    onDone: (title) => {
+                    onDone: (title, content) => {
                         // Mark the last assistant message as sent
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
                         if (sendingId) {
-                            updateMessage(realSessionId, sendingId, { status: 'sent' });
+                            updateMessage(realSessionId, sendingId, {
+                                status: 'sent',
+                                // Override locally-accumulated SSE deltas with the
+                                // authoritative final content from the runner. Without
+                                // this, multi-iteration agent loops (tool call →
+                                // retry → retry) show every iteration's streamed text
+                                // concatenated in the placeholder message.
+                                ...(content !== undefined ? { content } : {}),
+                            });
                         }
                         // Update session title if provided
                         if (title && title !== 'New Session') {
