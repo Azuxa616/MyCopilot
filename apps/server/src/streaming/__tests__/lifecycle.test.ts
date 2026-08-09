@@ -233,7 +233,14 @@ describe('Stream Message Lifecycle', () => {
 
     const doneEvents = sseWrites.filter((w) => w.event === 'done');
     expect(doneEvents).toHaveLength(1);
-    expect(JSON.parse(doneEvents[0].data)).toEqual({ messageId: 'assistant-msg-1', title: 'Hello' });
+    expect(JSON.parse(doneEvents[0].data)).toMatchObject({
+      messageId: 'assistant-msg-1',
+      title: 'Hello',
+      // The done event now carries the authoritative final content so the
+      // client can override locally-accumulated SSE deltas (fix for the
+      // multi-iteration concatenation symptom).
+      content: 'Hello World',
+    });
 
     // unregisterStream called
     expect(mockUnregisterStream).toHaveBeenCalledWith('test-session');
