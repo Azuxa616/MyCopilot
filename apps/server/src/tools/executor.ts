@@ -37,6 +37,21 @@ interface ExecutionTarget {
   ) => Promise<ToolExecutionResult>;
 }
 
+/**
+ * Compute a stable digest for a tool call's raw arguments string.
+ *
+ * Same algorithm used internally by {@link executeToolCall} for the
+ * `argumentsDigest` field on ToolApproval. Exposed so callers (e.g. the
+ * agent-loop runner) can detect cross-iteration duplicate tool calls without
+ * re-implementing the parse → stable-serialize → sha256 pipeline.
+ *
+ * Throws if `rawArgs` is not a JSON object (mirrors parseArguments).
+ */
+export function digestToolCallArguments(rawArgs: string): string {
+  const args = parseArguments(rawArgs);
+  return digest(stableSerialize(args));
+}
+
 export async function executeToolCall(
   toolCall: ToolCall,
   context: ToolExecutionContext,
@@ -46,7 +61,7 @@ export async function executeToolCall(
     const target = await resolveExecutionTarget(toolCall.name, context);
     const agentId = context.agentId ?? DEFAULT_AGENT_ID;
     const safetyLevel = resolveEffectiveSafetyLevel(target.tool, target.ref, agentId);
-    const argumentsDigest = digest(stableSerialize(args));
+    const argumentsDigest = digestToolCallArguments(toolCall.arguments);
     const resourceScope = deriveResourceScope(args, argumentsDigest);
     const cacheKey = [
       context.sessionId,

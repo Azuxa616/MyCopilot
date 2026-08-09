@@ -29,7 +29,10 @@ import { estimateMessagesTokens } from '../prompt/token-counter.js';
 import { summarizeHistory } from '../prompt/summarizer.js';
 import { createMessage, updateMessage } from '../repo/message.js';
 import { createSummary, getLatestSummary } from '../repo/summary.js';
-import { executeToolCall } from '../tools/executor.js';
+import {
+  digestToolCallArguments,
+  executeToolCall,
+} from '../tools/executor.js';
 import { toolInputSchemaToJsonSchema } from '../utils/schema-adapter.js';
 import {
   resumeJobAfterConfirmation,
@@ -257,9 +260,17 @@ export async function runAgentLoop(
 
   const maxIter = resolveMaxIterations(params.maxIterations);
 
-  let fullContent = '';
+  let lastIterationContent = '';
   const addedMessages: Message[] = [];
   const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+
+  // Digests of tool calls already attempted in this run. Prevents the LLM
+  // from re-issuing the same (name + arguments) tool call across iterations
+  // when the previous attempt failed (typical trigger: danger tool
+  // confirmation rejected/expired, or orphan mcp-provided tool that always
+  // resolves to "Unknown tool" → model naively retries → repeat until
+  // maxIterations).
+  const attemptedDigests = new Set<string>();
 
   // Convert Tool[] to JsonSchemaTool[] for LLM adapter
   const jsonTools: JsonSchemaTool[] = tools.map((t) => ({
@@ -275,11 +286,19 @@ export async function runAgentLoop(
     let iterations = 0;
 
     while (iterations < maxIter) {
+      // Per-iteration content accumulator. Reset every iteration so the
+      // placeholder message and persisted assistant messages contain only
+      // the current round's text — NOT a cross-iteration concatenation.
+      // (Previously this lived outside the while, which produced
+      // "好的，我来调用一下…好的，我再调用一次…" 5x repetitions on every
+      // tool-call round because each round's full text was appended.)
+      let iterationContent = '';
+
       // 1. Check abort at the top of every iteration.
       if (abortSignal.aborted) {
-        updateMessage(userMessageId, { content: fullContent, status: 'aborted' });
+        updateMessage(userMessageId, { content: lastIterationContent, status: 'aborted' });
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
-        return { status: 'aborted', content: fullContent, messages: addedMessages };
+        return { status: 'aborted', content: lastIterationContent, messages: addedMessages };
       }
 
       // 1b. Lazy summarization — compact long histories before assembling the
@@ -313,7 +332,7 @@ export async function runAgentLoop(
         await onEvent({ type: 'llm_event', event });
 
         if (event.type === 'content') {
-          fullContent += event.text;
+          iterationContent += event.text;
         } else if (event.type === 'tool_call_done') {
           toolCalls.push({
             id: event.id,
@@ -325,28 +344,32 @@ export async function runAgentLoop(
         }
       }
 
+      // Remember this iteration's content for terminal / fallback paths
+      // outside the loop (max_iterations, exception handler).
+      lastIterationContent = iterationContent;
+
       // 5. Check abort after LLM stream consumed.
       if (abortSignal.aborted) {
-        updateMessage(userMessageId, { content: fullContent, status: 'aborted' });
+        updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
-        return { status: 'aborted', content: fullContent, messages: addedMessages };
+        return { status: 'aborted', content: iterationContent, messages: addedMessages };
       }
 
       // 6. Terminal finish reasons — no further tool execution.
       if (finishReason === 'stop' || finishReason === 'length') {
-        updateMessage(userMessageId, { content: fullContent, status: 'sent' });
+        updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
         const status: AgentLoopStatus =
           finishReason === 'length' ? 'length_limited' : 'completed';
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: status });
-        return { status, content: fullContent, messages: addedMessages };
+        return { status, content: iterationContent, messages: addedMessages };
       }
 
       // 7. No tool calls and no explicit finish — treat as complete to avoid
       //    looping forever on a degenerate adapter response.
       if (toolCalls.length === 0) {
-        updateMessage(userMessageId, { content: fullContent, status: 'sent' });
+        updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'completed' });
-        return { status: 'completed', content: fullContent, messages: addedMessages };
+        return { status: 'completed', content: iterationContent, messages: addedMessages };
       }
 
       // 8. Persist the assistant message that requested tool calls (once per
@@ -354,7 +377,7 @@ export async function runAgentLoop(
       createMessage({
         sessionId,
         role: 'assistant',
-        content: fullContent,
+        content: iterationContent,
         toolCalls,
         status: 'sent',
       });
@@ -363,7 +386,7 @@ export async function runAgentLoop(
         id: `syn-assistant-${iterations}-${Date.now().toString(36)}`,
         sessionId,
         role: 'assistant',
-        content: fullContent,
+        content: iterationContent,
         toolCalls,
         status: 'sent',
         createdAt: Date.now(),
@@ -372,9 +395,32 @@ export async function runAgentLoop(
       history.push(assistantMsg);
       addedMessages.push(assistantMsg);
 
-      // 9. Execute all tool calls in parallel.
+      // 9. Partition tool calls by (name + arguments) digest across iterations.
+      //    Re-issuing the same call after a prior attempt (success OR failure)
+      //    is almost always a model retry loop. Skipped calls get a synthetic
+      //    "don't retry identical args" tool result so the LLM sees an explicit
+      //    stop signal instead of the original failure repeated indefinitely.
+      const pendingToolCalls: ToolCall[] = [];
+      const skippedToolCalls: ToolCall[] = [];
+      for (const tc of toolCalls) {
+        let d: string;
+        try {
+          d = digestToolCallArguments(tc.arguments);
+        } catch {
+          // Malformed arguments: let the executor surface the real error.
+          d = `${tc.name}:raw:${tc.arguments}`;
+        }
+        if (attemptedDigests.has(d)) {
+          skippedToolCalls.push(tc);
+        } else {
+          pendingToolCalls.push(tc);
+          attemptedDigests.add(d);
+        }
+      }
+
+      // 10. Execute non-skipped tool calls in parallel.
       const toolResults = await Promise.all(
-        toolCalls.map((tc) =>
+        pendingToolCalls.map((tc) =>
           executeToolCall(tc, {
             sessionId,
             agentId,
@@ -390,9 +436,9 @@ export async function runAgentLoop(
         ),
       );
 
-      // 10. Persist each tool result, push to history, notify caller.
-      for (let i = 0; i < toolCalls.length; i++) {
-        const tc = toolCalls[i]!;
+      // 11. Persist each executed tool result, push to history, notify caller.
+      for (let i = 0; i < pendingToolCalls.length; i++) {
+        const tc = pendingToolCalls[i]!;
         const result = toolResults[i]!;
         const resultJson = JSON.stringify(result.content);
 
@@ -427,37 +473,79 @@ export async function runAgentLoop(
         });
       }
 
-      // 11. Re-check abort after (potentially slow) tool execution.
+      // 12. Persist synthetic "skipped" results for deduped tool calls so
+      //     the LLM receives an explicit signal instead of retrying blindly.
+      for (const tc of skippedToolCalls) {
+        const skippedContent = [
+          {
+            type: 'text' as const,
+            text: 'Tool execution skipped: a tool call with identical arguments was already attempted in this run. Do not retry the same arguments; choose different arguments or stop.',
+          },
+        ];
+        const resultJson = JSON.stringify(skippedContent);
+
+        createMessage({
+          sessionId,
+          role: 'tool',
+          content: resultJson,
+          toolCallId: tc.id,
+          status: 'sent',
+        });
+
+        const toolMsg: Message = {
+          id: `syn-tool-skip-${tc.id}`,
+          sessionId,
+          role: 'tool',
+          content: resultJson,
+          toolCallId: tc.id,
+          status: 'sent',
+          createdAt: Date.now(),
+          attachments: [],
+        };
+        history.push(toolMsg);
+        addedMessages.push(toolMsg);
+
+        await onEvent({
+          type: 'tool_result',
+          toolResult: {
+            callId: tc.id,
+            result: resultJson,
+            isError: true,
+          },
+        });
+      }
+
+      // 13. Re-check abort after (potentially slow) tool execution.
       if (abortSignal.aborted) {
-        updateMessage(userMessageId, { content: fullContent, status: 'aborted' });
+        updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
-        return { status: 'aborted', content: fullContent, messages: addedMessages };
+        return { status: 'aborted', content: iterationContent, messages: addedMessages };
       }
     }
 
-    // 12. Exhausted maxIterations.
-    updateMessage(userMessageId, { content: fullContent, status: 'sent' });
+    // 14. Exhausted maxIterations.
+    updateMessage(userMessageId, { content: lastIterationContent, status: 'sent' });
     await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'max_iterations' });
-    return { status: 'max_iterations', content: fullContent, messages: addedMessages };
+    return { status: 'max_iterations', content: lastIterationContent, messages: addedMessages };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 
     // Distinguish abort-driven exceptions from real errors.
     if (abortSignal.aborted) {
-      updateMessage(userMessageId, { content: fullContent, status: 'aborted' });
+      updateMessage(userMessageId, { content: lastIterationContent, status: 'aborted' });
       await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
-      return { status: 'aborted', content: fullContent, messages: addedMessages };
+      return { status: 'aborted', content: lastIterationContent, messages: addedMessages };
     }
 
     updateMessage(userMessageId, {
-      content: fullContent,
+      content: lastIterationContent,
       status: 'failed',
       error: message,
     });
     await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'error' });
     return {
       status: 'error',
-      content: fullContent,
+      content: lastIterationContent,
       messages: addedMessages,
       error: message,
     };

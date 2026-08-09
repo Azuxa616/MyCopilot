@@ -36,11 +36,14 @@ function cleanup() {
 // ── Start server ──
 // MYCOPILOT_DEBUG enables the /api/debug endpoint for local dev. Docker/prod
 // never sets this flag, so the endpoint stays absent in production.
+// MYCOPILOT_E2E_TOOLS enables the e2e_danger_tool / e2e_restricted_tool
+// built-in fixtures so the chat UI can exercise the danger/restricted
+// confirmation flows without an external MCP server. Also dev-only.
 const server = spawn('pnpm', ['--filter', 'server', 'dev'], {
   stdio: 'inherit',
   shell: true,
   windowsHide: true,
-  env: { ...process.env, MYCOPILOT_DEBUG: '1' },
+  env: { ...process.env, MYCOPILOT_DEBUG: '1', MYCOPILOT_E2E_TOOLS: '1' },
 });
 
 // ── Wait for /api/health ──

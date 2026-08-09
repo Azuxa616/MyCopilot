@@ -269,12 +269,14 @@ describe('runAgentLoop', () => {
 
   // --- 4. maxIterations exceeded --------------------------------------
   it('returns status="max_iterations" when the model keeps requesting tools', async () => {
-    // Every iteration emits a tool call; never stops on its own.
+    // Every iteration emits a tool call with distinct arguments so the
+    // cross-iteration dedupe (attemptedDigests) does not kick in — we want
+    // to verify the maxIterations ceiling itself, not the dedupe behavior.
     const foreverTools: AsyncGenerator<StreamEvent>[] = [];
     for (let i = 0; i < 10; i++) {
       foreverTools.push(
         generatorFrom([
-          events.toolCallDone(i, `call-${i}`, 'echo'),
+          events.toolCallDone(i, `call-${i}`, 'echo', { round: i }),
           events.finish('tool_calls'),
         ]),
       );
@@ -493,5 +495,128 @@ describe('runAgentLoop', () => {
     );
 
     expect(result.status).toBe('aborted');
+  });
+
+  // --- 14. fullContent is NOT accumulated across iterations ------------
+  // Regression: previously `fullContent` was declared outside the while loop
+  // and every iteration's streamed text was appended to it. Each persisted
+  // assistant message (and the placeholder) then contained the concatenation
+  // of all prior iterations' text — producing the visible
+  // "好的，我来调用一下…好的，我再调用一次…" 5x repetition symptom.
+  it('resets content per iteration so assistant messages do not accumulate', async () => {
+    const adapter = makeAdapter([
+      // Iteration 1: text + tool_call
+      generatorFrom([
+        events.content('调用一下'),
+        events.toolCallDone(0, 'call-a', 'echo'),
+        events.finish('tool_calls'),
+      ]),
+      // Iteration 2: different text + tool_call (distinct args so dedupe
+      // does not kick in — this test isolates the content-accumulation bug)
+      generatorFrom([
+        events.content('再调用一下'),
+        events.toolCallDone(0, 'call-b', 'echo', { round: 2 }),
+        events.finish('tool_calls'),
+      ]),
+      // Iteration 3: terminal text
+      generatorFrom([events.content('done'), events.finish('stop')]),
+    ]);
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+
+    const result = await runAgentLoop(
+      makeParams({ adapter, tools: [makeTool('echo')] }),
+    );
+
+    // Final returned content = last iteration only, NOT concatenation.
+    expect(result.content).toBe('done');
+
+    // Every persisted assistant message contains ONLY its own iteration's
+    // text — never the cross-iteration concatenation.
+    const assistantCalls = mockCreateMessage.mock.calls
+      .map(([p]: [unknown]) => p as { role: string; content: string })
+      .filter((p) => p.role === 'assistant' && p.content !== '');
+    // One assistant row per tool-call iteration.
+    expect(assistantCalls).toHaveLength(2);
+    expect(assistantCalls[0]!.content).toBe('调用一下');
+    expect(assistantCalls[1]!.content).toBe('再调用一下');
+
+    // Placeholder final update = last iteration's text only.
+    const placeholderUpdate = mockUpdateMessage.mock.calls.find(
+      ([id, patch]: [string, { content?: string }]) =>
+        id === 'assistant-msg-1' &&
+        typeof patch.content === 'string' &&
+        patch.content.length > 0,
+    );
+    expect(placeholderUpdate?.[1]).toMatchObject({ content: 'done' });
+  });
+
+  // --- 15. Same arguments digest is not re-executed (anti-retry) -------
+  // Regression: when a tool call failed (e.g. danger tool rejected/expired,
+  // or "Unknown tool" for orphan mcp-provided rows), the errorResult was
+  // written as a tool message and the LLM naturally retried the identical
+  // call. Without dedupe, the loop re-triggered confirmation prompts /
+  // resolve-failures until maxIterations — burning tokens and producing the
+  // death-loop symptom.
+  it('skips re-execution of tool calls with identical arguments and signals the LLM', async () => {
+    const adapter = makeAdapter([
+      // Iteration 1: model calls echo with {x:1}
+      generatorFrom([
+        events.toolCallDone(0, 'call-1', 'echo', { x: 1 }),
+        events.finish('tool_calls'),
+      ]),
+      // Iteration 2: model naively retries with identical args
+      generatorFrom([
+        events.toolCallDone(0, 'call-2', 'echo', { x: 1 }),
+        events.finish('tool_calls'),
+      ]),
+      // Iteration 3: model gives up
+      generatorFrom([events.finish('stop')]),
+    ]);
+    mockExecuteToolCall.mockResolvedValue(toolResult('echoed'));
+
+    const onEvent = vi.fn();
+    const result = await runAgentLoop(
+      makeParams({ adapter, onEvent, tools: [makeTool('echo')] }),
+    );
+
+    expect(result.status).toBe('completed');
+
+    // The real executor ran ONLY once (iteration 1). Iteration 2 was skipped.
+    expect(mockExecuteToolCall).toHaveBeenCalledTimes(1);
+    expect(mockExecuteToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'call-1' }),
+      expect.anything(),
+    );
+
+    // Both tool calls produced a tool_result event so the LLM sees feedback.
+    const toolResultEvents = onEvent.mock.calls
+      .map(([e]: [AgentLoopEvent]) => e)
+      .filter((e) => e.type === 'tool_result');
+    expect(toolResultEvents).toHaveLength(2);
+
+    // First result: real execution, no error.
+    expect(toolResultEvents[0]).toMatchObject({
+      type: 'tool_result',
+      toolResult: { callId: 'call-1', isError: false },
+    });
+
+    // Second result: synthetic skipped marker, flagged as error.
+    expect(toolResultEvents[1]).toMatchObject({
+      type: 'tool_result',
+      toolResult: { callId: 'call-2', isError: true },
+    });
+    const skippedPayload = JSON.parse(
+      toolResultEvents[1]!.toolResult.result,
+    ) as Array<{ type: string; text: string }>;
+    expect(skippedPayload[0]!.text).toMatch(/already attempted/i);
+
+    // Both tool messages persisted to history (so the LLM sees them next round).
+    const toolPersistCalls = mockCreateMessage.mock.calls
+      .map(([p]: [unknown]) => p as { role: string; toolCallId?: string })
+      .filter((p) => p.role === 'tool');
+    expect(toolPersistCalls).toHaveLength(2);
+    expect(toolPersistCalls.map((p) => p.toolCallId).sort()).toEqual(
+      ['call-1', 'call-2'].sort(),
+    );
   });
 });

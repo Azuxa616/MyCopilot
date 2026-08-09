@@ -59,9 +59,18 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
   };
 
   // Advertise enabled tools to the LLM (empty list in Phase 1).
+  // Filter out orphan mcp-provided tools (source_mcp_id=null): they have no
+  // live MCP server to execute against, so resolveExecutionTarget would throw
+  // "Unknown tool" on every call, triggering endless model retries. Such rows
+  // are typically legacy test data — the API forbids manual create/delete of
+  // tools, and syncMcpTools always writes a non-null source_mcp_id, so a null
+  // source on a mcp-provided row is a data-integrity violation.
   const enabledTools = [
     ...listRegisteredTools(),
-    ...listEnabledTools().filter((tool) => tool.type === 'mcp-provided'),
+    ...listEnabledTools().filter(
+      (tool) =>
+        tool.type === 'mcp-provided' && tool.sourceMcpId !== null,
+    ),
   ];
 
   // ─── Async mode (Step B): enqueue a job and return immediately ───
