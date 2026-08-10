@@ -32,3 +32,13 @@ export interface UpdateMcpParams {
   config?: McpConfig;
   enabled?: boolean;
 }
+
+export interface TestMcpConfigParams {
+  config: McpConfig;
+}
+
+export interface TestMcpConfigResult {
+  success: boolean;
+  tools?: string[];
+  error?: string;
+}
