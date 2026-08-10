@@ -10,7 +10,7 @@ import type {
   Message,
   Tool, UpdateToolParams,
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
-  Mcp, CreateMcpParams, UpdateMcpParams,
+  Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
 } from '@my-copilot/shared';
 import { enhancedFetch, fetchWithAuth } from './request';
 import { StreamError } from './errors';
@@ -511,6 +511,30 @@ export async function testMcp(id: string): Promise<{
     }>(`/api/mcps/${id}/test`, {
         method: 'POST',
         timeout: 60000,
+    });
+    return response.data;
+}
+
+/**
+ * Test an MCP config WITHOUT persisting — form-internal connectivity check.
+ * POST /api/mcps/test-config
+ *
+ * Unlike `testMcp(id)`, this does not save the MCP first; it connects to the
+ * server described by `config`, lists tools, and disconnects. Used by the
+ * JSON config form's "测试连通" button.
+ */
+export async function testMcpConfig(
+    config: McpConfig,
+): Promise<TestMcpConfigResult> {
+    const response = await enhancedFetch<{
+        data: TestMcpConfigResult;
+    }>('/api/mcps/test-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+        // stdio spawn + initialize handshake can take a while; allow headroom
+        // beyond the server's 30s internal timeout.
+        timeout: 45000,
     });
     return response.data;
 }
