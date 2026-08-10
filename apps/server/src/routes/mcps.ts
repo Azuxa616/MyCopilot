@@ -11,6 +11,7 @@ import {
   disconnect,
   synchronizeMcpTools,
   trySynchronizeMcpTools,
+  testConnection,
 } from '../mcp/index.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
@@ -69,6 +70,18 @@ mcpsApp.post('/', async (c) => {
   const data = createMcp(params);
   await trySynchronizeMcpTools(data);
   return successResponse(c, data, 201);
+});
+
+mcpsApp.post('/test-config', async (c) => {
+  const body = await c.req.json();
+  validateMcpConfig(body?.config);
+
+  const result = await testConnection(body.config);
+  return c.json({
+    code: result.success ? 0 : -1,
+    msg: result.success ? 'ok' : (result.error ?? '连接失败'),
+    data: result,
+  });
 });
 
 mcpsApp.get('/:id', (c) => {

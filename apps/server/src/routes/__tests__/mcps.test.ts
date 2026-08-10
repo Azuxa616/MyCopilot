@@ -16,6 +16,7 @@ vi.mock('../../mcp/index.js', () => ({
   disconnect: vi.fn().mockResolvedValue(undefined),
   synchronizeMcpTools: vi.fn(),
   trySynchronizeMcpTools: vi.fn().mockResolvedValue(null),
+  testConnection: vi.fn(),
 }));
 
 vi.mock('../../repo/tool.js', () => ({
@@ -33,6 +34,7 @@ import {
   disconnect,
   synchronizeMcpTools,
   trySynchronizeMcpTools,
+  testConnection,
 } from '../../mcp/index.js';
 import { deleteToolsByMcp } from '../../repo/tool.js';
 
@@ -329,5 +331,82 @@ describe('mcps route', () => {
     });
     expect(response.status).toBe(200);
     expect(trySynchronizeMcpTools).toHaveBeenCalledWith(updated);
+  });
+
+  describe('POST /test-config', () => {
+    beforeEach(() => {
+      vi.mocked(testConnection).mockReset();
+    });
+
+    it('returns 400 when config is missing transport', async () => {
+      const app = createTestApp();
+      const res = await app.request('/test-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: { command: 'npx' } }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when stdio config has no command', async () => {
+      const app = createTestApp();
+      const res = await app.request('/test-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config: { transport: 'stdio', args: ['-y'] },
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('returns success and tool names when testConnection succeeds', async () => {
+      vi.mocked(testConnection).mockResolvedValue({
+        success: true,
+        tools: ['browser_navigate', 'browser_click'],
+      });
+
+      const app = createTestApp();
+      const res = await app.request('/test-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: stdioConfig }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        code: number;
+        data: { success: boolean; tools: string[] };
+      };
+      expect(body.code).toBe(0);
+      expect(body.data.success).toBe(true);
+      expect(body.data.tools).toEqual(['browser_navigate', 'browser_click']);
+      expect(testConnection).toHaveBeenCalledWith(stdioConfig);
+    });
+
+    it('returns code -1 when testConnection reports failure', async () => {
+      vi.mocked(testConnection).mockResolvedValue({
+        success: false,
+        tools: [],
+        error: 'spawn ENOENT',
+      });
+
+      const app = createTestApp();
+      const res = await app.request('/test-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: stdioConfig }),
+      });
+      // Note: HTTP 200 with code=-1, consistent with POST /:id/test.
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        code: number;
+        msg: string;
+        data: { success: boolean; error: string };
+      };
+      expect(body.code).toBe(-1);
+      expect(body.msg).toBe('spawn ENOENT');
+      expect(body.data.success).toBe(false);
+      expect(body.data.error).toBe('spawn ENOENT');
+    });
   });
 });
