@@ -1,22 +1,19 @@
-// McpFormModal - Create / edit an MCP server connection.
+// McpFormModal - Create / edit an MCP server connection via JSON config.
 //
-// Transport-aware form:
-// - stdio: command (text) + args (textarea, newline-separated) + env (textarea, KEY=value lines)
-// - sse / http: url (text)
-//
-// The args/env textareas are free-form on the UI side; we parse them into the
-// structured `McpConfig` shape on submit. Server re-validates everything.
+// 用户直接粘贴 McpConfig JSON（扁平格式，对应 @my-copilot/shared 的 McpConfig）。
+// 前端用 validateConfigJson 做语法+结构实时校验作为保存门禁；"测试连通"
+// 按钮调 POST /api/mcps/test-config 做不落库的临时连接测试。
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type {
   Mcp,
-  McpTransport,
-  McpConfig,
   CreateMcpParams,
   UpdateMcpParams,
 } from '@my-copilot/shared'
+import { api } from '../api'
 import Modal from './common/Modal'
 import { FormField, formControlClassName } from './common/FormField'
+import { validateConfigJson } from '../utils/mcpConfig'
 
 export interface McpFormModalProps {
   open: boolean
@@ -26,40 +23,18 @@ export interface McpFormModalProps {
   onSave: (params: CreateMcpParams | UpdateMcpParams) => void
 }
 
-const TRANSPORTS: McpTransport[] = ['stdio', 'sse', 'http']
+const DEFAULT_CONFIG_TEXT = `{
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@playwright/mcp@latest"],
+  "env": {}
+}`
 
-// ─── textarea <-> structured helpers ───
-
-function argsToText(args?: string[]): string {
-  return args && args.length > 0 ? args.join('\n') : ''
-}
-
-function textToArgs(text: string): string[] {
-  return text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-}
-
-function envToText(env?: Record<string, string>): string {
-  if (!env) return ''
-  return Object.entries(env)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n')
-}
-
-function textToEnv(text: string): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    const eq = trimmed.indexOf('=')
-    if (eq <= 0) continue // skip lines without KEY= or with empty key
-    const key = trimmed.slice(0, eq).trim()
-    const value = trimmed.slice(eq + 1)
-    if (key) env[key] = value
-  }
-  return env
+interface TestState {
+  loading: boolean
+  success?: boolean
+  tools?: string[]
+  error?: string
 }
 
 export default function McpFormModal({
@@ -72,18 +47,9 @@ export default function McpFormModal({
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [transport, setTransport] = useState<McpTransport>('stdio')
+  const [configText, setConfigText] = useState(DEFAULT_CONFIG_TEXT)
   const [enabled, setEnabled] = useState(true)
-
-  // stdio fields
-  const [command, setCommand] = useState('')
-  const [argsText, setArgsText] = useState('')
-  const [envText, setEnvText] = useState('')
-
-  // sse/http field
-  const [url, setUrl] = useState('')
-
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [test, setTest] = useState<TestState>({ loading: false })
 
   // Reset / hydrate whenever the modal opens or the target mcp changes.
   useEffect(() => {
@@ -91,69 +57,48 @@ export default function McpFormModal({
     if (mcp) {
       setName(mcp.name)
       setDescription(mcp.description)
-      setTransport(mcp.config.transport)
+      setConfigText(JSON.stringify(mcp.config, null, 2))
       setEnabled(mcp.enabled)
-      setCommand(mcp.config.command ?? '')
-      setArgsText(argsToText(mcp.config.args))
-      setEnvText(envToText(mcp.config.env))
-      setUrl(mcp.config.url ?? '')
     } else {
       setName('')
       setDescription('')
-      setTransport('stdio')
+      setConfigText(DEFAULT_CONFIG_TEXT)
       setEnabled(true)
-      setCommand('')
-      setArgsText('')
-      setEnvText('')
-      setUrl('')
     }
-    setErrors({})
+    setTest({ loading: false })
   }, [open, mcp])
 
-  const validate = (): boolean => {
-    const next: Record<string, string> = {}
-    if (!name.trim()) next.name = '名称不能为空'
-    if (transport === 'stdio') {
-      if (!command.trim()) next.command = 'stdio 传输需要 command'
-    } else {
-      if (!url.trim()) next.url = `${transport} 传输需要 url`
-    }
-    setErrors(next)
-    return Object.keys(next).length === 0
-  }
+  // 实时校验（每次 configText 变化都重新计算；validateConfigJson 是纯函数且很轻）。
+  const validation = useMemo(() => validateConfigJson(configText), [configText])
 
-  const buildConfig = (): McpConfig => {
-    if (transport === 'stdio') {
-      const config: McpConfig = { transport, command: command.trim() }
-      const args = textToArgs(argsText)
-      if (args.length > 0) config.args = args
-      const env = textToEnv(envText)
-      if (Object.keys(env).length > 0) config.env = env
-      return config
+  const canSave = name.trim().length > 0 && validation.config !== null
+
+  const handleTest = async () => {
+    if (!validation.config) return
+    setTest({ loading: true })
+    try {
+      const result = await api.testMcpConfig(validation.config)
+      setTest({
+        loading: false,
+        success: result.success,
+        tools: result.tools,
+        error: result.error,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '请求失败'
+      setTest({ loading: false, success: false, error: msg })
     }
-    return { transport, url: url.trim() }
   }
 
   const handleSubmit = () => {
-    if (!validate()) return
-    const config = buildConfig()
-    if (isEdit && mcp) {
-      const params: UpdateMcpParams = {
-        name: name.trim(),
-        description: description.trim(),
-        config,
-        enabled,
-      }
-      onSave(params)
-    } else {
-      const params: CreateMcpParams = {
-        name: name.trim(),
-        description: description.trim(),
-        config,
-        enabled,
-      }
-      onSave(params)
+    if (!validation.config) return
+    const params: CreateMcpParams | UpdateMcpParams = {
+      name: name.trim(),
+      description: description.trim(),
+      config: validation.config,
+      enabled,
     }
+    onSave(params)
     onClose()
   }
 
@@ -166,13 +111,13 @@ export default function McpFormModal({
     >
       <div className="flex flex-col gap-4">
         {/* Name */}
-        <FormField label="名称" required error={errors.name}>
+        <FormField label="名称" required>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className={formControlClassName}
-            placeholder="例如：filesystem"
+            placeholder="例如：playwright"
           />
         </FormField>
 
@@ -186,72 +131,52 @@ export default function McpFormModal({
           />
         </FormField>
 
-        {/* Transport */}
-        <FormField label="传输方式" required>
-          <select
-            value={transport}
-            onChange={(e) => setTransport(e.target.value as McpTransport)}
-            className={formControlClassName}
-            disabled={isEdit}
-          >
-            {TRANSPORTS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          {isEdit && (
-            <span className="text-xs text-text-tertiary italic">
-              编辑模式下传输方式不可更改
+        {/* Config JSON */}
+        <FormField label="配置 JSON" required error={validation.error ?? undefined}>
+          <textarea
+            value={configText}
+            onChange={(e) => setConfigText(e.target.value)}
+            className={`${formControlClassName} min-h-[200px] resize-y font-mono text-xs ${
+              validation.error
+                ? 'border-error focus:border-error'
+                : validation.config
+                  ? 'border-success focus:border-success'
+                  : ''
+            }`}
+            placeholder={DEFAULT_CONFIG_TEXT}
+            spellCheck={false}
+          />
+          {validation.preview && !validation.error && (
+            <span className="text-xs text-success-dark font-mono break-words">
+              {validation.preview}
             </span>
           )}
         </FormField>
 
-        {/* Dynamic transport-specific fields */}
-        {transport === 'stdio' ? (
-          <>
-            <FormField label="Command" required error={errors.command}>
-              <input
-                type="text"
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                className={`${formControlClassName} font-mono text-xs`}
-                placeholder="例如：npx"
-              />
-            </FormField>
-
-            <FormField label="Args（每行一个）">
-              <textarea
-                value={argsText}
-                onChange={(e) => setArgsText(e.target.value)}
-                className={`${formControlClassName} min-h-[80px] resize-y font-mono text-xs`}
-                placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/tmp'}
-              />
-            </FormField>
-
-            <FormField label="Env（KEY=value 每行一个）">
-              <textarea
-                value={envText}
-                onChange={(e) => setEnvText(e.target.value)}
-                className={`${formControlClassName} min-h-[80px] resize-y font-mono text-xs`}
-                placeholder={'API_KEY=xxx\nNODE_ENV=production'}
-              />
-            </FormField>
-          </>
-        ) : (
-          <FormField label="URL" required error={errors.url}>
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className={`${formControlClassName} font-mono text-xs`}
-              placeholder={
-                transport === 'sse'
-                  ? 'https://example.com/sse'
-                  : 'https://example.com/mcp'
-              }
-            />
-          </FormField>
+        {/* Test connectivity result */}
+        {test.success !== undefined && !test.loading && (
+          <div
+            className={`px-3 py-2 rounded-lg text-xs border ${
+              test.success
+                ? 'bg-success-light border-success text-success-dark'
+                : 'bg-error-light border-error text-error-dark'
+            }`}
+          >
+            {test.success ? (
+              <div className="flex flex-col gap-1">
+                <span className="font-medium">
+                  连接成功 · {test.tools?.length ?? 0} 个工具
+                </span>
+                {test.tools && test.tools.length > 0 && (
+                  <span className="font-mono break-words">
+                    {test.tools.join(', ')}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span>连接失败：{test.error}</span>
+            )}
+          </div>
         )}
 
         {/* Enabled toggle */}
@@ -266,19 +191,29 @@ export default function McpFormModal({
         </label>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 mt-2">
+        <div className="flex justify-between gap-3 mt-2">
           <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-text-primary bg-bg-secondary border border-border-base rounded-lg hover:bg-bg-hover transition-colors"
+            onClick={handleTest}
+            disabled={!validation.config || test.loading}
+            className="px-4 py-2 text-sm text-text-primary bg-bg-secondary border border-border-base rounded-lg hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            取消
+            {test.loading ? '测试中...' : '测试连通'}
           </button>
-          <button
-            onClick={handleSubmit}
-            className="px-4 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
-          >
-            {isEdit ? '保存' : '创建'}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-text-primary bg-bg-secondary border border-border-base rounded-lg hover:bg-bg-hover transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={!canSave}
+              className="px-4 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isEdit ? '保存' : '创建'}
+            </button>
+          </div>
         </div>
       </div>
     </Modal>
