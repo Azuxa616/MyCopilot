@@ -29,6 +29,7 @@ import {
   disconnectAll,
   listAllTools,
   getConnection,
+  testConnection,
   __clearConnectionsForTests,
 } from '../manager.js';
 
@@ -268,5 +269,69 @@ describe('mcp manager', () => {
     ]);
     expect(tools).toHaveLength(1);
     expect(tools[0]!.name).toBe('ok');
+  });
+
+  // --- testConnection ----------------------------------------------------
+  describe('testConnection', () => {
+    it('returns success and tool names when connect + listTools succeed', async () => {
+      proto.connect.mockResolvedValue(undefined);
+      proto.listTools.mockResolvedValue({
+        tools: [
+          { name: 'browser_navigate', inputSchema: { type: 'object' } },
+          { name: 'browser_click', inputSchema: { type: 'object' } },
+        ],
+      });
+
+      const result = await testConnection(stdioConfig);
+
+      expect(result.success).toBe(true);
+      expect(result.tools).toEqual(['browser_navigate', 'browser_click']);
+      expect(result.error).toBeUndefined();
+      // client.close() is always invoked (cleanup).
+      expect(proto.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns failure with error when connect throws', async () => {
+      proto.connect.mockRejectedValue(new Error('spawn ENOENT'));
+
+      const result = await testConnection(stdioConfig);
+
+      expect(result.success).toBe(false);
+      expect(result.tools).toEqual([]);
+      expect(result.error).toBe('spawn ENOENT');
+      // close() is still called in finally even on failure.
+      expect(proto.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns failure when listTools throws', async () => {
+      proto.connect.mockResolvedValue(undefined);
+      proto.listTools.mockRejectedValue(new Error('protocol error'));
+
+      const result = await testConnection(stdioConfig);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('protocol error');
+      expect(proto.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not pollute the connection pool', async () => {
+      proto.connect.mockResolvedValue(undefined);
+      proto.listTools.mockResolvedValue({ tools: [] });
+
+      await testConnection(stdioConfig);
+
+      // testConnection must NOT register anything in the pool.
+      expect(getConnection('__test__')).toBeUndefined();
+      expect(getConnection('any')).toBeUndefined();
+    });
+
+    it('wraps non-Error throws into a generic error message', async () => {
+      proto.connect.mockRejectedValue('string error');
+
+      const result = await testConnection(stdioConfig);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('连接失败');
+    });
   });
 });

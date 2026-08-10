@@ -6,6 +6,7 @@ export {
   disconnectAll,
   listAllTools,
   getConnection,
+  testConnection,
   __clearConnectionsForTests,
 } from './manager.js';
 export type { McpConnection, McpConnectionHealth } from './manager.js';

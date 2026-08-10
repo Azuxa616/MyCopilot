@@ -194,6 +194,45 @@ export function getConnection(mcpId: string): McpConnection | undefined {
   return connections.get(mcpId);
 }
 
+/**
+ * 临时连接测试：建立连接 → 列工具 → 立即关闭，不污染连接池。
+ *
+ * 用于 POST /api/mcps/test-config（不落库的表单内测试）。失败信息进 `error`
+ * 字段返回，不抛异常 —— 与现有 POST /:id/test 的风格一致。
+ */
+export async function testConnection(
+  config: McpConfig,
+  timeoutMs?: number,
+): Promise<{ success: boolean; tools: string[]; error?: string }> {
+  const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const client = new Client({
+    name: 'my-copilot-test',
+    version: '1.0.0',
+  });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const transport = createTransport(config);
+    await client.connect(transport);
+    const result = await client.listTools();
+    return {
+      success: true,
+      tools: result.tools.map((t) => t.name),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      tools: [],
+      error: err instanceof Error ? err.message : '连接失败',
+    };
+  } finally {
+    clearTimeout(timer);
+    await safeClose(client);
+  }
+}
+
 /** Test-only escape hatch: clears the pool without invoking close(). */
 export function __clearConnectionsForTests(): void {
   connections.clear();
