@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/extension-points/context-providers.schema.json",
+  "title": "Context Providers Extension Point",
+  "description": "自包含 JSON Schema (draft-07)。内部引用仅使用 $defs。镜像 docs/rfc/types/extension-points/context-providers.d.ts。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pluginId", "id", "label"],
+  "properties": {
+    "pluginId": { "$ref": "#/$defs/PluginId" },
+    "id": { "$ref": "#/$defs/ProviderLocalId" },
+    "label": { "$ref": "#/$defs/NonEmptyString" },
+    "priority": {
+      "type": "integer",
+      "description": "装配 system prompt 时数值小者先运行。",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 100
+    },
+    "maxChars": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 32768,
+      "default": 4000
+    },
+    "slot": { "$ref": "#/$defs/ContextInjectionSlot" }
+  },
+  "$defs": {
+    "NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "PluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "ProviderLocalId": {
+      "type": "string",
+      "description": "按插件的 provider id；小写 kebab-case。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "ContextInjectionSlot": {
+      "type": "string",
+      "description": "装配后的输出在 system prompt 中的插入位置。",
+      "enum": ["after-skills", "before-history"],
+      "default": "after-skills"
+    }
+  }
+}

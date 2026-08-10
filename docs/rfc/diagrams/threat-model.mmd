@@ -1,0 +1,35 @@
+%% 插件安全与威胁模型——图
+%% 渲染：mmdc -i threat-model.mmd -o out.svg
+%% 单张流程图，含两个带标签的 subgraph 簇（信任边界 + 故障传播）。
+flowchart TD
+    subgraph TB["信任边界——3 层级模型 决策 A4"]
+        direction TB
+        T1["Tier 1 内建<br/>执行 · 进程内<br/>信任 · 完全 · 编译进来<br/>审计 · 从不作为插件"]
+        T2["Tier 2 官方 · source official<br/>执行 · 进程内或沙箱化<br/>关卡 · 可验证签名<br/>失败 · 改写为 Tier 3"]
+        T3["Tier 3 社区 · source community<br/>执行 · 子进程沙箱<br/>关卡 · 每项能力需用户显式同意<br/>审计 · 每个权限受控动作"]
+        HOST["宿主信任边界<br/>agent 循环 · SSE · SQLite · API key"]
+
+        HOST --> T1
+        T1 -. 仅签名 .-> T2
+        T2 -. 未签名或签名错误 .-> T3
+        T3 -->|"JSON-RPC IPC · stdout 帧化"| HOST
+    end
+
+    subgraph FP["故障传播矩阵——规范 6"]
+        direction TB
+        F_CRASH["crash · IPC 关闭或非零退出<br/>循环 · continue_with_error<br/>插件 · 该会话禁用"]
+        F_TOOL["tool_timeout · 超过 30s<br/>循环 · continue_with_error<br/>插件 · 保持启用"]
+        F_HOOK["hook_timeout · 超过 5s<br/>循环 · abort_run · status aborted<br/>插件 · 该会话禁用"]
+        F_OOM["oom · 内存上限超出<br/>循环 · continue_with_error<br/>插件 · 该会话禁用"]
+        F_DENY["permission_denied · 已声明但被拒绝<br/>循环 · continue_with_error<br/>插件 · 该会话禁用"]
+        F_ESC["privilege_escalation · 未声明的使用<br/>循环 · disable_plugin_session · 通知用户<br/>插件 · 该会话禁用"]
+        F_FLOOD["ipc_flood · 字节预算超出<br/>循环 · warn_and_continue · 截断<br/>插件 · 保持启用 · 给予警告"]
+    end
+
+    T3 --> F_CRASH
+    T3 --> F_TOOL
+    T3 --> F_HOOK
+    T3 --> F_OOM
+    T3 --> F_DENY
+    T3 --> F_ESC
+    T3 --> F_FLOOD

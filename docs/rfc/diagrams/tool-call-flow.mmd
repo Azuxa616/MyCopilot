@@ -1,0 +1,29 @@
+%% Tools Extension Point - 调用流程
+%% 一张 flowchart，含两个 subgraph：REG = 注册，CALL = 运行时调用
+flowchart TD
+    subgraph REG["会话开始时的注册"]
+        A1["插件启用"] --> A2["host 读取 provides.tools"]
+        A2 --> A3["解析 executor"]
+        A3 --> A4{"名字已占用？"}
+        A4 -- 是 --> A5["拒绝：namespace_conflict"]
+        A4 -- 否 --> A6["注册 pluginId:toolName"]
+        A6 --> A7["向 LLM 广播"]
+    end
+
+    subgraph CALL["agent loop 内的运行时调用"]
+        B1["LLM 发出 tool_call"] --> B2["executor.executeToolCall"]
+        B2 --> B3["stricterLevel：restricted 或 danger"]
+        B3 --> B4{"需要确认？"}
+        B4 -- 是 --> B5["requestToolApproval"]
+        B5 --> B6{"已批准？"}
+        B6 -- 否 --> B7["errorResult 被拒绝"]
+        B6 -- 是 --> B8["运行 executor"]
+        B4 -- 否 --> B8
+        B8 --> B9["应用 30s 超时"]
+        B9 --> B10{"结果"}
+        B10 -- 成功 --> B11["持久化 tool message"]
+        B10 -- isError 或抛错 --> B12["上报给 agent loop"]
+        B12 --> B11
+    end
+
+    A7 -.-> B1

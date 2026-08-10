@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/extension-points/tools.schema.json",
+  "title": "Tools Extension Point",
+  "description": "插件 tool 注册的自包含 JSON Schema (draft-07)。内部引用仅使用 $defs；无外部 $ref。镜像 docs/rfc/types/extension-points/tools.d.ts。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pluginId", "name", "description", "inputSchema", "safetyLevel"],
+  "properties": {
+    "pluginId": { "$ref": "#/$defs/PluginId" },
+    "name": { "$ref": "#/$defs/NamespacedToolName" },
+    "description": { "$ref": "#/$defs/NonEmptyString" },
+    "inputSchema": {
+      "type": "object",
+      "description": "LLM 调用 tool 时填写的 JSON-schema。",
+      "additionalProperties": true
+    },
+    "safetyLevel": { "$ref": "#/$defs/SafetyLevel" },
+    "timeoutMs": {
+      "type": "integer",
+      "description": "按调用的硬上限。受 host 默认值（30000ms）约束。",
+      "minimum": 100,
+      "maximum": 30000,
+      "default": 30000
+    }
+  },
+  "$defs": {
+    "NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "PluginId": {
+      "type": "string",
+      "description": "小写 kebab-case 的插件标识符；命名空间前缀。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "ToolLocalName": {
+      "type": "string",
+      "description": "按插件的 tool 名；小写 kebab-case。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "NamespacedToolName": {
+      "type": "string",
+      "description": "外部地址 'pluginId:toolName'。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}:[a-z][a-z0-9-]{1,63}$",
+      "minLength": 5,
+      "maxLength": 129
+    },
+    "SafetyLevel": {
+      "type": "string",
+      "description": "继承自 executor.ts 的 3 级安全层级。插件 tool 默认为 'restricted'；MCP 提供的插件 tool 被钳制到至少 'restricted'。",
+      "enum": ["safe", "restricted", "danger"]
+    }
+  }
+}

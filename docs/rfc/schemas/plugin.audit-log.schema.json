@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/plugin.audit-log.schema.json",
+  "title": "Plugin Audit Log Record",
+  "description": "自包含 JSON Schema（draft-07），用于插件审计日志记录。审计日志是由插件安全与威胁模型 RFC（T6 规范 7）定义的反抵赖原语。每个权限受控动作都发出一条记录：需要确认的工具调用、网络出站、文件系统写入、子进程派生、权限拒绝与权限提升尝试。本 schema 仅定义记录形状；存储是 T6 的非目标。内部引用仅使用 $defs，无外部 $ref。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "pluginId",
+    "eventType",
+    "timestamp",
+    "argsDigest",
+    "resourceScope",
+    "outcome"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "description": "审计记录的唯一 id（由宿主生成的 UUIDv4）。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "pluginId": {
+      "type": "string",
+      "description": "插件命名空间标识符（小写 kebab-case）。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$"
+    },
+    "eventType": {
+      "$ref": "#/$defs/AuditEventType"
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "被审计动作发生时的 Unix epoch 毫秒。",
+      "minimum": 0
+    },
+    "argsDigest": {
+      "type": "string",
+      "description": "稳定序列化动作参数的 SHA-256 十六进制摘要。支持去重与反抵赖，而无需存储原始参数。",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "resourceScope": {
+      "type": "string",
+      "description": "规范化的资源作用域 key。文件系统：'path:' + 解析后的绝对路径前缀。网络：'origin:' + 规范化来源（scheme + host + port）。工具调用：带命名空间的工具引用 'pluginId:toolName'。当动作无有意义作用域时为空字符串。",
+      "minLength": 0,
+      "maxLength": 1024
+    },
+    "outcome": {
+      "$ref": "#/$defs/AuditOutcome"
+    },
+    "runId": {
+      "type": "string",
+      "description": "当被审计动作发生在某次 run 内时，对应的 agent-loop Run id。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "当被审计动作发生在某个 session 内时，对应的 session id。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "errorCode": {
+      "type": "string",
+      "description": "当 outcome 为 'denied'、'error' 或 'privilege_escalation' 时的稳定错误码。示例：'permission_not_declared'、'digest_mismatch'、'egress_blocked'、'oom'、'timeout'。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "errorMessage": {
+      "type": "string",
+      "description": "简短的人类可读细节。不得包含机密、API key 或完整参数正文。",
+      "maxLength": 1024
+    }
+  },
+  "$defs": {
+    "AuditEventType": {
+      "type": "string",
+      "description": "宿主审计的权限受控动作集合。与 plugin-security.d.ts 中的 AuditEventType 镜像。",
+      "enum": [
+        "tool_call",
+        "network_egress",
+        "filesystem_write",
+        "child_process_spawn",
+        "permission_denied",
+        "privilege_escalation",
+        "signature_check",
+        "package_digest_check"
+      ]
+    },
+    "AuditOutcome": {
+      "type": "string",
+      "description": "被审计动作的结局。",
+      "enum": [
+        "success",
+        "denied",
+        "error",
+        "privilege_escalation"
+      ]
+    }
+  }
+}

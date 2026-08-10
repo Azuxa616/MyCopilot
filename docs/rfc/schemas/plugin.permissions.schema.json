@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/plugin.permissions.schema.json",
+  "title": "Plugin Permissions Declaration",
+  "description": "自包含 JSON Schema（draft-07），用于 MyCopilot 插件权限声明。这是 T4 清单 'permissions' 块的安全语义，由插件安全与威胁模型 RFC（T6）详述。每项权限在缺省时取最严格的默认值。内部引用仅使用 $defs，无外部 $ref。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tools", "network", "filesystem", "childProcess", "envVars"],
+  "properties": {
+    "tools": {
+      "type": "boolean",
+      "description": "插件可通过 Tools 扩展点注册后端工具执行器。注册的工具默认为最低 SafetyLevel 'restricted'（executor.ts:224-226）；插件可声明 'danger'，但不可声明 'safe'。",
+      "default": false
+    },
+    "network": {
+      "type": "boolean",
+      "description": "插件可打开出站网络 socket。为 true 时，'networkAllowlist' 必须声明插件联系的每个主机；对解析后的来源（在重定向之后）强制默认拒绝出站。",
+      "default": false
+    },
+    "networkAllowlist": {
+      "type": "array",
+      "description": "当 'network' 为 true 时插件可联系的主机名。与解析后的来源匹配。当 'network' 为 true 时必须非空；当 'network' 为 false 时被忽略（且应为空）。",
+      "items": { "$ref": "#/$defs/Hostname" },
+      "maxItems": 50,
+      "uniqueItems": true,
+      "default": []
+    },
+    "filesystem": { "$ref": "#/$defs/FilesystemPermissions" },
+    "childProcess": {
+      "type": "boolean",
+      "description": "插件可在其沙箱内派生子进程。对进程外运行的 Tier 3 插件是隐含的；但仍然声明以便审计。",
+      "default": false
+    },
+    "envVars": {
+      "type": "array",
+      "description": "插件可读取的环境变量名 allowlist。不得包含 'AUTH_TOKEN' 或任何已配置的 LLM API-key 变量名；否则宿主拒绝该清单（T6 合规 C3）。",
+      "items": { "$ref": "#/$defs/EnvVarName" },
+      "maxItems": 50,
+      "uniqueItems": true,
+      "default": []
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/$defs/NetworkAllowlistConsistency"
+    },
+    {
+      "$ref": "#/$defs/ForbiddenEnvVars"
+    }
+  ],
+  "$defs": {
+    "Hostname": {
+      "type": "string",
+      "description": "规范化主机名（小写、无 scheme、无 path、无 port，除非为非默认端口）。仅允许前导 '*.' 作为通配符。",
+      "pattern": "^(\\*\\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:([1-9]\\d{0,4}))?$",
+      "minLength": 1,
+      "maxLength": 253
+    },
+    "EnvVarName": {
+      "type": "string",
+      "description": "POSIX 风格环境变量名（大写字母、数字、下划线；必须以字母开头）。",
+      "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"
+    },
+    "GlobPattern": {
+      "type": "string",
+      "description": "相对于插件沙箱（$PLUGINS_DIR/<plugin_id>/）解释的 glob 模式。'*' 在单个 path 段内匹配；'**' 跨段匹配。在符号链接解析之后解析到沙箱之外的模式会被拒绝。",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "FilesystemPermissions": {
+      "type": "object",
+      "description": "限定在插件沙箱内的文件系统访问。写入路径相对于该前缀解释。",
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "type": "array",
+          "description": "插件可读取的 glob 模式（相对于插件沙箱）。",
+          "items": { "$ref": "#/$defs/GlobPattern" },
+          "maxItems": 50,
+          "uniqueItems": true,
+          "default": []
+        },
+        "write": {
+          "type": "array",
+          "description": "插件可写入的 glob 模式（相对于插件沙箱）。空数组或缺省表示无写入。",
+          "items": { "$ref": "#/$defs/GlobPattern" },
+          "maxItems": 50,
+          "uniqueItems": true,
+          "default": []
+        }
+      }
+    },
+    "NetworkAllowlistConsistency": {
+      "description": "当 'network' 为 true 时，allowlist 必须非空（至少声明一个主机）。一个无声明主机的具备网络能力的插件是非法的，因为出站默认拒绝。",
+      "oneOf": [
+        {
+          "properties": {
+            "network": { "const": true },
+            "networkAllowlist": { "type": "array", "minItems": 1 }
+          },
+          "required": ["network", "networkAllowlist"]
+        },
+        {
+          "properties": {
+            "network": { "const": false }
+          },
+          "required": ["network"]
+        }
+      ]
+    },
+    "ForbiddenEnvVars": {
+      "description": "宿主 API token 与 LLM key 变量必须永远不授予插件。此规则在此禁止字面量 'AUTH_TOKEN'；宿主额外在安装时拒绝任何匹配已配置 LLM key 变量的名字（T6 合规 C3）。",
+      "not": {
+        "properties": {
+          "envVars": {
+            "type": "array",
+            "contains": { "const": "AUTH_TOKEN" }
+          }
+        },
+        "required": ["envVars"]
+      }
+    }
+  }
+}

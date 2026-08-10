@@ -1,0 +1,62 @@
+%% Context Management v2 — 图表
+%% Render with: mmdc -i context-management-v2.mmd -o out.svg
+%% 单个 Mermaid flowchart，包含两个视觉上区分的 subgraph 簇
+%% （五桶预算分配 + 降级链），以便 mmdc 一次性渲染整个文件，
+%% 同时读者获得两张分离的图。
+flowchart TD
+    %% ===============================================================
+    %% 图 1 — 五桶预算分配（窗口的份额）
+    %% ===============================================================
+    subgraph BA["五桶预算分配"]
+        direction TD
+        WIN["模型上下文窗口<br/>(contextWindowTokens)"]
+        WIN --> SYS["system · 5-10%<br/>提示 + skills + persona<br/>超预算：error"]
+        WIN --> TOOLS["tools · 10-20%<br/>工具 schema<br/>超预算：drop LRU"]
+        WIN --> HIST["history · 30-40%<br/>历史轮次 + summary<br/>超预算：活动策略"]
+        WIN --> TOOLOUT["toolOutputs · 25-35%<br/>本次运行工具结果<br/>超预算：truncate"]
+        WIN --> WORK["working · 10-15%<br/>当前用户轮次 + 附件<br/>超预算：error"]
+        WIN --> HEAD["headroom · 5-10%<br/>框架 + 回复预留<br/>永不分配"]
+        SYS -. 共享前缀 .-> CACHE["稳定缓存前缀<br/>断点 1-4"]
+        TOOLS -. 共享前缀 .-> CACHE
+        HIST -. summary 消息 .-> CACHE
+        WORK == 易变 ==> REQ["组装后的 LLM 请求"]
+        TOOLOUT == 易变 ==> REQ
+    end
+
+    %% ===============================================================
+    %% 图 2 — Token 预算耗尽降级链
+    %% 每一级都保留不变量：assistant 工具调用消息与其工具结果
+    %% 必须保持相连（现有 truncateHistory 规则）。
+    %% ===============================================================
+    subgraph DC["降级链"]
+        direction TD
+        START(["组装 history 桶"])
+        CHECK{"history 桶<br/>超配额？"}
+        L0["L0 sliding window<br/>丢弃最旧的非 anchor 链"]
+        FIT0{"现在放得下？"}
+        SUMREQ{"summaryRequested<br/>或仍超？"}
+        L1["L1 summary<br/>summarizeHistory + createSummary<br/>作为系统消息注入"]
+        FIT1{"现在放得下？"}
+        TO{"toolOutputs<br/>超配额？"}
+        L2["L2 工具输出截断<br/>尾部截断到 toolOutputMaxTokens<br/>追加 [truncated] 标记"]
+        FIT2{"现在放得下？"}
+        L3["L3 错误返回<br/>status: context_overflow<br/>不发送消息"]
+        OK(["status: ok<br/>发出 RunContext"])
+
+        START --> CHECK
+        CHECK -- 否 --> TO
+        CHECK -- 是 --> L0
+        L0 --> FIT0
+        FIT0 -- 是 --> TO
+        FIT0 -- 否 --> SUMREQ
+        SUMREQ -- 是 --> L1
+        SUMREQ -- 否 --> TO
+        L1 --> FIT1
+        FIT1 -- 是 --> TO
+        FIT1 -- 否 --> TO
+        TO -- 否 --> OK
+        TO -- 是 --> L2
+        L2 --> FIT2
+        FIT2 -- 是 --> OK
+        FIT2 -- 否 --> L3
+    end

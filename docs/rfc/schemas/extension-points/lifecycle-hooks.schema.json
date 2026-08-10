@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/extension-points/lifecycle-hooks.schema.json",
+  "title": "Lifecycle Hooks Extension Point",
+  "description": "自包含 JSON Schema (draft-07)。内部引用仅使用 $defs。镜像 docs/rfc/types/extension-points/lifecycle-hooks.d.ts。决策 A3 的 hook 子集。桥接目标：apps/server/src/agent-loop/runner.ts onEvent。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pluginId", "handlers"],
+  "properties": {
+    "pluginId": { "$ref": "#/$defs/PluginId" },
+    "handlers": {
+      "type": "array",
+      "description": "本插件注册的 handler。上限为 maxHandlersPerPlugin（默认 16）。",
+      "items": { "$ref": "#/$defs/LifecycleHookHandler" },
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "PluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "LifecycleHookEvent": {
+      "type": "string",
+      "description": "插件可以订阅的七个运行内 hook 事件（决策 A3）。",
+      "enum": [
+        "on_app_loaded",
+        "on_message_received",
+        "on_llm_request",
+        "on_llm_response",
+        "on_tool_call",
+        "on_plugin_loaded",
+        "on_plugin_unloaded"
+      ]
+    },
+    "LifecycleHookHandler": {
+      "type": "object",
+      "description": "绑定到一个事件的单个 handler。",
+      "additionalProperties": false,
+      "required": ["event"],
+      "properties": {
+        "event": { "$ref": "#/$defs/LifecycleHookEvent" },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 30000,
+          "default": 5000
+        },
+        "failMode": {
+          "type": "string",
+          "description": "fail-fast 在出错/超时时中止运行；continue 记录后继续。host 默认值为 fail-fast。",
+          "enum": ["fail-fast", "continue"],
+          "default": "fail-fast"
+        }
+      }
+    }
+  }
+}

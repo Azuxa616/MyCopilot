@@ -1,0 +1,56 @@
+%% 插件清单与生命周期 —— 图表
+%% 渲染：mmdc -i plugin-lifecycle.mmd -o out.svg
+%% 单个流程图，包含两个子图簇（状态机 + 时序）。
+flowchart TD
+    subgraph SM["插件生命周期状态机"]
+        direction LR
+        DISC["discovered<br/>触发器 · registry 扫描或导入<br/>副作用 · plugins 表中的行<br/>可逆 · 是，通过重新扫描"]
+        DOWN["downloaded<br/>触发器 · 用户或系统安装<br/>副作用 · 磁盘上的字节<br/>可逆 · 是，通过清除"]
+        VERIF["verified<br/>触发器 · 下载后检查<br/>副作用 · 摘要已记录<br/>可逆 · 是，通过重新验证"]
+        INST["installed<br/>触发器 · verified + 引擎 OK<br/>副作用 · 能力已注册<br/>可逆 · 是，通过卸载"]
+        ENA["enabled<br/>触发器 · onEnable 钩子 OK<br/>副作用 · 资源已上线<br/>可逆 · 是，通过禁用"]
+        DIS["disabled<br/>触发器 · 用户或故障<br/>副作用 · 资源已销毁<br/>可逆 · 是，通过重新启用"]
+        UNIN{{"uninstalled<br/>触发器 · 用户显式操作<br/>副作用 · 数据 + 文件已清除<br/>可逆 · 否，终态"}}
+
+        DISC --> DOWN
+        DOWN --> VERIF
+        VERIF --> INST
+        INST --> ENA
+        ENA --> DIS
+        DIS --> ENA
+        DIS --> UNIN
+        INST -. "Tier 2 官方 · 仅禁用" .-> DIS
+    end
+
+    subgraph SEQ["安装 / 卸载时序"]
+        direction TD
+        U1["用户"]
+        H1["宿主 · registry + 安装器"]
+        P1["插件包 · plugin.json"]
+        S1["plugin_data 存储 · SQLite"]
+
+        U1 -->|"安装 acme-tools 1.2.0"| H1
+        H1 -->|读取清单| P1
+        P1 -->|"校验 9 个必需字段"| H1
+        H1 -->|"检查 engineCompatibility + permissions"| H1
+        H1 -->|解析依赖 + 命名空间| H1
+        H1 -->|"onInstall 钩子 · 5s 超时 · fail-fast"| P1
+        P1 -->|成功或错误| H1
+        H1 -->|installed 事件| S1
+        H1 -->|启用| P1
+        P1 -->|onEnable 钩子| H1
+        H1 -->|enabled 事件| S1
+        H1 -->|"能力已注册 · pluginId:name"| H1
+
+        U2["用户"]
+        H2["宿主"]
+        P2["插件"]
+        S2["plugin_data"]
+
+        U2 -->|卸载 acme-tools| H2
+        H2 -->|若已启用则禁用| P2
+        H2 -->|onUninstall 钩子| P2
+        H2 -->|"删除 plugin_id 匹配的行"| S2
+        H2 -->|"清除插件沙箱目录"| H2
+        H2 -->|"uninstalled 事件 · 终态"| S2
+    end

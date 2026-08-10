@@ -1,0 +1,520 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/context-management-v2.schema.json",
+  "title": "Context Management v2",
+  "description": "Context Management v2 RFC 的自包含 JSON Schema。覆盖 BudgetConfig、调度策略、跨会话记忆以及附件 envelope。内部引用只使用 $defs；无外部 $ref。",
+  "type": "object",
+  "definitions": {
+    "BudgetBucket": {
+      "type": "string",
+      "description": "五个功能桶加上预留的 headroom。",
+      "enum": [
+        "system",
+        "tools",
+        "history",
+        "toolOutputs",
+        "working",
+        "headroom"
+      ]
+    },
+    "OverBudgetStrategy": {
+      "type": "string",
+      "description": "当一个桶超出其配额时 assembler 所做的动作。",
+      "enum": [
+        "truncate",
+        "summarize",
+        "drop",
+        "error"
+      ]
+    },
+    "BudgetShare": {
+      "type": "object",
+      "description": "某个桶的已配置份额及其超预算行为。",
+      "additionalProperties": false,
+      "required": [
+        "bucket",
+        "share",
+        "overBudget"
+      ],
+      "properties": {
+        "bucket": {
+          "$ref": "#/definitions/BudgetBucket"
+        },
+        "share": {
+          "type": "number",
+          "description": "分配给该桶的模型上下文窗口比例（0..1）。",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "overBudget": {
+          "$ref": "#/definitions/OverBudgetStrategy"
+        },
+        "maxTokens": {
+          "type": "integer",
+          "description": "可选的 token 硬上限；当其更小时覆盖由份额推导出的值。",
+          "minimum": 0
+        }
+      }
+    },
+    "BudgetConfig": {
+      "type": "object",
+      "description": "跨五个桶加 headroom 的单次运行预算分配。",
+      "additionalProperties": false,
+      "required": [
+        "modelContextWindow",
+        "shares"
+      ],
+      "properties": {
+        "modelContextWindow": {
+          "type": "integer",
+          "description": "本次运行所选模型的 token 上限。",
+          "minimum": 1
+        },
+        "shares": {
+          "type": "array",
+          "description": "恰好六个条目，每个桶一个。份额总和必须为 1.0。",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/definitions/BudgetShare"
+          }
+        },
+        "toolOutputMaxTokens": {
+          "type": "integer",
+          "description": "在降级级 3 应用的每工具结果截断上限。",
+          "minimum": 0,
+          "default": 1500
+        }
+      }
+    },
+    "BudgetUsage": {
+      "type": "object",
+      "description": "组装后每个桶实际花费的 token 数。",
+      "additionalProperties": false,
+      "required": [
+        "perBucket",
+        "total"
+      ],
+      "properties": {
+        "perBucket": {
+          "type": "object",
+          "description": "桶名到已花费 token 数的映射。",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "StrategyName": {
+      "type": "string",
+      "description": "history 桶调度策略的标识符。",
+      "enum": [
+        "sliding-window",
+        "sliding-window-summary",
+        "head-tail-preserve",
+        "anchor-preserve",
+        "importance-preserve"
+      ]
+    },
+    "StrategyInput": {
+      "type": "object",
+      "description": "每个策略接受的输入契约。",
+      "additionalProperties": false,
+      "required": [
+        "messages",
+        "historyQuotaTokens",
+        "estimator"
+      ],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "description": "history 桶的候选历史消息。",
+          "items": {
+            "$ref": "#/definitions/MessageLike"
+          }
+        },
+        "historyQuotaTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latestSummaryBoundary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "标记已汇总前缀的消息 id（若有）。"
+        },
+        "estimator": {
+          "type": "string",
+          "description": "token 估算器的名称（保留为字符串以使 schema 保持可序列化）。",
+          "enum": [
+            "estimateMessagesTokens"
+          ]
+        }
+      }
+    },
+    "StrategyOutput": {
+      "type": "object",
+      "description": "每个策略产生的输出契约。",
+      "additionalProperties": false,
+      "required": [
+        "kept",
+        "dropped",
+        "summaryRequested"
+      ],
+      "properties": {
+        "kept": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MessageLike"
+          }
+        },
+        "dropped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "summaryRequested": {
+          "type": "boolean"
+        }
+      }
+    },
+    "StrategyConfig": {
+      "type": "object",
+      "description": "某次运行解析出的策略及其参数。",
+      "additionalProperties": false,
+      "required": [
+        "active"
+      ],
+      "properties": {
+        "active": {
+          "$ref": "#/definitions/StrategyName"
+        },
+        "headTailPreserveFirstN": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1,
+          "description": "针对 head-tail-preserve：置顶多少条开头的用户轮次。"
+        },
+        "anchorPreserveTag": {
+          "type": "string",
+          "default": "anchor",
+          "description": "针对 anchor-preserve 标记一条置顶轮次的元数据 key。"
+        },
+        "importanceTopK": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 20,
+          "description": "针对 importance-preserve：保留多少条打分后的轮次。"
+        }
+      }
+    },
+    "CacheControlType": {
+      "type": "string",
+      "enum": [
+        "anthropic-ephemeral",
+        "openai-implicit",
+        "none"
+      ]
+    },
+    "CacheBreakpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket",
+        "messageIndex"
+      ],
+      "properties": {
+        "bucket": {
+          "$ref": "#/definitions/BudgetBucket"
+        },
+        "messageIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "在 RunContext.messages 中附加 cache_control 的索引位置。"
+        }
+      }
+    },
+    "CacheControlConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/definitions/CacheControlType"
+        },
+        "maxBreakpoints": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "default": 4
+        },
+        "breakpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CacheBreakpoint"
+          },
+          "maxItems": 4
+        }
+      }
+    },
+    "MemoryKind": {
+      "type": "string",
+      "enum": [
+        "preference",
+        "fact",
+        "entity_relation"
+      ]
+    },
+    "MemoryRecord": {
+      "type": "object",
+      "description": "memories 表的一行。",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "userId",
+        "kind",
+        "content",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/definitions/MemoryKind"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entities": {
+          "type": "array",
+          "description": "content 引用到的实体名；非关系类型时为空。",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "sourceSessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.5
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedAt": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "MemoryQuery": {
+      "type": "object",
+      "description": "由 assembler 针对 memories 表发起的检索请求。",
+      "additionalProperties": false,
+      "required": [
+        "userId",
+        "keywords"
+      ],
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MemoryKind"
+          },
+          "uniqueItems": true
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 10
+        }
+      }
+    },
+    "AttachmentKind": {
+      "type": "string",
+      "enum": [
+        "text",
+        "markdown",
+        "csv",
+        "docx",
+        "pdf",
+        "image",
+        "code",
+        "audio"
+      ]
+    },
+    "AttachmentEnvelope": {
+      "type": "object",
+      "description": "交给预算层的统一附件载体。",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "tokens"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/AttachmentKind"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content": {
+          "type": "string",
+          "description": "text/markdown/csv/docx/pdf/code/audio(转录文本) 的文本形态内容。"
+        },
+        "imageDataUrl": {
+          "type": "string",
+          "description": "image 类型的 data: URL。",
+          "pattern": "^data:image/[a-zA-Z0-9.+-]+;base64,"
+        },
+        "transcript": {
+          "type": "string",
+          "description": "audio 类型的转录文本（同时镜像到 content）。"
+        },
+        "truncated": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "MessageLike": {
+      "type": "object",
+      "description": "策略使用的最小消息形状；有意保持宽松。",
+      "additionalProperties": true,
+      "required": [
+        "role"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ]
+        },
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "toolCallId": {
+          "type": "string"
+        },
+        "anchor": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "RunContextStatus": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "context_overflow"
+      ]
+    },
+    "RunContext": {
+      "type": "object",
+      "description": "由 assembleMessages 返回、被 Agent Loop v2 消费的契约。权威的完整形状由 Agent Loop v2 RFC 拥有。",
+      "additionalProperties": false,
+      "required": [
+        "messages",
+        "tools",
+        "cacheControl",
+        "budget",
+        "status",
+        "meta"
+      ],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MessageLike"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "cacheControl": {
+          "$ref": "#/definitions/CacheControlConfig"
+        },
+        "budget": {
+          "$ref": "#/definitions/BudgetUsage"
+        },
+        "status": {
+          "$ref": "#/definitions/RunContextStatus"
+        },
+        "meta": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy",
+            "dropped",
+            "summaryUsed"
+          ],
+          "properties": {
+            "strategy": {
+              "$ref": "#/definitions/StrategyName"
+            },
+            "dropped": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "summaryUsed": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

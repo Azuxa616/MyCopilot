@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/extension-points/ui-panels.schema.json",
+  "title": "UI Panels Extension Point",
+  "description": "自包含 JSON Schema (draft-07)。内部引用仅使用 $defs。镜像 docs/rfc/types/extension-points/ui-panels.d.ts。唯一可以声明 React 假设的 EP（当前前端栈）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pluginId", "id", "slot", "label", "moduleUrl", "permissions"],
+  "properties": {
+    "pluginId": { "$ref": "#/$defs/PluginId" },
+    "id": { "$ref": "#/$defs/PanelLocalId" },
+    "slot": { "$ref": "#/$defs/UIPanelSlot" },
+    "label": { "$ref": "#/$defs/NonEmptyString" },
+    "iconUrl": { "$ref": "#/$defs/HttpsOrDataUrl" },
+    "order": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 100
+    },
+    "moduleUrl": { "$ref": "#/$defs/HttpsUrl" },
+    "permissions": { "$ref": "#/$defs/UIPanelPermissions" }
+  },
+  "$defs": {
+    "NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "PluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "PanelLocalId": {
+      "type": "string",
+      "description": "按插件的 panel id；小写 kebab-case。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "UIPanelSlot": {
+      "type": "string",
+      "description": "host 暴露的具名 slot。开放 enum；未知 slot 被忽略（向前兼容）。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "HttpsUrl": {
+      "type": "string",
+      "pattern": "^https://[\\w.-]+(?:\\.[a-zA-Z]{2,})(?:/[^\\s]*)?$",
+      "maxLength": 2048
+    },
+    "HttpsOrDataUrl": {
+      "type": "string",
+      "pattern": "^(https://[\\w.-]+(?:\\.[a-zA-Z]{2,})(?:/[^\\s]*)?|data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)$",
+      "maxLength": 32768
+    },
+    "UIPanelPermissions": {
+      "type": "object",
+      "description": "在启用时授予的能力。每项默认为 false。",
+      "additionalProperties": false,
+      "properties": {
+        "readSession": { "type": "boolean", "default": false },
+        "postMessage": { "type": "boolean", "default": false },
+        "openExternal": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}

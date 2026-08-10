@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/extension-points/memory-backends.schema.json",
+  "title": "Memory Backends Extension Point",
+  "description": "自包含 JSON Schema (draft-07)。内部引用仅使用 $defs。镜像 docs/rfc/types/extension-points/memory-backends.d.ts。桥接目标：T3 Context v2 Memory 协议 + T4 plugin_data 表。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pluginId", "id", "operations"],
+  "properties": {
+    "pluginId": { "$ref": "#/$defs/PluginId" },
+    "id": { "$ref": "#/$defs/BackendLocalId" },
+    "operations": {
+      "type": "array",
+      "description": "backend 实现的操作。get/set/search/delete 为规范集合；backend 可以只实现一个子集。",
+      "items": {
+        "type": "string",
+        "enum": ["get", "set", "search", "delete"]
+      },
+      "minItems": 1,
+      "maxItems": 4,
+      "uniqueItems": true
+    },
+    "defaultNamespace": {
+      "type": "string",
+      "description": "调用方省略命名空间时使用的命名空间。",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "searchHardCap": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 10
+    },
+    "callTimeoutMs": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 10000,
+      "default": 3000
+    }
+  },
+  "$defs": {
+    "PluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "BackendLocalId": {
+      "type": "string",
+      "description": "按插件的 backend id；小写 kebab-case。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    }
+  }
+}

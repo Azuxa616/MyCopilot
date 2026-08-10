@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/extension-points/llm-providers.schema.json",
+  "title": "LLM Providers Extension Point",
+  "description": "自包含 JSON Schema (draft-07)。内部引用仅使用 $defs。镜像 docs/rfc/types/extension-points/llm-providers.d.ts。桥接目标：apps/server/src/llm/base.ts ProviderAdapter。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pluginId", "id", "label", "type"],
+  "properties": {
+    "pluginId": { "$ref": "#/$defs/PluginId" },
+    "id": { "$ref": "#/$defs/ProviderLocalId" },
+    "label": { "$ref": "#/$defs/NonEmptyString" },
+    "type": { "$ref": "#/$defs/LlmProviderType" },
+    "baseUrlPattern": {
+      "type": "string",
+      "description": "host 用于识别某个已存储 baseUrl 属于本 provider 的可选正则。",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "supportsStreaming": {
+      "type": "boolean",
+      "default": true
+    },
+    "supportsToolCalls": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "$defs": {
+    "NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "PluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "ProviderLocalId": {
+      "type": "string",
+      "description": "按插件的 provider id；小写 kebab-case。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "LlmProviderType": {
+      "type": "string",
+      "description": "provider 类型 id。'openai' 和 'ollama' 为内置；插件可以新增 id。",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  }
+}
