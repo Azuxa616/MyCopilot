@@ -5,17 +5,29 @@ import type {
   AdapterConfig,
 } from '../../llm/base.js';
 import type { ToolExecutionResult } from '../../tools/registry.js';
+import type {
+  createMessage,
+  updateMessage,
+} from '../../repo/message.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test.
 // ---------------------------------------------------------------------------
 
-const mockCreateMessage = vi.fn();
-const mockUpdateMessage = vi.fn();
+type CreateMessageParams = Parameters<typeof createMessage>[0];
+type UpdateMessageParams = Parameters<typeof updateMessage>[1];
+
+const mockCreateMessage = vi.fn<(params: CreateMessageParams) => unknown>();
+const mockUpdateMessage = vi.fn<
+  (id: string, params: UpdateMessageParams) => unknown
+>();
 
 vi.mock('../../repo/message.js', () => ({
-  createMessage: (...args: unknown[]) => mockCreateMessage(...args),
-  updateMessage: (...args: unknown[]) => mockUpdateMessage(...args),
+  // Lambda 包装（而非直接传 mock）是必须的：vi.mock 工厂被提升到
+  // const 声明之前执行，直接引用会触发 TDZ 错误。
+  createMessage: (...args: [CreateMessageParams]) => mockCreateMessage(...args),
+  updateMessage: (...args: [string, UpdateMessageParams]) =>
+    mockUpdateMessage(...args),
   updateMessageContent: vi.fn(),
 }));
 
@@ -161,7 +173,7 @@ describe('runAgentLoop', () => {
         events.finish('stop'),
       ]),
     ]);
-    const onEvent = vi.fn();
+    const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
 
     const result = await runAgentLoop(makeParams({ adapter, onEvent }));
 
@@ -198,7 +210,7 @@ describe('runAgentLoop', () => {
       generatorFrom([events.content('done'), events.finish('stop')]),
     ]);
     mockExecuteToolCall.mockResolvedValue(toolResult('echoed'));
-    const onEvent = vi.fn();
+    const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
 
     const result = await runAgentLoop(
       makeParams({
@@ -327,7 +339,7 @@ describe('runAgentLoop', () => {
       generatorFrom([events.finish('stop')]),
     ]);
     mockExecuteToolCall.mockResolvedValue(toolResult('boom', true));
-    const onEvent = vi.fn();
+    const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
 
     const result = await runAgentLoop(
       makeParams({ adapter, onEvent, tools: [makeTool('crashy')] }),
@@ -337,7 +349,10 @@ describe('runAgentLoop', () => {
     const toolResultEvent = onEvent.mock.calls.find(
       ([e]: [AgentLoopEvent]) => e.type === 'tool_result',
     )?.[0];
-    expect(toolResultEvent?.toolResult?.isError).toBe(true);
+    expect(
+      toolResultEvent?.type === 'tool_result' &&
+        toolResultEvent.toolResult.isError,
+    ).toBe(true);
   });
 
   // --- 7. finish reason 'length' --------------------------------------
@@ -437,7 +452,7 @@ describe('runAgentLoop', () => {
       generatorFrom([events.finish('stop')]),
     ]);
     mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
-    const onEvent = vi.fn();
+    const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
 
     await runAgentLoop(
       makeParams({ adapter, onEvent, tools: [makeTool('echo')] }),
@@ -459,11 +474,11 @@ describe('runAgentLoop', () => {
 
   // --- 12. LLM exception → status="error" -----------------------------
   it('returns status="error" with a message when the adapter throws', async () => {
-    function* throwing() {
+    async function* throwing() {
       yield events.content('partial');
       throw new Error('upstream 500');
     }
-    const adapter = makeAdapter([throwing() as AsyncGenerator<StreamEvent>]);
+    const adapter = makeAdapter([throwing()]);
 
     const result = await runAgentLoop(makeParams({ adapter }));
 
@@ -574,7 +589,7 @@ describe('runAgentLoop', () => {
     ]);
     mockExecuteToolCall.mockResolvedValue(toolResult('echoed'));
 
-    const onEvent = vi.fn();
+    const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
     const result = await runAgentLoop(
       makeParams({ adapter, onEvent, tools: [makeTool('echo')] }),
     );

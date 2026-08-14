@@ -55,7 +55,7 @@ describe('assembleMessages', () => {
 
     expect(result).toHaveLength(2); // system + user
 
-    const userContent = result[1].content;
+    const userContent = result[1].content!;
     // Check format
     expect(userContent).toContain('[附件:report.docx]');
     expect(userContent).toContain('Full text of report');
@@ -137,7 +137,7 @@ describe('assembleMessages', () => {
       attachments,
     });
 
-    const content = result[1].content;
+    const content = result[1].content!;
     // Exact format
     expect(content).toBe(
       '[附件:a.txt]\nAAA\n[/附件]\n[附件:b.txt]\nBBB\n[/附件]\nCheck files',
@@ -233,7 +233,7 @@ describe('assembleMessages', () => {
       skills,
     });
 
-    const skillContent = result[1].content;
+    const skillContent = result[1].content!;
     const i1 = skillContent.indexOf('# Skill: first');
     const i2 = skillContent.indexOf('# Skill: second');
     const i3 = skillContent.indexOf('# Skill: third');
@@ -787,7 +787,7 @@ describe('assembleMessages', () => {
       expect(result[result.length - 1].content).toBe('当前问题');
 
       // 额外验证：旧消息被截断，新消息保留（可选但加强断言）
-      const contents = result.map((m) => m.content);
+      const contents = result.map((m) => m.content!);
       expect(contents).not.toContain('OLD_Q1-');
       expect(contents).not.toContain('OLD_A1-');
       // 至少保留一些新消息
@@ -817,7 +817,7 @@ describe('assembleMessages', () => {
       // 断言 2：存在某条 system 消息的 content 包含 'TEST_SUMMARY_MARKER_XYZ'（摘要注入生效）
       // 参考 assembler.ts:75-80 的 `[Previous conversation summary]` 标记
       const summaryMessage = result.find(
-        (m) => m.role === 'system' && m.content.includes('TEST_SUMMARY_MARKER_XYZ'),
+        (m) => m.role === 'system' && m.content!.includes('TEST_SUMMARY_MARKER_XYZ'),
       );
       expect(summaryMessage).toBeDefined();
 

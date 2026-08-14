@@ -43,7 +43,7 @@ describe('tokenAuthMiddleware', () => {
   it('should return 401 when no Authorization header', async () => {
     const res = await app.request('/api/sessions');
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { msg?: string };
     expect(body.msg).toBe('Unauthorized');
   });
 
@@ -52,7 +52,7 @@ describe('tokenAuthMiddleware', () => {
       headers: { Authorization: 'Bearer wrong-token' },
     });
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { msg?: string };
     expect(body.msg).toBe('Unauthorized');
   });
 
@@ -77,7 +77,7 @@ describe('tokenAuthMiddleware', () => {
       headers: { Authorization: 'Bearer ' },
     });
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { msg?: string };
     expect(body.msg).toBe('Unauthorized');
   });
 
@@ -86,7 +86,7 @@ describe('tokenAuthMiddleware', () => {
       headers: { Authorization: 'Basic dXNlcjpwYXNz' },
     });
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { msg?: string };
     expect(body.msg).toBe('Unauthorized');
   });
 

@@ -7,11 +7,9 @@ describe('testProvider', () => {
   });
 
   it('should return success with latencyMs for 200 response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200, statusText: 'OK' }),
+    );
 
     const result = await testProvider('openai', 'https://api.openai.com', 'sk-test');
 
@@ -20,11 +18,9 @@ describe('testProvider', () => {
   });
 
   it('should return auth error for 401 response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: false,
-      status: 401,
-      statusText: 'Unauthorized',
-    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 401, statusText: 'Unauthorized' }),
+    );
 
     const result = await testProvider('openai', 'https://api.openai.com', 'invalid-key');
 
@@ -34,11 +30,9 @@ describe('testProvider', () => {
   });
 
   it('should return notfound error for 404 response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: 'Not Found',
-    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 404, statusText: 'Not Found' }),
+    );
 
     // 使用公网域名：localhost 会被 SSRF 内网拦截提前返回 network
     const result = await testProvider('ollama', 'https://ollama.example.com');

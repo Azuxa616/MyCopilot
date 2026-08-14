@@ -97,9 +97,9 @@ describe('job worker', () => {
   // --- 2. processJob dispatches to the registered handler -----------------
   it('processJob dispatches to the registered handler with job + AbortSignal', async () => {
     const handler = vi.fn().mockResolvedValue({ ok: true });
-    registerJobHandler('test-type', handler);
+    registerJobHandler('agent-loop', handler);
 
-    const job = makeJob({ type: 'test-type' });
+    const job = makeJob({ type: 'agent-loop' });
     await processJob(job);
 
     expect(handler).toHaveBeenCalledTimes(1);
@@ -109,9 +109,9 @@ describe('job worker', () => {
   // --- 3. processJob completes on success ---------------------------------
   it('processJob completes the job with the handler result on success', async () => {
     const handler = vi.fn().mockResolvedValue({ summary: 'done', tokens: 7 });
-    registerJobHandler('test-type', handler);
+    registerJobHandler('agent-loop', handler);
 
-    const job = makeJob({ id: 'job-success', type: 'test-type' });
+    const job = makeJob({ id: 'job-success', type: 'agent-loop' });
     await processJob(job);
 
     expect(mockCompleteJob).toHaveBeenCalledWith('job-success', {
@@ -124,9 +124,9 @@ describe('job worker', () => {
   // --- 4. processJob fails on handler error -------------------------------
   it('processJob calls failJob with the error message when the handler throws', async () => {
     const handler = vi.fn().mockRejectedValue(new Error('handler boom'));
-    registerJobHandler('test-type', handler);
+    registerJobHandler('agent-loop', handler);
 
-    const job = makeJob({ id: 'job-fail', type: 'test-type' });
+    const job = makeJob({ id: 'job-fail', type: 'agent-loop' });
     await processJob(job);
 
     expect(mockFailJob).toHaveBeenCalledWith('job-fail', 'handler boom');
@@ -146,9 +146,9 @@ describe('job worker', () => {
         });
       });
     });
-    registerJobHandler('test-type', handler);
+    registerJobHandler('agent-loop', handler);
 
-    mockClaimJob.mockReturnValueOnce(makeJob({ id: 'job-abort', type: 'test-type' }));
+    mockClaimJob.mockReturnValueOnce(makeJob({ id: 'job-abort', type: 'agent-loop' }));
 
     await start();
     // Wait until the worker has dispatched the job.
@@ -202,9 +202,9 @@ describe('job worker', () => {
   // --- 9. Non-Error thrown values are stringified for failJob -------------
   it('processJob converts non-Error throw values to a string message', async () => {
     const handler = vi.fn().mockRejectedValue('string error'); // not an Error
-    registerJobHandler('test-type', handler);
+    registerJobHandler('agent-loop', handler);
 
-    const job = makeJob({ id: 'job-str', type: 'test-type' });
+    const job = makeJob({ id: 'job-str', type: 'agent-loop' });
     await processJob(job);
 
     expect(mockFailJob).toHaveBeenCalledWith('job-str', 'string error');
@@ -213,9 +213,9 @@ describe('job worker', () => {
   // --- 10. Polling dispatches an end-to-end job via claimJob -------------
   it('a job returned by claimJob is dispatched and completed end-to-end', async () => {
     const handler = vi.fn().mockResolvedValue({ done: true });
-    registerJobHandler('test-type', handler);
+    registerJobHandler('agent-loop', handler);
 
-    const job = makeJob({ id: 'job-e2e', type: 'test-type' });
+    const job = makeJob({ id: 'job-e2e', type: 'agent-loop' });
     mockClaimJob.mockReturnValueOnce(job);
 
     await start();

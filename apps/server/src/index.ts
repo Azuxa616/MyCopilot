@@ -129,7 +129,9 @@ if (config.serverPublicDir && existsSync(config.serverPublicDir)) {
       const file = await readFile(filePath);
       return c.body(file);
     } catch {
-      return c.html(await readFile(`${config.serverPublicDir}/index.html`));
+      return c.html(
+        (await readFile(`${config.serverPublicDir}/index.html`)).toString('utf-8'),
+      );
     }
   });
 }
