@@ -40,12 +40,13 @@ describe('runMigrations', () => {
     expect(tableNames).toContain('agent_mcps');
     expect(tableNames).toContain('jobs');
     expect(tableNames).toContain('message_summaries');
+    expect(tableNames).toContain('memories');
 
-    // applied_migrations has exactly 2 rows
+    // applied_migrations has exactly 4 rows (0001..0004)
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(3);
+    expect(row.count).toBe(4);
 
     db.close();
   });
@@ -104,7 +105,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(3);
+    expect(row.count).toBe(4);
 
     db.close();
   });
