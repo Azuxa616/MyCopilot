@@ -744,4 +744,85 @@ describe('assembleMessages', () => {
     const toolIdx = roles.indexOf('tool');
     expect(roles[toolIdx - 1]).toBe('assistant');
   });
+
+  // ===== v1 回归测试基线：为 v2 实现保护截断和摘要注入路径行为 =====
+
+  describe('regression baseline v1: 截断路径', () => {
+    it('截断发生时：消息数量减少、system prompt 保留、最新链保留', () => {
+      // 构造长 history：8 条消息，每条 content 约 800 tokens（参考现有测试参数）
+      // 每条 'x'.repeat(3200) ≈ 800 tokens + 4 role overhead = 804 tokens
+      // 8 条消息总约 6432 tokens
+      // maxTokens=3000 会触发截断路径（历史预算 = 3000 - 2000 = 1000，只保留部分最新消息）
+      const big = 'x'.repeat(3200); // ~800 tokens
+      const history: Message[] = [
+        createMessage({ id: 'm1', role: 'user', content: `OLD_Q1-${big}` }),
+        createMessage({ id: 'm2', role: 'assistant', content: `OLD_A1-${big}` }),
+        createMessage({ id: 'm3', role: 'user', content: `OLD_Q2-${big}` }),
+        createMessage({ id: 'm4', role: 'assistant', content: `OLD_A2-${big}` }),
+        createMessage({ id: 'm5', role: 'user', content: `NEW_Q3-${big}` }),
+        createMessage({ id: 'm6', role: 'assistant', content: `NEW_A3-${big}` }),
+        createMessage({ id: 'm7', role: 'user', content: `NEW_Q4-${big}` }),
+        createMessage({ id: 'm8', role: 'assistant', content: `NEW_A4-${big}` }),
+      ];
+
+      const result = assembleMessages({
+        history,
+        userContent: '当前问题',
+        maxTokens: 3000,
+      });
+
+      // 断言 1：返回的 messages 数量 < 输入 history 数量（截断发生）
+      // 排除 system 和当前 user 消息后，历史消息数量应少于输入
+      const historyInResult = result.filter(
+        (m) => m.role !== 'system' && !(m.role === 'user' && m.content === '当前问题'),
+      );
+      expect(historyInResult.length).toBeLessThan(history.length);
+
+      // 断言 2：首条消息仍是 system prompt（leading system 保留，参考 truncator.ts:47-54）
+      expect(result[0].role).toBe('system');
+
+      // 断言 3：最新的消息链保留（user 消息在场，参考 truncator.ts:77-87 贪心保留最新链）
+      // 当前 user 消息总是最后一条，且必须存在
+      expect(result[result.length - 1].role).toBe('user');
+      expect(result[result.length - 1].content).toBe('当前问题');
+
+      // 额外验证：旧消息被截断，新消息保留（可选但加强断言）
+      const contents = result.map((m) => m.content);
+      expect(contents).not.toContain('OLD_Q1-');
+      expect(contents).not.toContain('OLD_A1-');
+      // 至少保留一些新消息
+      const hasNewMessage = contents.some((c) =>
+        c.includes('NEW_Q3-') || c.includes('NEW_A3-') || c.includes('NEW_Q4-') || c.includes('NEW_A4-'),
+      );
+      expect(hasNewMessage).toBe(true);
+    });
+  });
+
+  describe('regression baseline v1: 摘要注入路径', () => {
+    it('摘要注入生效：包含标记和标准前缀', () => {
+      const history: Message[] = [
+        createMessage({ id: 'm1', role: 'user', content: '第一个问题' }),
+        createMessage({ id: 'm2', role: 'assistant', content: '第一个回答' }),
+      ];
+
+      const result = assembleMessages({
+        history,
+        userContent: '新的问题',
+        summary: { text: 'TEST_SUMMARY_MARKER_XYZ' },
+      });
+
+      // 断言 1：messages[0].role === 'system'（默认 system prompt）
+      expect(result[0].role).toBe('system');
+
+      // 断言 2：存在某条 system 消息的 content 包含 'TEST_SUMMARY_MARKER_XYZ'（摘要注入生效）
+      // 参考 assembler.ts:75-80 的 `[Previous conversation summary]` 标记
+      const summaryMessage = result.find(
+        (m) => m.role === 'system' && m.content.includes('TEST_SUMMARY_MARKER_XYZ'),
+      );
+      expect(summaryMessage).toBeDefined();
+
+      // 断言 3：该消息 content 同时包含 `[Previous conversation summary]`
+      expect(summaryMessage!.content).toContain('[Previous conversation summary]');
+    });
+  });
 });
