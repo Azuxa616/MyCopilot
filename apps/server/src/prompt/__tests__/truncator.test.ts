@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { truncateHistory } from '../truncator.js';
+import { truncateHistory, truncateWithStrategy, STRATEGIES } from '../truncator.js';
 import { estimateMessagesTokens } from '../token-counter.js';
-import type { Message } from '@my-copilot/shared';
+import type { Message, StrategyName } from '@my-copilot/shared';
 
 /**
  * Build a Message with sensible defaults. `content` defaults to a short string;
@@ -164,5 +164,275 @@ describe('truncateHistory', () => {
 
     expect(result.dropped).toBe(history.length - result.truncated.length);
     expect(result.truncated.length).toBeLessThan(history.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 多策略注册表（T5，RFC §2）。以下测试全部追加，不改动上方既有用例。
+// ---------------------------------------------------------------------------
+
+describe('STRATEGIES 注册表', () => {
+  it('包含全部 5 种策略且每个条目的 name 与键一致', () => {
+    expect(Object.keys(STRATEGIES).sort()).toEqual([
+      'anchor',
+      'head_tail',
+      'importance',
+      'sliding_window',
+      'sliding_window_summary',
+    ]);
+    for (const [key, strategy] of Object.entries(STRATEGIES)) {
+      expect(strategy.name).toBe(key);
+      expect(typeof strategy.truncate).toBe('function');
+    }
+  });
+});
+
+describe('truncateWithStrategy — sliding_window', () => {
+  it('10 条消息小预算下仅保留最新的可装下的链（happy path）', () => {
+    // 10 条 big user 消息，每条自成一条链（≈604 tokens）。
+    const history: Message[] = Array.from({ length: 10 }, (_, i) =>
+      createMessage({ id: `m${i + 1}`, role: 'user', big: true }),
+    );
+    // 预算 = 2000（预留）+ 2×604 → 仅最后 2 条装得下。
+    const result = truncateWithStrategy(history, 3208, 'sliding_window');
+
+    expect(result.truncated.map((m) => m.id)).toEqual(['m9', 'm10']);
+    expect(result.dropped).toBe(8);
+  });
+
+  it('预算内原样返回且保持引用不变（快速路径）', () => {
+    const history: Message[] = [
+      createMessage({ id: 'a' }),
+      createMessage({ id: 'b' }),
+    ];
+    const result = truncateWithStrategy(history, 60000, 'sliding_window');
+
+    expect(result.truncated).toBe(history);
+    expect(result.dropped).toBe(0);
+  });
+});
+
+describe('truncateWithStrategy — sliding_window_summary', () => {
+  function buildHistory(): Message[] {
+    return [
+      createMessage({ id: 'sys1', role: 'system', content: 'S' }),
+      ...Array.from({ length: 10 }, (_, i) =>
+        createMessage({ id: `u${i + 1}`, role: 'user', big: true }),
+      ),
+    ];
+  }
+
+  it('传 summaryText 时在头部 system 之后注入合成摘要消息（happy path）', () => {
+    const history = buildHistory();
+    // 预算容纳 sys + 最后 2 条 user（2000 + 5 + 2×604 + 余量）。
+    const result = truncateWithStrategy(history, 3263, 'sliding_window_summary', {
+      summaryText: '用户询问了天气并收到答复。',
+    });
+
+    // dropped 计数与 sliding_window 一致。
+    expect(result.dropped).toBe(8);
+    expect(result.truncated).toHaveLength(4); // sys + 摘要 + 2 条尾部
+
+    expect(result.truncated[0].id).toBe('sys1');
+    const summary = result.truncated[1];
+    expect(summary.role).toBe('assistant');
+    expect(summary.content).toContain('[Previous conversation summary]');
+    expect(summary.content).toContain('用户询问了天气并收到答复。');
+    expect(summary.id).toMatch(/^syn-summary-/);
+    expect(summary.sessionId).toBe('session-1'); // 沿用 history 首条 sessionId
+    expect(summary.status).toBe('sent');
+    expect(summary.attachments).toEqual([]);
+
+    expect(result.truncated.slice(2).map((m) => m.id)).toEqual(['u9', 'u10']);
+  });
+
+  it('不传 summaryText 时结果与 sliding_window 完全一致', () => {
+    const history = buildHistory();
+    const sliding = truncateWithStrategy(history, 3263, 'sliding_window');
+    const result = truncateWithStrategy(history, 3263, 'sliding_window_summary');
+
+    expect(result).toEqual(sliding);
+  });
+});
+
+describe('truncateWithStrategy — head_tail', () => {
+  it('tailCount=3 时保留头部 system + 尾部 3 条，其余丢弃（happy path）', () => {
+    const history: Message[] = [
+      createMessage({ id: 'sys1', role: 'system', content: 'S' }),
+      ...Array.from({ length: 10 }, (_, i) =>
+        createMessage({ id: `u${i + 1}`, role: 'user', big: true }),
+      ),
+    ];
+    const result = truncateWithStrategy(history, 2100, 'head_tail', {
+      tailCount: 3,
+    });
+
+    expect(result.truncated.map((m) => m.id)).toEqual([
+      'sys1',
+      'u8',
+      'u9',
+      'u10',
+    ]);
+    expect(result.dropped).toBe(7);
+  });
+
+  it('尾部截断处切断 assistant-tool 链时向前扩展到链首', () => {
+    const history: Message[] = [
+      createMessage({ id: 'sys1', role: 'system', content: 'S' }),
+      createMessage({ id: 'u0', role: 'user', big: true }),
+      createMessage({
+        id: 'asst',
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'call_1', name: 'search', arguments: '{}' }],
+      }),
+      createMessage({
+        id: 'tool-res',
+        role: 'tool',
+        content: '{"ok":true}',
+        toolCallId: 'call_1',
+      }),
+      createMessage({ id: 'u1', role: 'user', content: 'thanks' }),
+    ];
+    // tailCount=2 → 尾部 [tool-res, u1]，截断点落在 tool 上 → 扩展纳入 asst。
+    // 总 token ≈ 626 > 600 → 触发截断。
+    const result = truncateWithStrategy(history, 600, 'head_tail', {
+      tailCount: 2,
+    });
+
+    expect(result.truncated.map((m) => m.id)).toEqual([
+      'sys1',
+      'asst',
+      'tool-res',
+      'u1',
+    ]);
+    expect(result.dropped).toBe(1);
+  });
+
+  it('默认 tailCount=10', () => {
+    // 12 条小 user 消息（≈6 tokens/条）总 token 77 > 30 → 触发截断。
+    const history: Message[] = [
+      createMessage({ id: 'sys1', role: 'system', content: 'S' }),
+      ...Array.from({ length: 12 }, (_, i) =>
+        createMessage({ id: `u${i + 1}`, role: 'user' }),
+      ),
+    ];
+    const result = truncateWithStrategy(history, 30, 'head_tail');
+
+    expect(result.truncated.map((m) => m.id)).toEqual([
+      'sys1',
+      ...Array.from({ length: 10 }, (_, i) => `u${i + 3}`),
+    ]);
+    expect(result.dropped).toBe(2);
+  });
+});
+
+describe('truncateWithStrategy — anchor', () => {
+  function buildHistory(): Message[] {
+    // 10 条 big user 消息，每条自成一条链（≈604 tokens）。
+    return Array.from({ length: 10 }, (_, i) =>
+      createMessage({ id: `m${i + 1}`, role: 'user', big: true }),
+    );
+  }
+
+  it('锚定第 2 条消息时即使超预算也保留该条（happy path）', () => {
+    const history = buildHistory();
+    // historyBudget = 2100 - 2000 = 100 < 604：任何链都装不下，
+    // 但锚点链 m2 必须保留。
+    const result = truncateWithStrategy(history, 2100, 'anchor', {
+      anchorPredicate: (msg) => msg.id === 'm2',
+    });
+
+    expect(result.truncated.map((m) => m.id)).toEqual(['m2']);
+    expect(result.dropped).toBe(9);
+  });
+
+  it('锚点链 + 尾部贪心：预算同时容纳锚点链与最新链', () => {
+    const history = buildHistory();
+    // historyBudget = 1208 = 锚点 m2 (604) + 最新 m10 (604)。
+    const result = truncateWithStrategy(history, 3208, 'anchor', {
+      anchorPredicate: (msg) => msg.id === 'm2',
+    });
+
+    expect(result.truncated.map((m) => m.id)).toEqual(['m2', 'm10']);
+    expect(result.dropped).toBe(8);
+  });
+
+  it('无锚点（未提供谓词或谓词无命中）时退化为 sliding_window', () => {
+    const history = buildHistory();
+    const sliding = truncateWithStrategy(history, 2604, 'sliding_window');
+
+    expect(truncateWithStrategy(history, 2604, 'anchor')).toEqual(sliding);
+    expect(
+      truncateWithStrategy(history, 2604, 'anchor', {
+        anchorPredicate: () => false,
+      }),
+    ).toEqual(sliding);
+  });
+});
+
+describe('truncateWithStrategy — importance', () => {
+  function buildHistory(): Message[] {
+    // 10 条消息：7 条 big user 填充 + 1 条 big user 关键提问 + 一对
+    // assistant(toolCalls)→tool 小链。
+    return [
+      ...Array.from({ length: 7 }, (_, i) =>
+        createMessage({ id: `f${i + 1}`, role: 'user', big: true }),
+      ),
+      createMessage({ id: 'u-key', role: 'user', big: true }),
+      createMessage({
+        id: 'asst-1',
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'c1', name: 'calc', arguments: '{}' }],
+      }),
+      createMessage({
+        id: 'tool-1',
+        role: 'tool',
+        content: '{"r":1}',
+        toolCallId: 'c1',
+      }),
+    ];
+  }
+
+  it('极小预算下 user 链优先于（更新的）tool 链存活（happy path）', () => {
+    const history = buildHistory();
+    // historyBudget = 604：u-key 链（3 分，604）优先装包；更靠后（更新）
+    // 的 [asst-1, tool-1] 链（2 分，≈14 tokens）分数低，剩余预算归零后被跳过。
+    const result = truncateWithStrategy(history, 2604, 'importance');
+
+    expect(result.truncated.map((m) => m.id)).toEqual(['u-key']);
+    expect(result.dropped).toBe(9);
+  });
+
+  it('同分按新旧装包，输出保持原时间顺序', () => {
+    const history = buildHistory();
+    // historyBudget = 1208：装入 u-key（3 分，最新）与 f7（3 分，次新），
+    // 输出按原顺序 f7 → u-key。
+    const result = truncateWithStrategy(history, 3208, 'importance');
+
+    expect(result.truncated.map((m) => m.id)).toEqual(['f7', 'u-key']);
+    expect(result.dropped).toBe(8);
+  });
+
+  it('roleWeights 可覆盖默认权重使 tool 链优先', () => {
+    const history = buildHistory();
+    // tool 权重提高到 5 → [asst-1, tool-1] 链得 5 分优先装包（≈14 tokens），
+    // 剩余预算 590 装不下任何 604 的 user 链。
+    const result = truncateWithStrategy(history, 2604, 'importance', {
+      roleWeights: { tool: 5 },
+    });
+
+    expect(result.truncated.map((m) => m.id)).toEqual(['asst-1', 'tool-1']);
+    expect(result.dropped).toBe(8);
+  });
+});
+
+describe('truncateWithStrategy — 未知策略', () => {
+  it('未知策略名抛出中文错误', () => {
+    const history: Message[] = [createMessage({ id: 'a' })];
+    expect(() =>
+      truncateWithStrategy(history, 1000, 'bogus' as StrategyName),
+    ).toThrow(/未知的截断策略/);
   });
 });
