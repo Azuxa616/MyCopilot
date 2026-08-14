@@ -46,6 +46,8 @@ export interface SSEStreamParams {
     ) => void;
     onConfirmationRequired?: (data: ConfirmationEventData) => void;
     onJobStatus?: (jobId: string, status: string, progress?: number, error?: string) => void;
+    // Extended Thinking（RFC agent-loop-v2 §3）：推理文本增量，与 content delta 分开推送。
+    onReasoning?: (text: string) => void;
 }
 
 /**
@@ -80,6 +82,7 @@ export async function parseSSEStream({
     onToolResult,
     onConfirmationRequired,
     onJobStatus,
+    onReasoning,
 }: SSEStreamParams): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -113,6 +116,17 @@ export async function parseSSEStream({
                     const data = JSON.parse(event.data || '{}');
                     if (data.content) {
                         onDelta(data.content);
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'reasoning': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.text) {
+                        onReasoning?.(data.text);
                     }
                 } catch {
                     // Ignore parse errors

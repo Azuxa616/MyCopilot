@@ -12,6 +12,7 @@ import Avatar from './Avatar'
 import MessageActions from './MessageActions'
 import AttachmentCard from '../Sender/AttachmentCard'
 import ToolCallsBlock from './ToolCallsBlock'
+import ReasoningBlock from './ReasoningBlock'
 // Utils
 import { getRelativeTime } from '../../utils/time'
 import { showMessageAlert } from './Alert/alertUtils'
@@ -316,6 +317,8 @@ export default function MessageCard({
 
         <div className={bubbleClass}>
           {StatusBar}
+          {/* Extended Thinking：推理文本与正文分开渲染（默认折叠，无 reasoningText 不渲染） */}
+          {isAssistant && !isFailed && <ReasoningBlock message={message} />}
           <RenderContent
             message={message}
             isSystem={isSystem}

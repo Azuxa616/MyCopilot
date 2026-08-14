@@ -44,6 +44,12 @@ export interface ActiveToolCall {
 }
 
 /**
+ * 前端本地的 assistant 消息扩展：Extended Thinking 推理文本（RFC agent-loop-v2 §3）。
+ * 仅存在于前端消息缓存用于渲染，不持久化、不上行 server，故不进 shared Message 类型。
+ */
+export type MessageWithReasoning = Message & { reasoningText?: string };
+
+/**
  * 状态机转移表（RFC agent-loop-v2 §7）。非法前置状态保持不变：
  *
  * | trigger          | 转移                                        |
@@ -136,7 +142,8 @@ interface SessionStore {
 
     // Actions - message operations
     addMessage: (sessionId: string, message: Message) => void;
-    updateMessage: (sessionId: string, messageId: string, updates: Partial<Message>) => void;
+    /** updates 额外接受前端本地字段 reasoningText（Extended Thinking 渲染，见 MessageWithReasoning）。 */
+    updateMessage: (sessionId: string, messageId: string, updates: Partial<MessageWithReasoning>) => void;
     deleteMessage: (sessionId: string, messageId: string) => void;
 
     // Actions - business methods
@@ -451,6 +458,17 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                         if (sendingId) {
                             const lastMsg = messages.find(m => m.id === sendingId)!;
                             updateMessage(realSessionId, sendingId, { content: lastMsg.content + deltaContent });
+                        }
+                    },
+                    // Extended Thinking（RFC §3）：推理增量累积到当前 sending assistant 消息的
+                    // 前端本地字段 reasoningText（MessageWithReasoning），UI 侧默认折叠渲染。
+                    onReasoning: (reasoningDelta) => {
+                        const messages = get().messagesCache[realSessionId] || [];
+                        const sendingId = findSendingAssistantId(messages);
+                        if (sendingId) {
+                            const lastMsg = messages.find(m => m.id === sendingId)!;
+                            const prev = (lastMsg as MessageWithReasoning).reasoningText ?? '';
+                            updateMessage(realSessionId, sendingId, { reasoningText: prev + reasoningDelta });
                         }
                     },
                     // tool_call_* 事件：维护 activeToolCalls 进度并驱动状态机
