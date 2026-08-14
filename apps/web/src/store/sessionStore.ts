@@ -19,6 +19,77 @@ function findSendingAssistantId(messages: Message[]): string | undefined {
     return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Agent 状态机（RFC agent-loop-v2 §7：SSE 事件到 UI 状态的可推导投影）
+// ---------------------------------------------------------------------------
+
+/** 前端 Agent 状态机状态；语义对齐 RFC §7，与后端 RunStatus 不直接共用枚举。 */
+export type AgentState = 'idle' | 'thinking' | 'tool_running' | 'responding' | 'error' | 'cancelled';
+
+/** 驱动状态机的触发事件，与 SSE 流生命周期 1:1。 */
+export type AgentStateTrigger =
+    | 'send'
+    | 'content_delta'
+    | 'tool_call_start'
+    | 'tool_call_done'
+    | 'stream_done'
+    | 'stream_error'
+    | 'stream_aborted';
+
+/** 当前轮单个工具调用的进度（tool_call_start → tool_result），供 UI 渲染。 */
+export interface ActiveToolCall {
+    id: string;
+    name: string;
+    status: 'running' | 'done';
+}
+
+/**
+ * 状态机转移表（RFC agent-loop-v2 §7）。非法前置状态保持不变：
+ *
+ * | trigger          | 转移                                        |
+ * |------------------|---------------------------------------------|
+ * | send             | idle → thinking（非 idle 保持）             |
+ * | content_delta    | thinking / tool_running → responding        |
+ * | tool_call_start  | thinking / responding → tool_running        |
+ * | tool_call_done   | 保持（等 content_delta 回 responding）      |
+ * | stream_done      | 任意 → idle                                 |
+ * | stream_error     | 任意 → error                                |
+ * | stream_aborted   | 任意 → cancelled                            |
+ */
+export function transitionAgentState(current: AgentState, trigger: AgentStateTrigger): AgentState {
+    switch (trigger) {
+        case 'send':
+            return current === 'idle' ? 'thinking' : current;
+        case 'content_delta':
+            return current === 'thinking' || current === 'tool_running' ? 'responding' : current;
+        case 'tool_call_start':
+            return current === 'thinking' || current === 'responding' ? 'tool_running' : current;
+        case 'tool_call_done':
+            return current;
+        case 'stream_done':
+            return 'idle';
+        case 'stream_error':
+            return 'error';
+        case 'stream_aborted':
+            return 'cancelled';
+    }
+}
+
+/** 终态触发：进入终态的同时清空当前轮 activeToolCalls。 */
+const TERMINAL_AGENT_TRIGGERS: ReadonlyArray<AgentStateTrigger> = [
+    'stream_done',
+    'stream_error',
+    'stream_aborted',
+];
+
+/**
+ * tool_call_start 只携带 (messageId, index)，尚无工具调用 id/name；
+ * 先用组合键占位，tool_call_done 到达后再替换为服务端真实 id。
+ */
+function toolCallKey(messageId: string, index: number): string {
+    return `${messageId}:${index}`;
+}
+
 interface SessionStore {
     // State - layered loading architecture
     sessionSummaries: SessionSummary[];
@@ -41,6 +112,10 @@ interface SessionStore {
      * When non-null, the ToolConfirmationDialog is shown.
      */
     pendingConfirmation: ConfirmationEventData | null;
+    /** 当前 Agent 状态机状态（初始 idle；终态侧边状态为 error / cancelled）。 */
+    agentState: AgentState;
+    /** 当前轮工具调用进度（T13 渲染用；终态触发时清空）。 */
+    activeToolCalls: ActiveToolCall[];
 
     // Actions - session list (layered loading)
     loadSessionSummaries: () => Promise<void>;
@@ -73,8 +148,21 @@ interface SessionStore {
     resolveConfirmation: (approvalId: string, approved: boolean) => Promise<void>;
 }
 
-export const useSessionStore = create<SessionStore>()(
-    (set, get) => ({
+export const useSessionStore = create<SessionStore>()((set, get) => {
+    /** 应用一次状态机转移；终态触发同时清空 activeToolCalls。 */
+    const transition = (trigger: AgentStateTrigger): void => {
+        set((state) => {
+            const patch: { agentState: AgentState; activeToolCalls?: ActiveToolCall[] } = {
+                agentState: transitionAgentState(state.agentState, trigger),
+            };
+            if (TERMINAL_AGENT_TRIGGERS.includes(trigger)) {
+                patch.activeToolCalls = [];
+            }
+            return patch;
+        });
+    };
+
+    return {
         // Initial state - layered loading architecture
         sessionSummaries: [],
         currentSession: null,
@@ -87,6 +175,8 @@ export const useSessionStore = create<SessionStore>()(
         pendingModelId: null,
         activeJobId: null,
         pendingConfirmation: null,
+        agentState: 'idle',
+        activeToolCalls: [],
 
         // Load session summaries from server
         loadSessionSummaries: async () => {
@@ -199,6 +289,9 @@ export const useSessionStore = create<SessionStore>()(
         },
 
         setActiveJobId: (jobId: string | null) => {
+            // job 终态处理点：ChatShell 在 job done/failed/cancelled 后以 null 清空
+            // activeJobId（现有逻辑），在此接 stream_done 使 agentState 归 idle。
+            if (jobId === null) transition('stream_done');
             set({ activeJobId: jobId });
         },
 
@@ -281,6 +374,7 @@ export const useSessionStore = create<SessionStore>()(
         // Send message via server SSE
         // If sessionId is the sentinel, lazily create the session first.
         sendMessage: async ({ sessionId, content, files }) => {
+            transition('send');
             const { addMessage, updateMessage, updateSessionSummary, createSession, pendingModelId } = get();
 
             // Lazy-create session if needed
@@ -350,6 +444,7 @@ export const useSessionStore = create<SessionStore>()(
                         addMessage(realSessionId, assistantMessage);
                     },
                     onDelta: (deltaContent) => {
+                        transition('content_delta');
                         // Find the last assistant message that is still 'sending' and update its content
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
@@ -358,7 +453,47 @@ export const useSessionStore = create<SessionStore>()(
                             updateMessage(realSessionId, sendingId, { content: lastMsg.content + deltaContent });
                         }
                     },
+                    // tool_call_* 事件：维护 activeToolCalls 进度并驱动状态机
+                    onToolCallStart: (msgId, index) => {
+                        set((state) => ({
+                            activeToolCalls: [
+                                ...state.activeToolCalls,
+                                { id: toolCallKey(msgId, index), name: '', status: 'running' },
+                            ],
+                            agentState: transitionAgentState(state.agentState, 'tool_call_start'),
+                        }));
+                    },
+                    onToolCallDelta: (msgId, index, _id, name) => {
+                        // 只补全运行中的工具名，不影响状态机
+                        if (name === undefined) return;
+                        set((state) => ({
+                            activeToolCalls: state.activeToolCalls.map(call =>
+                                call.id === toolCallKey(msgId, index) && call.status === 'running'
+                                    ? { ...call, name }
+                                    : call
+                            ),
+                        }));
+                    },
+                    onToolCallDone: (msgId, index, id, name) => {
+                        set((state) => ({
+                            activeToolCalls: state.activeToolCalls.map(call =>
+                                call.id === toolCallKey(msgId, index)
+                                    ? { ...call, id, name, status: 'done' }
+                                    : call
+                            ),
+                            agentState: transitionAgentState(state.agentState, 'tool_call_done'),
+                        }));
+                    },
+                    onToolResult: (_msgId, toolCallId) => {
+                        // 工具结果到达时保持 done 状态（幂等）
+                        set((state) => ({
+                            activeToolCalls: state.activeToolCalls.map(call =>
+                                call.id === toolCallId ? { ...call, status: 'done' } : call
+                            ),
+                        }));
+                    },
                     onDone: (title, content) => {
+                        transition('stream_done');
                         // Mark the last assistant message as sent
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
@@ -380,6 +515,7 @@ export const useSessionStore = create<SessionStore>()(
                     },
                     onError: (errorMsg) => {
                         if (abortController.signal.aborted) return;
+                        transition('stream_error');
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
                         if (sendingId) {
@@ -390,6 +526,7 @@ export const useSessionStore = create<SessionStore>()(
                         }
                     },
                     onAborted: () => {
+                        transition('stream_aborted');
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
                         if (sendingId) {
@@ -402,6 +539,8 @@ export const useSessionStore = create<SessionStore>()(
                 });
             } catch (error) {
                 if (abortController.signal.aborted) return;
+                // 流建立失败或 SSE 解析抛错：与 onError 一致进入 error 终态
+                transition('stream_error');
                 console.error('Send message failed:', error);
                 const cachedUserMessage = get().messagesCache[realSessionId]?.find(
                     (message) => message.id === userMessage.id,
@@ -423,6 +562,8 @@ export const useSessionStore = create<SessionStore>()(
             const { abortController, selectedSessionId } = get();
             if (abortController) {
                 abortController.abort();
+                // 本地 abort 后进入 cancelled 终态
+                transition('stream_aborted');
                 // Also notify server
                 api.stopStream(selectedSessionId).catch(() => {});
                 set({ abortController: null, isSending: false });
@@ -439,5 +580,5 @@ export const useSessionStore = create<SessionStore>()(
                 set({ pendingConfirmation: null });
             }
         },
-    })
-);
+    };
+});
