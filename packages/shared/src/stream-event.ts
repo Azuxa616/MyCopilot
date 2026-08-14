@@ -10,4 +10,6 @@ export type StreamEvent =
       argumentsDelta?: string;
     }
   | { type: 'tool_call_done'; index: number; id: string; name: string; arguments: string }
-  | { type: 'finish'; reason: 'stop' | 'tool_calls' | 'length' };
+  | { type: 'finish'; reason: 'stop' | 'tool_calls' | 'length' }
+  /** v2 新增（Context Management v2），向后兼容：Extended Thinking 的推理文本增量，与 content 分开推送。 */
+  | { type: 'reasoning'; text: string };
