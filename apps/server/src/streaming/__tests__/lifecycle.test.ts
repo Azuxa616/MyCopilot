@@ -315,16 +315,16 @@ describe('Stream Message Lifecycle', () => {
     const ac = new AbortController();
     mockRegisterStream.mockReturnValue(ac);
 
-    // runAgentLoop yields partial content then throws AbortError
+    // Mirror the real runner's abort contract: it emits the partial content
+    // delta, observes the abort, persists status='aborted' itself, and
+    // RETURNS { status: 'aborted' } — it no longer throws AbortError.
     mockRunAgentLoop.mockImplementation(async (params: { onEvent: (e: { type: string; event?: { type: string; text: string } }) => Promise<void> }) => {
       await params.onEvent({
         type: 'llm_event',
         event: { type: 'content', text: 'partial-content' },
       });
       ac.abort(); // sets ac.signal.aborted = true
-      throw Object.assign(new Error('The operation was aborted.'), {
-        name: 'AbortError',
-      });
+      return { status: 'aborted', content: 'partial-content', messages: [] };
     });
 
     const c = makeContext();
@@ -344,11 +344,9 @@ describe('Stream Message Lifecycle', () => {
     expect(abortedData.messageId).toBe('assistant-msg-1');
     expect(abortedData.partialContent).toBe('partial-content');
 
-    // Status should be 'aborted' with partial content
-    expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
-      content: 'partial-content',
-      status: 'aborted',
-    });
+    // The runner owns persisting the aborted status; lifecycle must not
+    // overwrite the message state on the return-aborted path.
+    expect(mockRepo.updateMessage).not.toHaveBeenCalled();
 
     // No done/error events
     expect(sseWrites.filter((w) => w.event === 'done')).toHaveLength(0);

@@ -54,6 +54,12 @@ vi.mock('../../src/repo/message.js', () => ({
 vi.mock('../../src/repo/tool.js', () => ({
   listTools: vi.fn(() => []),
   listEnabledTools: vi.fn(() => []),
+  getToolsByName: vi.fn(() => []),
+}));
+
+// 2b. Agent safety override repo — 默认继承工具自身的安全等级。
+vi.mock('../../src/repo/agent.js', () => ({
+  getAgentToolSafetyOverride: vi.fn(() => 'inherit'),
 }));
 
 // 3. MCP DB repo — no enabled MCPs by default.
@@ -64,14 +70,19 @@ vi.mock('../../src/repo/mcp.js', () => ({
 // 4. MCP manager — never spawns a real subprocess.
 vi.mock('../../src/mcp/manager.js', () => ({
   callTool: vi.fn(),
+  listTools: vi.fn(),
 }));
 
 // 5. Confirmation store — default to approve.
 vi.mock('../../src/tools/confirmation.js', () => ({
-  waitForConfirmation: vi.fn().mockResolvedValue(true),
-  resolveConfirmation: vi.fn(),
-  getPendingConfirmation: vi.fn(),
-  clearPendingConfirmations: vi.fn(),
+  isConfirmedThisSession: vi.fn(() => false),
+  markConfirmedThisSession: vi.fn(),
+  requestToolApproval: vi.fn(),
+}));
+
+// 5b. Tool approval repo — worker 启动时清理过期审批记录。
+vi.mock('../../src/repo/tool-approval.js', () => ({
+  expirePendingToolApprovals: vi.fn(),
 }));
 
 // 6. Job repo — full mock of every function the worker / tests touch.
@@ -88,7 +99,10 @@ vi.mock('../../src/repo/job.js', () => ({
   cancelJob: vi.fn(() => undefined),
   reclaimStaleJobs: vi.fn(() => 0),
   renewJobLease: vi.fn(() => true),
+  failWaitingJobsOnStartup: vi.fn(() => 0),
   updateJobProgress: vi.fn(),
+  setJobWaitingForConfirmation: vi.fn(),
+  resumeJobAfterConfirmation: vi.fn(),
 }));
 
 // 7. Summary repo — no persisted summaries by default.
@@ -130,15 +144,17 @@ import {
   clearRegisteredTools,
   type ToolExecutor,
 } from '../../src/tools/registry.js';
-import { listTools } from '../../src/repo/tool.js';
-import { callTool as mcpCallTool } from '../../src/mcp/manager.js';
-import { waitForConfirmation } from '../../src/tools/confirmation.js';
+import { listTools, getToolsByName } from '../../src/repo/tool.js';
+import { getAgentToolSafetyOverride } from '../../src/repo/agent.js';
+import { callTool as mcpCallTool, listTools as listMcpTools } from '../../src/mcp/manager.js';
+import { requestToolApproval } from '../../src/tools/confirmation.js';
 import {
   claimJob,
   completeJob,
   failJob,
   reclaimStaleJobs,
   renewJobLease,
+  failWaitingJobsOnStartup,
 } from '../../src/repo/job.js';
 import { createSummary, getLatestSummary } from '../../src/repo/summary.js';
 import { summarizeHistory } from '../../src/prompt/summarizer.js';
@@ -329,15 +345,19 @@ describe('Step B E2E', () => {
     clearJobHandlers();
     // Reset DB repo / MCP / confirmation mocks to safe defaults on every test.
     vi.mocked(listTools).mockReturnValue([]);
+    vi.mocked(getToolsByName).mockReturnValue([]);
+    vi.mocked(getAgentToolSafetyOverride).mockReturnValue('inherit');
     vi.mocked(mcpCallTool).mockReset();
-    vi.mocked(waitForConfirmation).mockReset();
-    vi.mocked(waitForConfirmation).mockResolvedValue(true);
+    vi.mocked(listMcpTools).mockReset();
+    vi.mocked(requestToolApproval).mockReset();
+    vi.mocked(requestToolApproval).mockResolvedValue(true);
     // Reset job repo mocks to safe defaults.
     vi.mocked(claimJob).mockReturnValue(undefined);
     vi.mocked(completeJob).mockReturnValue(undefined);
     vi.mocked(failJob).mockReturnValue(undefined);
     vi.mocked(reclaimStaleJobs).mockReturnValue(0);
     vi.mocked(renewJobLease).mockReturnValue(true);
+    vi.mocked(failWaitingJobsOnStartup).mockReturnValue(0);
     // Reset summary mocks.
     vi.mocked(createSummary).mockReset();
     vi.mocked(getLatestSummary).mockReturnValue(undefined);

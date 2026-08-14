@@ -15,7 +15,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type {
   Message,
   Tool,
-  ToolCall,
   StreamEvent,
 } from '@my-copilot/shared';
 
@@ -42,6 +41,12 @@ vi.mock('../../src/repo/message.js', () => ({
 // 2. Tool DB repo — empty by default; per-test overrides via vi.mocked.
 vi.mock('../../src/repo/tool.js', () => ({
   listTools: vi.fn(() => []),
+  getToolsByName: vi.fn(() => []),
+}));
+
+// 2b. Agent safety override repo — 默认继承工具自身的安全等级。
+vi.mock('../../src/repo/agent.js', () => ({
+  getAgentToolSafetyOverride: vi.fn(() => 'inherit'),
 }));
 
 // 3. MCP DB repo — no enabled MCPs by default.
@@ -52,14 +57,14 @@ vi.mock('../../src/repo/mcp.js', () => ({
 // 4. MCP manager — never spawns a real subprocess.
 vi.mock('../../src/mcp/manager.js', () => ({
   callTool: vi.fn(),
+  listTools: vi.fn(),
 }));
 
-// 5. Confirmation store — default to approve so high-danger tests can opt-in.
+// 5. Confirmation store — default to approve so danger tools can opt-in.
 vi.mock('../../src/tools/confirmation.js', () => ({
-  waitForConfirmation: vi.fn().mockResolvedValue(true),
-  resolveConfirmation: vi.fn(),
-  getPendingConfirmation: vi.fn(),
-  clearPendingConfirmations: vi.fn(),
+  isConfirmedThisSession: vi.fn(() => false),
+  markConfirmedThisSession: vi.fn(),
+  requestToolApproval: vi.fn(),
 }));
 
 // Import AFTER mocks are registered. verbatimModuleSyntax requires `import type`
@@ -79,9 +84,10 @@ import {
   clearRegisteredTools,
   type ToolExecutor,
 } from '../../src/tools/registry.js';
-import { listTools } from '../../src/repo/tool.js';
-import { callTool as mcpCallTool } from '../../src/mcp/manager.js';
-import { waitForConfirmation } from '../../src/tools/confirmation.js';
+import { listTools, getToolsByName } from '../../src/repo/tool.js';
+import { getAgentToolSafetyOverride } from '../../src/repo/agent.js';
+import { callTool as mcpCallTool, listTools as listMcpTools } from '../../src/mcp/manager.js';
+import { requestToolApproval } from '../../src/tools/confirmation.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,17 +133,6 @@ function generatorFrom(
 ): AsyncGenerator<StreamEvent, void, unknown> {
   return (async function* () {
     for (const e of events) yield e;
-  })();
-}
-
-/** Build an async generator that throws after the first event. */
-function throwingGenerator(
-  events: StreamEvent[],
-  error: Error,
-): AsyncGenerator<StreamEvent, void, unknown> {
-  return (async function* () {
-    for (const e of events) yield e;
-    throw error;
   })();
 }
 
@@ -227,11 +222,14 @@ describe('Agent Loop E2E', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearRegisteredTools();
-    // Reset DB repo / MCP mocks to safe defaults on every test.
+    // Reset DB repo / MCP / confirmation mocks to safe defaults on every test.
     vi.mocked(listTools).mockReturnValue([]);
+    vi.mocked(getToolsByName).mockReturnValue([]);
+    vi.mocked(getAgentToolSafetyOverride).mockReturnValue('inherit');
     vi.mocked(mcpCallTool).mockReset();
-    vi.mocked(waitForConfirmation).mockReset();
-    vi.mocked(waitForConfirmation).mockResolvedValue(true);
+    vi.mocked(listMcpTools).mockReset();
+    vi.mocked(requestToolApproval).mockReset();
+    vi.mocked(requestToolApproval).mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -398,9 +396,11 @@ describe('Agent Loop E2E', () => {
     };
     registerTool('loopy', foreverTool);
 
-    // Every iteration returns a fresh tool_call — model never stops.
+    // Every iteration returns a fresh tool call — model never stops.
+    // 每次迭代的 arguments 必须不同：runner 的死循环去重按参数摘要跳过
+    // 相同参数的重复调用（工具名不参与摘要）。
     const streams: StreamEvent[][] = Array.from({ length: 5 }, (_, i) => [
-      ev.toolCallDone(0, `call-${i}`, 'loopy'),
+      ev.toolCallDone(0, `call-${i}`, 'loopy', { n: i }),
       ev.finish('tool_calls'),
     ]);
     const adapter = makeAdapter(streams);
@@ -441,11 +441,13 @@ describe('Agent Loop E2E', () => {
 
     const adapter = makeAdapter([
       // Iteration 1: two parallel tool calls.
+      // 两个工具的 arguments 必须不同：runner 的去重摘要只覆盖参数
+      // （不含工具名），相同参数会被误判为重复调用而跳过第二个。
       [
         ev.toolCallStart(0),
         ev.toolCallStart(1),
-        ev.toolCallDone(0, 'call-a', 'a'),
-        ev.toolCallDone(1, 'call-b', 'b'),
+        ev.toolCallDone(0, 'call-a', 'a', { x: 'a' }),
+        ev.toolCallDone(1, 'call-b', 'b', { x: 'b' }),
         ev.finish('tool_calls'),
       ],
       // Iteration 2: finish.
@@ -472,7 +474,7 @@ describe('Agent Loop E2E', () => {
   });
 
   // --- 7. High-risk confirmation (sync block) -----------------------------
-  it('7. gates a high-danger DB tool on waitForConfirmation and proceeds when approved', async () => {
+  it('7. gates a high-danger DB tool on requestToolApproval and proceeds when approved', async () => {
     const highRiskTool: Tool = {
       id: 'db-nuke',
       name: 'nuke',
@@ -480,14 +482,14 @@ describe('Agent Loop E2E', () => {
       inputSchema: { fields: [] },
       type: 'mcp-provided',
       safetyLevel: 'danger',
-      sourceMcpId: 'mcp-test',
+      sourceMcpId: 'mcp-1',
       policyVersion: 'test:nuke:v1',
       enabled: true,
       createdAt: 0,
       updatedAt: 0,
     };
-    vi.mocked(listTools).mockReturnValue([highRiskTool]);
-    vi.mocked(waitForConfirmation).mockResolvedValue(true);
+    vi.mocked(getToolsByName).mockReturnValue([highRiskTool]);
+    vi.mocked(requestToolApproval).mockResolvedValue(true);
     vi.mocked(mcpCallTool).mockResolvedValue({
       content: [{ type: 'text', text: 'nuke-fired-ok' }],
     });
@@ -519,12 +521,17 @@ describe('Agent Loop E2E', () => {
     );
 
     expect(result.status).toBe('completed');
-    // Confirmation was awaited with the sessionId-namespaced callId.
-    expect(waitForConfirmation).toHaveBeenCalledTimes(1);
-    expect(waitForConfirmation).toHaveBeenCalledWith(
-      'sess-1:call-nuke-99',
-      expect.objectContaining({ name: 'nuke' }),
-      300_000,
+    // Danger 工具被审批门控拦截一次，审批载荷携带 toolCallId / 安全等级 / 工具引用。
+    expect(requestToolApproval).toHaveBeenCalledTimes(1);
+    expect(requestToolApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approval: expect.objectContaining({
+          toolCallId: 'call-nuke-99',
+          safetyLevel: 'danger',
+          tool: expect.objectContaining({ name: 'nuke' }),
+        }),
+        signal: expect.any(AbortSignal),
+      }),
     );
     // After approval the executor routed to the MCP. The runner forwards the
     // abortSignal to the executor's context, which forwards it to mcpCallTool.
@@ -539,7 +546,6 @@ describe('Agent Loop E2E', () => {
 
   // --- 8. Skill injection into prompt -------------------------------------
   it('8. injects enabled skills into the system prompt sent to the LLM', async () => {
-    const adapter = makeAdapter([[ev.finish('stop')]]);
     const captured: { messages: ChatMessage[][] } = { messages: [] };
     const skillAdapter: ProviderAdapter = {
       type: 'openai',

@@ -40,7 +40,8 @@ describe('testProvider', () => {
       statusText: 'Not Found',
     });
 
-    const result = await testProvider('ollama', 'http://localhost:11434');
+    // 使用公网域名：localhost 会被 SSRF 内网拦截提前返回 network
+    const result = await testProvider('ollama', 'https://ollama.example.com');
 
     expect(result.success).toBe(false);
     expect(result.errorClass).toBe('notfound');

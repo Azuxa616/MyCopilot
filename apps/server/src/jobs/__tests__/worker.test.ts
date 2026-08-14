@@ -10,6 +10,7 @@ const mockCompleteJob = vi.fn();
 const mockFailJob = vi.fn();
 const mockReclaimStaleJobs = vi.fn();
 const mockRenewJobLease = vi.fn();
+const mockFailWaitingJobsOnStartup = vi.fn();
 
 vi.mock('../../repo/job.js', () => ({
   claimJob: (...args: unknown[]) => mockClaimJob(...args),
@@ -17,6 +18,12 @@ vi.mock('../../repo/job.js', () => ({
   failJob: (...args: unknown[]) => mockFailJob(...args),
   reclaimStaleJobs: (...args: unknown[]) => mockReclaimStaleJobs(...args),
   renewJobLease: (...args: unknown[]) => mockRenewJobLease(...args),
+  failWaitingJobsOnStartup: (...args: unknown[]) => mockFailWaitingJobsOnStartup(...args),
+}));
+
+// worker 启动时还会清理过期的工具审批记录，这里一并 mock 掉
+vi.mock('../../repo/tool-approval.js', () => ({
+  expirePendingToolApprovals: vi.fn(),
 }));
 
 import {
@@ -63,6 +70,7 @@ describe('job worker', () => {
     mockFailJob.mockReturnValue(undefined);
     mockReclaimStaleJobs.mockReturnValue(0);
     mockRenewJobLease.mockReturnValue(true);
+    mockFailWaitingJobsOnStartup.mockReturnValue(0);
     clearJobHandlers();
   });
 
