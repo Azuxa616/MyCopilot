@@ -1,15 +1,17 @@
 // DebugBadge - Floating "Dev" badge shown only in development.
-// Double gating layer 1: early return when not DEV so the component body is
+// Double gating layer 1: early return when not DEV so the JSX below is
 // dead code in production builds (combined with the lazy conditional import
 // in Layout.tsx this ensures prod bundles never include debug UI).
 
 import { useDebugStore } from '../../store/debugStore'
 
 export default function DebugBadge() {
-  // Gating layer 1 — must be the first executable statement.
-  if (!import.meta.env.DEV) return null
-
+  // Hooks must run unconditionally (rules-of-hooks); the store subscription is
+  // cheap and the component is never even imported in prod (gating layer 2).
   const openModal = useDebugStore((s) => s.openModal)
+
+  // Gating layer 1 — render nothing in production builds.
+  if (!import.meta.env.DEV) return null
 
   return (
     <button

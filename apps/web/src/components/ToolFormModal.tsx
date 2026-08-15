@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { SafetyLevel, Tool, UpdateToolParams } from '@my-copilot/shared'
 import Modal from './common/Modal'
 import { FormField, formControlClassName } from './common/FormField'
@@ -26,9 +26,16 @@ export default function ToolFormModal({
 }: ToolFormModalProps) {
   const [safetyLevel, setSafetyLevel] = useState<SafetyLevel>('restricted')
 
-  useEffect(() => {
+  // 打开弹窗或切换目标工具时同步安全级别。
+  // 渲染期守卫式状态调整（react.dev "You Might Not Need an Effect"），
+  // 哨兵 null 保证首帧即执行，与原 mount effect 行为一致。
+  const [hydratedFor, setHydratedFor] = useState<{ open: boolean; tool: Tool | undefined } | null>(
+    null,
+  )
+  if (hydratedFor === null || hydratedFor.open !== open || hydratedFor.tool !== tool) {
+    setHydratedFor({ open, tool })
     if (open && tool) setSafetyLevel(tool.safetyLevel)
-  }, [open, tool])
+  }
 
   const handleSubmit = () => {
     if (!tool) return

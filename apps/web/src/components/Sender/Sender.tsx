@@ -1,7 +1,7 @@
 // Sender - Message input component
 // Contains input box, file upload, send button
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState } from 'react'
 // Components
 import AttachmentCard from './AttachmentCard'
 import FileUploadModal from './FileUploadModal'
@@ -24,37 +24,28 @@ export default function Sender() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const textareaRef = useTextareaAutoHeight(content);
     const { attachments, addAttachment, removeAttachment, clearAttachments } = useAttachments();
-    const prevSessionIdRef = useRef<string>('');
+    const [prevSessionId, setPrevSessionId] = useState<string>('');
 
     // Get messages for current session
     const messages = selectedSessionId ? (messagesCache[selectedSessionId] || []) : [];
 
     // Reset sender state
-    const resetSender = useCallback(() => {
+    // textarea is controlled (value={content}) and useTextareaAutoHeight recomputes
+    // height on content change, so resetting state alone fully resets the input.
+    const resetSender = () => {
         setContent('');
         clearAttachments();
-        if (textareaRef.current) {
-            textareaRef.current.value = '';
-            textareaRef.current.style.height = 'auto';
-        }
-    }, [clearAttachments]);
+    };
 
-    // Reset sender when switching to a new session
-    useEffect(() => {
-        if (selectedSessionId && selectedSessionId !== prevSessionIdRef.current) {
-            // Check if it's a new session (no messages)
-            const isNewSession = messages.length === 0;
-
-            if (isNewSession) {
-                resetSender();
-            }
-
-            prevSessionIdRef.current = selectedSessionId;
-        } else if (!selectedSessionId) {
+    // Reset sender when switching to a new session.
+    // Guarded render-time adjustment (react.dev "You Might Not Need an Effect").
+    if (selectedSessionId !== prevSessionId) {
+        setPrevSessionId(selectedSessionId);
+        const isNewSession = !selectedSessionId || messages.length === 0;
+        if (isNewSession) {
             resetSender();
-            prevSessionIdRef.current = '';
         }
-    }, [selectedSessionId, messages.length, resetSender]);
+    }
 
     const currentSession = useSessionStore((state) => state.currentSession);
     const pendingModelId = useSessionStore((state) => state.pendingModelId);

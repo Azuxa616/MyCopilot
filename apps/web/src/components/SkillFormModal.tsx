@@ -3,7 +3,7 @@
 // to show a hint and auto-fill the name/description fields. The server re-parses on submit;
 // this preview is best-effort and frontend-only.
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import type { CreateSkillParams, SkillSource } from '@my-copilot/shared'
 import Modal from './common/Modal'
 import { FormField, formControlClassName } from './common/FormField'
@@ -59,7 +59,11 @@ export default function SkillFormModal({
   const [autoFilled, setAutoFilled] = useState(false) // tracks whether name/desc came from frontmatter
 
   // Reset everything when modal opens
-  useEffect(() => {
+  // 渲染期守卫式状态调整（react.dev "You Might Not Need an Effect"），
+  // 哨兵 null 保证首帧即执行，与原 mount effect 行为一致。
+  const [lastOpen, setLastOpen] = useState<boolean | null>(null)
+  if (lastOpen !== open) {
+    setLastOpen(open)
     if (open) {
       setMode('upload')
       setFileName('')
@@ -69,7 +73,7 @@ export default function SkillFormModal({
       setErrors({})
       setAutoFilled(false)
     }
-  }, [open])
+  }
 
   // Live frontmatter hint (recomputed on every content change)
   const hint = useMemo(() => parseFrontmatterHint(content), [content])

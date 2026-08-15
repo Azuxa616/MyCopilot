@@ -4,7 +4,7 @@
 // 前端用 validateConfigJson 做语法+结构实时校验作为保存门禁；"测试连通"
 // 按钮调 POST /api/mcps/test-config 做不落库的临时连接测试。
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import type {
   Mcp,
   CreateMcpParams,
@@ -52,21 +52,29 @@ export default function McpFormModal({
   const [test, setTest] = useState<TestState>({ loading: false })
 
   // Reset / hydrate whenever the modal opens or the target mcp changes.
-  useEffect(() => {
-    if (!open) return
-    if (mcp) {
-      setName(mcp.name)
-      setDescription(mcp.description)
-      setConfigText(JSON.stringify(mcp.config, null, 2))
-      setEnabled(mcp.enabled)
-    } else {
-      setName('')
-      setDescription('')
-      setConfigText(DEFAULT_CONFIG_TEXT)
-      setEnabled(true)
+  // 渲染期守卫式状态调整（react.dev "You Might Not Need an Effect"），
+  // 哨兵 null 保证首帧即执行，与原 mount effect 行为一致。
+  const [hydratedFor, setHydratedFor] = useState<{
+    open: boolean
+    mcp: Mcp | null | undefined
+  } | null>(null)
+  if (hydratedFor === null || hydratedFor.open !== open || hydratedFor.mcp !== mcp) {
+    setHydratedFor({ open, mcp })
+    if (open) {
+      if (mcp) {
+        setName(mcp.name)
+        setDescription(mcp.description)
+        setConfigText(JSON.stringify(mcp.config, null, 2))
+        setEnabled(mcp.enabled)
+      } else {
+        setName('')
+        setDescription('')
+        setConfigText(DEFAULT_CONFIG_TEXT)
+        setEnabled(true)
+      }
+      setTest({ loading: false })
     }
-    setTest({ loading: false })
-  }, [open, mcp])
+  }
 
   // 实时校验（每次 configText 变化都重新计算；validateConfigJson 是纯函数且很轻）。
   const validation = useMemo(() => validateConfigJson(configText), [configText])

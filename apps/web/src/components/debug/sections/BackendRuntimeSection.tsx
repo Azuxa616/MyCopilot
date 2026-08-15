@@ -65,7 +65,6 @@ export default function BackendRuntimeSection() {
   useEffect(() => {
     void fetchDebug()
     // One-shot on mount; refresh is triggered by button clicks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (

@@ -47,7 +47,6 @@ function render(ui: ReactElement): { container: HTMLElement; unmount: () => void
 }
 
 // Import AFTER vi.mock so the component picks up the mocked getBuildInfo.
-// eslint-disable-next-line import/first
 import GitEnvSection from './GitEnvSection'
 
 describe('GitEnvSection', () => {

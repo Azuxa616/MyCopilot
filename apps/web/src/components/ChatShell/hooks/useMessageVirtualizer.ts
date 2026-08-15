@@ -17,6 +17,9 @@ export function useMessageVirtualizer({
   messages,
   containerRef,
 }: UseMessageVirtualizerParams): Virtualizer<HTMLDivElement, Element> {
+  // TanStack Virtual 返回含函数的对象，无法被 React Compiler 安全记忆化；
+  // 编译器跳过本 hook 的自动 memo（库本身的已知限制），故豁免该提示。
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer<HTMLDivElement, Element>({
     count: messages.length,
     getScrollElement: () => containerRef.current,

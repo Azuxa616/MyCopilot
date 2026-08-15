@@ -2,7 +2,7 @@
 // Restricted tools: confirm once per session; Danger tools: confirm every call.
 // Design ref: docs/2026-07-11-tool-safety-system-design.md §6.2
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Modal from './common/Modal'
 import type { ConfirmationEventData } from '../utils/streamUtils'
 
@@ -17,10 +17,15 @@ export default function ToolConfirmationDialog({
 }: ToolConfirmationDialogProps) {
   const [isResolving, setIsResolving] = useState(false)
 
-  // Reset resolving state when a new confirmation arrives
-  useEffect(() => {
+  // Reset resolving state when a new confirmation arrives.
+  // 渲染期守卫式状态调整（react.dev "You Might Not Need an Effect"）；
+  // 初始值与当前 approvalId 对齐（初始 false 与原 mount effect 的 no-op 等价）。
+  const approvalId = confirmation?.approvalId
+  const [prevApprovalId, setPrevApprovalId] = useState<string | undefined>(approvalId)
+  if (prevApprovalId !== approvalId) {
+    setPrevApprovalId(approvalId)
     setIsResolving(false)
-  }, [confirmation?.approvalId])
+  }
 
   const isDanger = confirmation?.safetyLevel === 'danger'
   const isRestricted = confirmation?.safetyLevel === 'restricted'

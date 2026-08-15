@@ -21,6 +21,11 @@ export type PopoverTrigger = 'hover' | 'click'
 /** 气泡位置：上下左右四个方向 */
 export type PopoverPlacement = 'top' | 'bottom' | 'left' | 'right'
 
+/** 触发元素克隆时注入的 props（含合并 ref） */
+interface TriggerCloneProps extends React.HTMLAttributes<HTMLElement> {
+  ref?: React.Ref<HTMLElement>
+}
+
 export interface PopoverProps {
   /** 触发元素，必须是能够接受 ref 的 ReactElement */
   children: ReactNode
@@ -177,14 +182,14 @@ export default function Popover({
    */
   const triggerElement = isValidElement(children) ? children : <span>{children}</span>
 
-  /**
-   * 保存触发元素的原始 ref
+  const typedTrigger = triggerElement as ReactElement<TriggerCloneProps>
+
+  /** 触发元素携带的原始 ref（渲染期只读，不写入 ref）
    * 用于在合并 ref 时保留用户传入的 ref
    */
-  const originalRef = useRef<React.Ref<HTMLElement> | undefined>(undefined)
-  if (isValidElement(triggerElement)) {
-    originalRef.current = (triggerElement as ReactElement & { ref?: React.Ref<HTMLElement> }).ref
-  }
+  const originalRef = (triggerElement as ReactElement<TriggerCloneProps> & {
+    ref?: React.Ref<HTMLElement>
+  }).ref
 
   /**
    * Ref 回调函数
@@ -194,46 +199,40 @@ export default function Popover({
   const refCallback = useCallback((node: HTMLElement | null) => {
     // 设置内部 ref，用于位置计算
     triggerRef.current = node
-    
+
     // 保留用户传入的原始 ref
-    const ref = originalRef.current
-    if (ref) {
-      if (typeof ref === 'function') {
-        // 函数式 ref：直接调用
-        ref(node)
-      } else if (ref && typeof ref === 'object' && 'current' in ref) {
-        // 对象式 ref：设置 current 属性
-        // eslint-disable-next-line react-hooks/immutability
-        ;(ref as { current: HTMLElement | null }).current = node
-      }
+    if (typeof originalRef === 'function') {
+      // 函数式 ref：直接调用
+      originalRef(node)
+    } else if (originalRef && typeof originalRef === 'object' && 'current' in originalRef) {
+      // 对象式 ref：设置 current 属性
+      // eslint-disable-next-line react-hooks/immutability -- 对象式 ref 只能通过写 current 转发节点，回调内写 ref 属于 React 允许的副作用
+      ;(originalRef as { current: HTMLElement | null }).current = node
     }
-  }, [])
+  }, [originalRef])
 
   /**
    * 克隆触发元素并注入事件处理器和 ref
    * 保留原有的事件处理器，同时添加 Popover 的交互逻辑
    */
-  const clonedTrigger = cloneElement(
-    triggerElement as ReactElement,
-    {
-      ref: refCallback,
-      // 点击事件：保留原有处理，添加切换打开状态逻辑
-      onClick: (e: ReactMouseEvent) => {
-        triggerElement.props.onClick?.(e)
-        if (trigger === 'click') setOpen(!isOpen)
-      },
-      // 鼠标进入：hover 模式下打开气泡
-      onMouseEnter: (e: ReactMouseEvent) => {
-        triggerElement.props.onMouseEnter?.(e)
-        if (trigger === 'hover') setOpen(true)
-      },
-      // 鼠标离开：hover 模式下关闭气泡
-      onMouseLeave: (e: ReactMouseEvent) => {
-        triggerElement.props.onMouseLeave?.(e)
-        if (trigger === 'hover') setOpen(false)
-      },
-    } as any
-  )
+  const clonedTrigger = cloneElement(typedTrigger, {
+    ref: refCallback,
+    // 点击事件：保留原有处理，添加切换打开状态逻辑
+    onClick: (e: ReactMouseEvent<HTMLElement>) => {
+      typedTrigger.props.onClick?.(e)
+      if (trigger === 'click') setOpen(!isOpen)
+    },
+    // 鼠标进入：hover 模式下打开气泡
+    onMouseEnter: (e: ReactMouseEvent<HTMLElement>) => {
+      typedTrigger.props.onMouseEnter?.(e)
+      if (trigger === 'hover') setOpen(true)
+    },
+    // 鼠标离开：hover 模式下关闭气泡
+    onMouseLeave: (e: ReactMouseEvent<HTMLElement>) => {
+      typedTrigger.props.onMouseLeave?.(e)
+      if (trigger === 'hover') setOpen(false)
+    },
+  })
 
   /**
    * 气泡内容

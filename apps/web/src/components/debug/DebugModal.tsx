@@ -10,11 +10,13 @@ import StoreSnapshotSection from './sections/StoreSnapshotSection'
 import BackendRuntimeSection from './sections/BackendRuntimeSection'
 
 export default function DebugModal() {
-  // Gating layer 1 — must be the first executable statement.
-  if (!import.meta.env.DEV) return null
-
+  // Hooks must run unconditionally (rules-of-hooks); the store subscriptions
+  // are cheap and the component is never imported in prod (gating layer 2).
   const isModalOpen = useDebugStore((s) => s.isModalOpen)
   const closeModal = useDebugStore((s) => s.closeModal)
+
+  // Gating layer 1 — render nothing in production builds.
+  if (!import.meta.env.DEV) return null
 
   return (
     <Modal
