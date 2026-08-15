@@ -1,8 +1,20 @@
 /**
- * Agent Loop Runner
+ * Agent Loop Runner (v2)
  *
- * The orchestration core: iterates LLM calls + tool execution until the model
- * signals completion, hits max iterations, length-limits, or is aborted.
+ * Agent Loop v2 的编排核心：迭代「Context v2 装配 → LLM 流式调用 → 工具执行」
+ * 直到模型给出终止信号、触发循环防护或被用户中断。
+ *
+ * 对应 RFC《Agent Loop v2》（docs/rfc/agent-loop-v2.md）：
+ * - §1 Run 生命周期状态机：RunStateMachine 跟踪 queued → in_progress →
+ *   requires_action → 终态；SSE 事件映射由 lifecycle（T14）完成，runner 只驱动转移。
+ * - §3 Extended Thinking：reasoning 增量事件原样透传（llm_event），不计入回复内容。
+ * - §5 LoopGuard v2：步前统一评估 user_interrupt > max_steps > max_tokens，
+ *   并承担重复工具调用检测（digest 含工具名）。
+ * - §6 stop_reason 路由表：finishReason → StopReason → routeStopReason 决定下一步。
+ *
+ * 上下文装配切换到 Context v2（T7 assembleMessagesV2，对应 RFC
+ * 《Context Management v2》）：五桶预算、多策略调度、Memory 注入与降级链
+ * 全部在装配函数内部完成，runner 只消费 RunContext{messages,budget,degraded}。
  *
  * DECOUPLED FROM SSE: All StreamEvent delivery to the outside world happens
  * through the `onEvent` callback. The runner never touches a stream object.
@@ -12,6 +24,7 @@
 import type {
   Job,
   Message,
+  StopReason,
   StreamEvent,
   Tool,
   ToolApproval,
@@ -24,20 +37,20 @@ import type {
   JsonSchemaTool,
 } from '../llm/base.js';
 import type { AttachmentText, SkillInjection } from '../prompt/assembler.js';
-import { assembleMessages } from '../prompt/assembler.js';
+import { assembleMessagesV2 } from '../prompt/assembler.js';
 import { estimateMessagesTokens } from '../prompt/token-counter.js';
 import { summarizeHistory } from '../prompt/summarizer.js';
 import { createMessage, updateMessage } from '../repo/message.js';
 import { createSummary, getLatestSummary } from '../repo/summary.js';
-import {
-  digestToolCallArguments,
-  executeToolCall,
-} from '../tools/executor.js';
+import { executeToolCall } from '../tools/executor.js';
 import { toolInputSchemaToJsonSchema } from '../utils/schema-adapter.js';
 import {
   resumeJobAfterConfirmation,
   setJobWaitingForConfirmation,
 } from '../repo/job.js';
+import { RunStateMachine } from './run-state.js';
+import { createLoopGuard, digestToolCall } from './loop-guard.js';
+import { extractReasoning, routeStopReason } from './stop-router.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,6 +144,18 @@ const DEFAULT_SUMMARY_THRESHOLD = 30_000;
  */
 const MIN_MESSAGES_TO_SUMMARIZE = 5;
 
+/**
+ * finish reason → StopReason 映射（RFC §6 路由表键）。
+ * adapter 流式事件的 finish.reason 归一到 StopReason 后再查询路由表。
+ */
+const STOP_REASON_BY_FINISH: Readonly<
+  Record<'stop' | 'tool_calls' | 'length', StopReason>
+> = {
+  stop: 'end_turn',
+  tool_calls: 'tool_use',
+  length: 'max_tokens',
+};
+
 /** Resolve max iterations from params → env → default. */
 function resolveMaxIterations(override?: number): number {
   if (override !== undefined) return override;
@@ -146,6 +171,9 @@ function resolveMaxIterations(override?: number): number {
  * a summary is created, subsequent iterations see a large
  * `summarizedUpToMessageId` offset and skip until the tail grows past
  * {@link MIN_MESSAGES_TO_SUMMARIZE} again.
+ *
+ * Context v2 定位：惰性摘要是 assembleMessagesV2 降级链的补充而非替代——
+ * 前者跨迭代持久化摘要（repo/summary），后者在单次装配内兜底压缩。
  *
  * Fail-soft: the summarizer itself never throws, and we swallow any unexpected
  * error here so the agent loop always continues (falling back to plain
@@ -222,21 +250,24 @@ async function maybeSummarizeHistory(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Run the agent loop: LLM call → consume stream → maybe execute tools → repeat.
+ * Run the agent loop (v2): Context 装配 → LLM call → consume stream → maybe
+ * execute tools → repeat.
  *
- * Termination conditions:
- *   - `finish.reason === 'stop'`           → status 'completed'
- *   - `finish.reason === 'length'`         → status 'length_limited'
- *   - iterations > maxIterations           → status 'max_iterations'
- *   - abortSignal.aborted                  → status 'aborted'
- *   - unexpected exception                 → status 'error'
+ * Termination conditions（旧外部状态名保留，Run 状态机映射见括号）:
+ *   - `finish.reason === 'stop'`           → status 'completed'   (Run completed)
+ *   - `finish.reason === 'length'`         → status 'length_limited' (Run incomplete)
+ *   - 步数上限（LoopGuard max_steps）      → status 'max_iterations' (Run incomplete)
+ *   - token 预算（LoopGuard max_tokens）   → status 'max_iterations' (Run incomplete)
+ *   - abortSignal.aborted                  → status 'aborted'     (Run cancelled)
+ *   - unexpected exception                 → status 'error'       (Run failed)
  *
  * Side effects per round:
  *   - Forwards every StreamEvent via onEvent({ type: 'llm_event', event })
+ *     （含 Extended Thinking 的 reasoning 事件，RFC §3）
  *   - Persists assistant message (with toolCalls) to DB on tool-call rounds
  *   - Persists each tool result to DB as role='tool' message
  *   - Pushes synthetic assistant + tool messages onto `history` so the next
- *     iteration's `assembleMessages` sees them
+ *     iteration's `assembleMessagesV2` sees them
  */
 export async function runAgentLoop(
   params: RunAgentLoopParams,
@@ -258,18 +289,25 @@ export async function runAgentLoop(
     onEvent,
   } = params;
 
-  const maxIter = resolveMaxIterations(params.maxIterations);
+  // Run 生命周期状态机（RFC §1）：内存态跟踪，SSE 事件映射由 lifecycle（T14）
+  // 完成，这里只负责在终止/确认路径上驱动合法转移。
+  const runState = new RunStateMachine(runId);
+  runState.transition('start'); // queued → in_progress
+
+  // LoopGuard v2（RFC §5）：maxSteps 由 resolveMaxIterations 解析
+  // （params.maxIterations → AGENT_MAX_ITERATIONS env → 默认 10，
+  // 与 DEFAULT_LOOP_GUARD_CONFIG.maxSteps 的默认约定一致）。
+  const guard = createLoopGuard({
+    maxSteps: resolveMaxIterations(params.maxIterations),
+  });
 
   let lastIterationContent = '';
   const addedMessages: Message[] = [];
   const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
 
-  // Digests of tool calls already attempted in this run. Prevents the LLM
-  // from re-issuing the same (name + arguments) tool call across iterations
-  // when the previous attempt failed (typical trigger: danger tool
-  // confirmation rejected/expired, or orphan mcp-provided tool that always
-  // resolves to "Unknown tool" → model naively retries → repeat until
-  // maxIterations).
+  // 已尝试工具调用 digest 的镜像集合：LoopGuard 内部由 markAttempted 维护，
+  // 此处同步记录以填充 check() 的 attemptedDigests 快照（当前 runtime 侧
+  // 配置无 maxRepeatCalls，check() 不基于该集合触发停止，仅作输入约定）。
   const attemptedDigests = new Set<string>();
 
   // Convert Tool[] to JsonSchemaTool[] for LLM adapter
@@ -285,7 +323,7 @@ export async function runAgentLoop(
   try {
     let iterations = 0;
 
-    while (iterations < maxIter) {
+    while (iterations < guard.config.maxSteps) {
       // Per-iteration content accumulator. Reset every iteration so the
       // placeholder message and persisted assistant messages contain only
       // the current round's text — NOT a cross-iteration concatenation.
@@ -294,26 +332,89 @@ export async function runAgentLoop(
       // tool-call round because each round's full text was appended.)
       let iterationContent = '';
 
-      // 1. Check abort at the top of every iteration.
-      if (abortSignal.aborted) {
-        updateMessage(userMessageId, { content: lastIterationContent, status: 'aborted' });
-        await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
-        return { status: 'aborted', content: lastIterationContent, messages: addedMessages };
+      // 1. LoopGuard v2 步前检查（RFC §5 → §6）：优先级
+      //    user_interrupt > max_steps > max_tokens。user_interrupt 同时承担了
+      //    v1 的循环顶 abortSignal.aborted 检查；max_steps 因 while 条件已用
+      //    guard.config.maxSteps 封顶而由循环底部常规路径兜底。
+      const guardDecision = guard.check({
+        iterations,
+        historyTokens: estimateMessagesTokens(history),
+        abortSignal,
+        attemptedDigests,
+      });
+      if (guardDecision.stop && guardDecision.reason !== undefined) {
+        const action = routeStopReason(guardDecision.reason);
+        if (action === 'terminate_cancelled') {
+          // user_interrupt（RFC §6）：Run → cancelled，外部 status 'aborted'。
+          updateMessage(userMessageId, {
+            content: lastIterationContent,
+            status: 'aborted',
+          });
+          runState.transition('abort');
+          await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
+          return {
+            status: 'aborted',
+            content: lastIterationContent,
+            messages: addedMessages,
+          };
+        }
+        // max_steps（terminate_incomplete）与 max_tokens（compress_context）：
+        // Context v2（assembleMessagesV2）内部已实现压缩降级链，此处不再
+        // 二次压缩、直接终止；两种 StopReason 都映射到旧外部状态
+        // 'max_iterations'（Run → incomplete）。
+        updateMessage(userMessageId, {
+          content: lastIterationContent,
+          status: 'sent',
+        });
+        runState.transition('max_steps');
+        await safeEmit(onEvent, {
+          type: 'agent_loop_end',
+          endReason: 'max_iterations',
+        });
+        return {
+          status: 'max_iterations',
+          content: lastIterationContent,
+          messages: addedMessages,
+        };
       }
 
       // 1b. Lazy summarization — compact long histories before assembling the
       //     prompt. No-op when under the token threshold; fail-soft otherwise.
+      //     （Context v2 的补充而非替代，逻辑保持 v1 原样。）
       await maybeSummarizeHistory({ sessionId, history, adapter, adapterConfig });
 
       iterations++;
 
-      // 2. Assemble chat messages from the current history snapshot.
-      const chatMessages: ChatMessage[] = assembleMessages({
+      // 2. Context v2 装配（T7，RFC《Context Management v2》）：五桶预算、
+      //    多策略调度、Memory 注入与超预算降级链全部在 assembleMessagesV2
+      //    内部完成，runner 只消费 RunContext{messages, budget, degraded}。
+      const runContext = await assembleMessagesV2({
         history,
         userContent,
         attachments,
         skills,
+        sessionId,
+        adapter,
+        adapterConfig,
+        strategy: 'sliding_window',
       });
+      if (runContext.degraded) {
+        // 仅在降级时输出一条中文 debug（预算与降级状态），正常路径零噪音。
+        console.debug(
+          `[runner] Context v2 装配处于降级模式（degraded）：history 桶预算 ` +
+            `${runContext.budget.history} / total ${runContext.budget.total} ` +
+            `tokens，降级链已在装配内部完成压缩。`,
+        );
+      }
+      // RunChatMessage 与 ChatMessage 字段一一兼容（role/content 为
+      // string|null/toolCalls/toolCallId），做一次直通转换以贴合 adapter
+      // 层的入参类型；不改变任何字段值。
+      const chatMessages: ChatMessage[] = runContext.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
+        ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
+      }));
 
       // 3. Open the LLM stream.
       const generator = adapter.chatCompletionStream(chatMessages, adapterConfig, {
@@ -328,6 +429,15 @@ export async function runAgentLoop(
       let finishReason: 'stop' | 'tool_calls' | 'length' | null = null;
 
       for await (const event of generator) {
+        // Extended Thinking（RFC §3）：reasoning 增量经 extractReasoning 识别
+        // 后照常以 llm_event 透传（SSE wire 映射由 lifecycle/T14 完成），
+        // 但不计入 iterationContent —— 推理文本不是用户可见的回复内容。
+        const reasoningText = extractReasoning(event);
+        if (reasoningText !== null) {
+          await onEvent({ type: 'llm_event', event });
+          continue;
+        }
+
         // Forward every event to the caller.
         await onEvent({ type: 'llm_event', event });
 
@@ -351,26 +461,43 @@ export async function runAgentLoop(
       // 5. Check abort after LLM stream consumed.
       if (abortSignal.aborted) {
         updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
+        runState.transition('abort');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
         return { status: 'aborted', content: iterationContent, messages: addedMessages };
       }
 
-      // 6. Terminal finish reasons — no further tool execution.
+      // 6. finish 路由（RFC §6）：finishReason → StopReason（STOP_REASON_BY_FINISH）
+      //    → routeStopReason 决定下一步：
+      //    - 'stop'→end_turn→terminate_completed：终止，status 'completed'
+      //    - 'length'→max_tokens→compress_context：Context v2 装配内部已完成
+      //      压缩降级链，此处直接终止并保持 v1 外部行为 'length_limited'
       if (finishReason === 'stop' || finishReason === 'length') {
         updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
-        const status: AgentLoopStatus =
-          finishReason === 'length' ? 'length_limited' : 'completed';
+        const action = routeStopReason(STOP_REASON_BY_FINISH[finishReason]);
+        let status: AgentLoopStatus;
+        if (action === 'terminate_completed') {
+          runState.transition('stop'); // in_progress → completed
+          status = 'completed';
+        } else {
+          runState.transition('max_steps'); // in_progress → incomplete
+          status = 'length_limited';
+        }
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: status });
         return { status, content: iterationContent, messages: addedMessages };
       }
 
       // 7. No tool calls and no explicit finish — treat as complete to avoid
       //    looping forever on a degenerate adapter response.
+      //    （finish 缺失时无从查询路由表，按 end_turn 语义收尾。）
       if (toolCalls.length === 0) {
         updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
+        runState.transition('stop');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'completed' });
         return { status: 'completed', content: iterationContent, messages: addedMessages };
       }
+
+      // finishReason === 'tool_calls' → StopReason 'tool_use' →
+      // routeStopReason === 'continue'：进入工具执行路径（下方）。
 
       // 8. Persist the assistant message that requested tool calls (once per
       //    round, NOT once per tool call) and add it to history.
@@ -395,30 +522,26 @@ export async function runAgentLoop(
       history.push(assistantMsg);
       addedMessages.push(assistantMsg);
 
-      // 9. Partition tool calls by (name + arguments) digest across iterations.
-      //    Re-issuing the same call after a prior attempt (success OR failure)
-      //    is almost always a model retry loop. Skipped calls get a synthetic
-      //    "don't retry identical args" tool result so the LLM sees an explicit
-      //    stop signal instead of the original failure repeated indefinitely.
+      // 9. 重复调用检测（RFC §5，LoopGuard v2）：digest 切换到含工具名的
+      //    loop-guard digestToolCall（修复 v1 digestToolCallArguments 不含
+      //    工具名、不同工具同参数被误杀的 bug）。markAttempted 返回 false
+      //    （本 Run 内已尝试过）→ 进 skipped 名单，合成 "already attempted"
+      //    结果让 LLM 看到显式停止信号，而不是把原失败无限重试到步数上限。
       const pendingToolCalls: ToolCall[] = [];
       const skippedToolCalls: ToolCall[] = [];
       for (const tc of toolCalls) {
-        let d: string;
-        try {
-          d = digestToolCallArguments(tc.arguments);
-        } catch {
-          // Malformed arguments: let the executor surface the real error.
-          d = `${tc.name}:raw:${tc.arguments}`;
-        }
-        if (attemptedDigests.has(d)) {
-          skippedToolCalls.push(tc);
-        } else {
+        if (guard.markAttempted(tc.name, tc.arguments)) {
           pendingToolCalls.push(tc);
-          attemptedDigests.add(d);
+          // 镜像 guard 内部集合，供下一轮 check() 的 attemptedDigests 快照。
+          attemptedDigests.add(digestToolCall(tc.name, tc.arguments));
+        } else {
+          skippedToolCalls.push(tc);
         }
       }
 
-      // 10. Execute non-skipped tool calls in parallel.
+      // 10. Execute non-skipped tool calls in parallel. 确认流回调内同步驱动
+      //     Run 状态机（RFC §1：in_progress ↔ requires_action）；并行工具可能
+      //     连续触发确认，已处于目标状态时跳过重复转移以免非法转移抛错。
       const toolResults = await Promise.all(
         pendingToolCalls.map((tc) =>
           executeToolCall(tc, {
@@ -428,10 +551,18 @@ export async function runAgentLoop(
             runId,
             signal: abortSignal,
             advertisedTool: toolsByName.get(tc.name),
-            onConfirmationRequired: (approval) =>
-              onEvent({ type: 'tool_confirmation_required', approval }),
-            onConfirmationSettled: (approval) =>
-              onEvent({ type: 'tool_confirmation_settled', approval }),
+            onConfirmationRequired: (approval) => {
+              if (runState.getStatus() === 'in_progress') {
+                runState.transition('await_confirmation');
+              }
+              onEvent({ type: 'tool_confirmation_required', approval });
+            },
+            onConfirmationSettled: (approval) => {
+              if (runState.getStatus() === 'requires_action') {
+                runState.transition('confirmation_granted');
+              }
+              onEvent({ type: 'tool_confirmation_settled', approval });
+            },
           }),
         ),
       );
@@ -518,13 +649,17 @@ export async function runAgentLoop(
       // 13. Re-check abort after (potentially slow) tool execution.
       if (abortSignal.aborted) {
         updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
+        runState.transition('abort');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
         return { status: 'aborted', content: iterationContent, messages: addedMessages };
       }
     }
 
-    // 14. Exhausted maxIterations.
+    // 14. 步数上限耗尽（guard.config.maxSteps）：对应 LoopGuard 的 max_steps
+    //     语义（RFC §5/§6 terminate_incomplete），映射旧外部状态
+    //     'max_iterations'（Run → incomplete）。
     updateMessage(userMessageId, { content: lastIterationContent, status: 'sent' });
+    runState.transition('max_steps');
     await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'max_iterations' });
     return { status: 'max_iterations', content: lastIterationContent, messages: addedMessages };
   } catch (err) {
@@ -532,11 +667,13 @@ export async function runAgentLoop(
 
     // Distinguish abort-driven exceptions from real errors.
     if (abortSignal.aborted) {
+      runState.transition('abort');
       updateMessage(userMessageId, { content: lastIterationContent, status: 'aborted' });
       await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
       return { status: 'aborted', content: lastIterationContent, messages: addedMessages };
     }
 
+    runState.transition('fail');
     updateMessage(userMessageId, {
       content: lastIterationContent,
       status: 'failed',
@@ -604,7 +741,8 @@ export interface AgentLoopJobContext {
  * `/api/jobs/:id` (or `/api/jobs/:id/stream`) to observe progress.
  *
  * Reuses the core {@link runAgentLoop} so sync and async modes share the
- * exact same orchestration, termination, and persistence semantics.
+ * exact same orchestration, termination, and persistence semantics
+ * （v2 的 Run 状态机与确认联动随之自动生效）。
  */
 export async function runAgentLoopAsJob(
   job: Job,

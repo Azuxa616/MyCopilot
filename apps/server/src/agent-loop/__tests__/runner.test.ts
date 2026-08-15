@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { StreamEvent, Tool, ToolCall } from '@my-copilot/shared';
+import type {
+  RunContext,
+  StreamEvent,
+  Tool,
+  ToolCall,
+} from '@my-copilot/shared';
 import type {
   ProviderAdapter,
   AdapterConfig,
@@ -9,6 +14,7 @@ import type {
   createMessage,
   updateMessage,
 } from '../../repo/message.js';
+import type { AssembleV2Params } from '../../prompt/assembler.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test.
@@ -37,8 +43,32 @@ vi.mock('../../tools/executor.js', () => ({
   executeToolCall: (...args: unknown[]) => mockExecuteToolCall(...args),
 }));
 
-// assembler is exercised end-to-end (real implementation) so we can verify
-// history mutation surfaces tool messages in subsequent iterations.
+const mockAssembleMessagesV2 = vi.fn<
+  (params: AssembleV2Params) => Promise<RunContext>
+>();
+
+vi.mock('../../prompt/assembler.js', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('../../prompt/assembler.js')
+  >();
+  return {
+    ...actual,
+    // Lambda 包装（而非直接传 mock）是必须的：vi.mock 工厂被提升到 const
+    // 声明之前执行，直接引用会触发 TDZ 错误。默认实现（委托真实函数）在
+    // beforeEach 中设置，使其余用例保持端到端装配；个别用例用
+    // mockImplementationOnce 覆盖返回值以断言 Context v2 集成行为。
+    assembleMessagesV2: (
+      ...args: Parameters<typeof actual.assembleMessagesV2>
+    ) => mockAssembleMessagesV2(...args),
+  };
+});
+
+vi.mock('../../repo/memory.js', () => ({
+  // assembleMessagesV2 的 Memory 注入（sessionId 存在时）会读取 SQLite；
+  // 测试环境返回空列表以避免触碰真实数据库（读取失败本身也 fail-soft，
+  // 但显式置空更确定）。
+  listMemories: vi.fn(() => []),
+}));
 
 import { runAgentLoop } from '../runner.js';
 import type { RunAgentLoopParams, AgentLoopEvent } from '../runner.js';
@@ -154,8 +184,17 @@ const events = {
 // ---------------------------------------------------------------------------
 
 describe('runAgentLoop', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // assembleMessagesV2 默认委托真实实现（端到端装配）；显式 reset 以清除
+    // 上一用例可能残留的 mockImplementationOnce 队列。
+    mockAssembleMessagesV2.mockReset();
+    const actualAssembler = await vi.importActual<
+      typeof import('../../prompt/assembler.js')
+    >('../../prompt/assembler.js');
+    mockAssembleMessagesV2.mockImplementation((params) =>
+      actualAssembler.assembleMessagesV2(params),
+    );
     mockCreateMessage.mockImplementation((p: { role: string }) => ({
       id: `db-${p.role}-${Date.now()}`,
       ...p,
@@ -572,6 +611,9 @@ describe('runAgentLoop', () => {
   // call. Without dedupe, the loop re-triggered confirmation prompts /
   // resolve-failures until maxIterations — burning tokens and producing the
   // death-loop symptom.
+  //
+  // v2: 去重切换到 LoopGuard 的 markAttempted（digest 含工具名），executor 的
+  // digestToolCallArguments 不再被 runner 调用；同工具同参数仍然 skip。
   it('skips re-execution of tool calls with identical arguments and signals the LLM', async () => {
     const adapter = makeAdapter([
       // Iteration 1: model calls echo with {x:1}
@@ -633,5 +675,157 @@ describe('runAgentLoop', () => {
     expect(toolPersistCalls.map((p) => p.toolCallId).sort()).toEqual(
       ['call-1', 'call-2'].sort(),
     );
+  });
+
+  // --- 16. 不同工具同参数不再被误杀（v2 digest 含工具名） -------------
+  // v1 的 digestToolCallArguments 只对参数做 sha256：两个不同工具携带相同
+  // 参数（如都以 {x:1} 调用）时第二个会被误判为重复而跳过执行。v2 loop-guard
+  // 的 digestToolCall 把工具名纳入 digest 输入（name + ':' + canonicalArgs），
+  // 修复该误判。
+  it('does not skip a different tool called with identical arguments', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([
+        events.toolCallDone(0, 'call-a', 'echo', { x: 1 }),
+        events.finish('tool_calls'),
+      ]),
+      generatorFrom([
+        events.toolCallDone(0, 'call-b', 'lookup', { x: 1 }),
+        events.finish('tool_calls'),
+      ]),
+      generatorFrom([events.finish('stop')]),
+    ]);
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+
+    const result = await runAgentLoop(
+      makeParams({ adapter, tools: [makeTool('echo'), makeTool('lookup')] }),
+    );
+
+    expect(result.status).toBe('completed');
+    // 两个调用都真实执行（v1 下第二次会被合成为 skipped 结果）。
+    expect(mockExecuteToolCall).toHaveBeenCalledTimes(2);
+
+    // 没有 "already attempted" 的 skipped 标记被持久化。
+    const skippedPersists = mockCreateMessage.mock.calls
+      .map(([p]: [unknown]) => p as { role: string; content?: string })
+      .filter(
+        (p) =>
+          p.role === 'tool' &&
+          p.content !== undefined &&
+          p.content.includes('already attempted'),
+      );
+    expect(skippedPersists).toHaveLength(0);
+  });
+
+  // --- 17. Context v2 装配集成（assembleMessagesV2 被调用且参数正确） --
+  it('assembles prompts via assembleMessagesV2 and passes RunContext.messages to the adapter', async () => {
+    const runContext: RunContext = {
+      messages: [
+        { role: 'system', content: 'sys-prompt' },
+        { role: 'user', content: 'hello' },
+      ],
+      budget: {
+        system: 1,
+        tools: 2,
+        history: 3,
+        toolOutputs: 4,
+        working: 5,
+        headroom: 6,
+        total: 21,
+      },
+      degraded: false,
+    };
+    mockAssembleMessagesV2.mockImplementationOnce(async () => runContext);
+
+    const streamCalls: unknown[] = [];
+    const adapter: ProviderAdapter = {
+      type: 'openai',
+      chatCompletionStream: (messages) => {
+        streamCalls.push(messages);
+        return generatorFrom([events.content('v2'), events.finish('stop')]);
+      },
+    };
+
+    const result = await runAgentLoop(makeParams({ adapter }));
+
+    expect(result.status).toBe('completed');
+    expect(result.content).toBe('v2');
+
+    // assembleMessagesV2 被调用一次，sessionId/adapter/strategy 参数正确。
+    expect(mockAssembleMessagesV2).toHaveBeenCalledTimes(1);
+    const assembleParams = mockAssembleMessagesV2.mock.calls[0]![0];
+    expect(assembleParams).toMatchObject({
+      sessionId: 'sess-1',
+      userContent: 'hello',
+      strategy: 'sliding_window',
+    });
+    expect(assembleParams.adapter).toBe(adapter);
+    expect(assembleParams.adapterConfig).toBe(adapterConfig);
+
+    // RunContext.messages 直通传给 adapter（直通转换不改字段值）。
+    expect(streamCalls[0]).toEqual(runContext.messages);
+  });
+
+  // --- 18. Extended Thinking reasoning 透传（RFC §3） ------------------
+  it('forwards reasoning events via llm_event and keeps them out of content', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([
+        { type: 'reasoning', text: '内心推理' },
+        events.content('可见回复'),
+        events.finish('stop'),
+      ]),
+    ]);
+    const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
+
+    const result = await runAgentLoop(makeParams({ adapter, onEvent }));
+
+    expect(result.status).toBe('completed');
+    // reasoning 增量不计入最终回复内容。
+    expect(result.content).toBe('可见回复');
+
+    // reasoning 事件照常以 llm_event 透传（wire 映射属 lifecycle/T14）。
+    const reasoningEvents = onEvent.mock.calls
+      .map(([e]: [AgentLoopEvent]) => e)
+      .filter((e) => e.type === 'llm_event' && e.event.type === 'reasoning');
+    expect(reasoningEvents).toHaveLength(1);
+    expect(reasoningEvents[0]).toMatchObject({
+      type: 'llm_event',
+      event: { type: 'reasoning', text: '内心推理' },
+    });
+  });
+
+  // --- 19. 装配降级时的中文 debug 日志（仅 degraded=true 打印） --------
+  it('logs a Chinese debug line with budget info only when assembly is degraded', async () => {
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      // 第一次装配：显式降级，history 桶预算 42 tokens。
+      mockAssembleMessagesV2.mockImplementationOnce(async () => ({
+        messages: [{ role: 'user', content: 'hello' }],
+        budget: {
+          system: 1,
+          tools: 2,
+          history: 42,
+          toolOutputs: 3,
+          working: 4,
+          headroom: 5,
+          total: 57,
+        },
+        degraded: true,
+      }));
+      const degradedRun = await runAgentLoop(
+        makeParams({ adapter: makeAdapter([generatorFrom([events.finish('stop')])]) }),
+      );
+      expect(degradedRun.status).toBe('completed');
+      expect(debugSpy).toHaveBeenCalledTimes(1);
+      expect(String(debugSpy.mock.calls[0]![0])).toMatch(/降级/);
+      expect(String(debugSpy.mock.calls[0]![0])).toContain('42');
+
+      // 第二次装配：默认委托真实实现（degraded=false），不再打印。
+      await runAgentLoop(
+        makeParams({ adapter: makeAdapter([generatorFrom([events.finish('stop')])]) }),
+      );
+      expect(debugSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      debugSpy.mockRestore();
+    }
   });
 });
