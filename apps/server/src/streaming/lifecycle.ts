@@ -291,6 +291,11 @@ async function handleAgentEvent(
           event: 'tool_call_done',
           data: JSON.stringify({ messageId: deps.assistantMsgId, ...e }),
         });
+      } else if (e.type === 'reasoning') {
+        await deps.stream.writeSSE({
+          event: 'reasoning',
+          data: JSON.stringify({ text: e.text }),
+        });
       }
       // 'finish' events drive loop termination; nothing to forward to the client.
       break;

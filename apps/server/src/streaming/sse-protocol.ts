@@ -10,7 +10,9 @@ export type SSEEventType =
   | 'tool_call_done'
   | 'tool_result'
   | 'confirmation_required'
-  | 'job_status';
+  | 'job_status'
+  /** v2 新增（RFC agent-loop-v2 §3 Extended Thinking），追加到末尾以保持现有顺序不变。 */
+  | 'reasoning';
 
 /** Placeholder event — sent first so the client can create local message UI. */
 export interface PlaceholderEvent {
@@ -26,6 +28,11 @@ export interface DeltaEvent {
 export interface DoneEvent {
   messageId: string;
   title?: string;
+  /**
+   * 服务端 done 事件携带的最终权威内容，客户端用于覆盖累积 delta
+   * （lifecycle.ts 实际已发送此字段，此处补声明）。
+   */
+  content?: string;
 }
 
 /** Stream failed with an error. */
@@ -94,6 +101,14 @@ export interface JobStatusEvent {
   error?: string;
 }
 
+/**
+ * Extended Thinking 的推理文本增量（RFC agent-loop-v2 §3）。
+ * v2 新增，向后兼容：与 content 分开推送，客户端按需渲染思考过程。
+ */
+export interface ReasoningEvent {
+  text: string;
+}
+
 /** Union of all possible SSE event data types. */
 export type SSEEventData =
   | PlaceholderEvent
@@ -106,4 +121,5 @@ export type SSEEventData =
   | ToolCallDoneEvent
   | ToolResultEvent
   | ConfirmationRequiredEvent
-  | JobStatusEvent;
+  | JobStatusEvent
+  | ReasoningEvent;

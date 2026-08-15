@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Context } from 'hono';
+import type { DoneEvent } from '../sse-protocol.js';
 
 // ---------------------------------------------------------------------------
 // Mock all dependencies BEFORE importing the module under test
@@ -244,6 +245,50 @@ describe('Stream Message Lifecycle', () => {
 
     // unregisterStream called
     expect(mockUnregisterStream).toHaveBeenCalledWith('test-session');
+  });
+
+  // --- Test 1b: Reasoning events (Extended Thinking, agent-loop-v2 §3) ---
+  it('reasoning: llm_event reasoning → SSE reasoning event, no delta side-effect', async () => {
+    setupNormalCompletion([]);
+
+    mockRunAgentLoop.mockImplementation(
+      async (
+        params: {
+          onEvent: (e: { type: string; event?: { type: string; text: string } }) => Promise<void>;
+        },
+      ) => {
+        await params.onEvent({
+          type: 'llm_event',
+          event: { type: 'reasoning', text: '思考中' },
+        });
+        return { status: 'completed', content: '' };
+      },
+    );
+
+    const c = makeContext();
+    const params = makeParams();
+    streamMessageHandler(c, params);
+
+    await flushMicrotasks();
+
+    const reasoningEvents = sseWrites.filter((w) => w.event === 'reasoning');
+    expect(reasoningEvents).toHaveLength(1);
+    expect(JSON.parse(reasoningEvents[0].data)).toEqual({ text: '思考中' });
+
+    // Reasoning text is separate from content — must not emit delta events.
+    expect(sseWrites.filter((w) => w.event === 'delta')).toHaveLength(0);
+
+    // Stream still completes normally.
+    expect(sseWrites.filter((w) => w.event === 'done')).toHaveLength(1);
+  });
+
+  // --- Test 1c: DoneEvent.content contract (compile-time declaration) ---
+  it('DoneEvent declares optional content field (compile-time + runtime)', () => {
+    const withContent: DoneEvent = { messageId: 'm1', title: 't', content: 'final' };
+    expect(withContent.content).toBe('final');
+
+    const withoutContent: DoneEvent = { messageId: 'm2' };
+    expect(withoutContent.content).toBeUndefined();
   });
 
   it('persists attachment metadata and forwards extracted text to the agent loop', async () => {
