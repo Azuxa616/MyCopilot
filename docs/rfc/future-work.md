@@ -146,6 +146,18 @@ v2 RFC 集（T2 至 T6）做了有意的范围裁剪。每份 RFC 都带有一�
 
 **来源。** T6 Non-Goals（"实现审计日志存储"）；T6 开放问题 2。
 
+### 11. v2 实现规范差距（四项 HIGH 偏差收敛）
+
+**描述。** Agent Loop v2 / Context v2 的首轮实现（implement-agent-loop-context-v2 工作波，19 commits，2026-08-15 终验通过）与 RFC 规范存在四项 HIGH 级偏差，均经终验 F1 审计确认、用户裁决"接受并记档"：（1）T2 §2 的有界并发池（`maxConcurrentTools` 钳制、每调用子信号 `AbortSignal.any`、`ToolCallOutcome` 四态失败聚合）未实现，保留 v1 的无界 `Promise.all`；（2）T2 §3 的 Extended Thinking 应以 `delta` 上可选 `kind` 字段暴露（ADR-003 明确否决新事件类型），实际实现为独立的第 12 种 `reasoning` SSE 事件（additive、向后兼容，但违反 RFC 合规条款 292）；（3）T3 §4 的记忆应为 `user_id` 作用域、跨会话（kind/content/entities/confidence 结构），实际实现为 `session_id` 作用域的 key-value 存储——不具备跨会话召回能力；（4）T3 §7 的 `RunContext` 应为六字段（messages/tools/cacheControl/budget/status/meta），实际为三字段（messages/budget/degraded）。
+
+**触发条件。** 以下任一信号出现时迁移对应子项（四项相互独立，可逐项收敛，不要求捆绑）：(a) 并行工具调用在真实负载下出现可见的停滞或资源争用，需要并发钳制；(b) 有严格校验"SSE 事件集恰为 11 种"的第三方客户端集成需要 wire 格式收敛；(c) 出现真实的跨会话个性化需求（"记住用户偏好"类功能立项——session_id 作用域无法满足，需先重构为 user 维度）；(d) 某个子系统（如 Prompt Caching 的 adapter 层消费方）需要消费 `RunContext` 的 tools/cacheControl/status 字段。
+
+**前置依赖。** 无硬前置。但每项需自带兼容策略：(1)、(4) 为纯服务端扩展，可直接补齐；(3) 涉及 `memories` 表 schema 迁移（列结构与主键变更）及存量数据迁移决策；(2) 涉及 wire 协议变更——`delta.kind` 与 `reasoning` 事件的并集过渡期或客户端强制更新，二者择一，需在迁移 RFC 中明确。
+
+**粗略工作量。** (1)、(4) 中小型；(2) 中型（协议迁移 + 弃用期）；(3) 中型（schema 迁移 + 数据迁移决策）。合计约为一个小型工作波。
+
+**来源。** T2 §2/§3、T3 §4/§7 规范条款 vs 首轮实现的 F1 终验审计（REJECT 判决，4 项 HIGH）；用户裁决 A（接受并记档，2026-08-15）。
+
 ## 反例
 
 ### 反例：在没有触发条件的情况下启动一个被推迟的条目
