@@ -18,6 +18,12 @@ vi.mock('../../repo/message.js', () => ({
 import { listSessions, getSession, createSession, updateSession, deleteSession } from '../../repo/session.js';
 import { listMessagesBySession } from '../../repo/message.js';
 
+type ApiResponse = {
+  code: number;
+  msg: string;
+  data: Record<string, unknown>;
+};
+
 function createTestApp() {
   const app = new Hono();
   app.onError(errorMiddleware());
@@ -37,7 +43,7 @@ describe('sessions route', () => {
     const app = createTestApp();
     const res = await app.request('/');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body).toEqual({ code: 0, msg: 'ok', data: mockSessions });
   });
 
@@ -52,7 +58,7 @@ describe('sessions route', () => {
       body: JSON.stringify({ title: 'New Session' }),
     });
     expect(res.status).toBe(201);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(mockSession);
   });
 
@@ -63,7 +69,7 @@ describe('sessions route', () => {
     const app = createTestApp();
     const res = await app.request('/s1');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(mockSession);
   });
 
@@ -73,7 +79,7 @@ describe('sessions route', () => {
     const app = createTestApp();
     const res = await app.request('/s1');
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -88,7 +94,7 @@ describe('sessions route', () => {
       body: JSON.stringify({ title: 'Updated' }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(updated);
   });
 
@@ -102,7 +108,7 @@ describe('sessions route', () => {
       body: JSON.stringify({ title: 'Updated' }),
     });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -112,7 +118,7 @@ describe('sessions route', () => {
     const app = createTestApp();
     const res = await app.request('/s1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
   });
 
@@ -122,7 +128,7 @@ describe('sessions route', () => {
     const app = createTestApp();
     const res = await app.request('/s1', { method: 'DELETE' });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -133,7 +139,7 @@ describe('sessions route', () => {
     const app = createTestApp();
     const res = await app.request('/s1/messages');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body).toEqual({ code: 0, msg: 'ok', data: mockMessages });
   });
 });

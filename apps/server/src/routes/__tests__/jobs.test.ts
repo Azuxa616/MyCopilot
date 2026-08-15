@@ -17,6 +17,12 @@ import {
   cancelJob,
 } from '../../repo/job.js';
 
+type ApiResponse<T = unknown> = {
+  code: number;
+  msg: string;
+  data: T;
+};
+
 function createTestApp() {
   const app = new Hono();
   app.onError(errorMiddleware());
@@ -81,7 +87,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<typeof sampleJob>;
     expect(body).toEqual({ code: 0, msg: 'ok', data: [sampleJob] });
     expect(listJobs).toHaveBeenCalledWith();
     expect(listJobsBySession).not.toHaveBeenCalled();
@@ -93,7 +99,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/?session_id=s1');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<typeof sampleJob>;
     expect(body.data).toEqual([sampleJob]);
     expect(listJobsBySession).toHaveBeenCalledWith('s1');
     expect(listJobs).not.toHaveBeenCalled();
@@ -106,7 +112,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/?status=running');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<typeof running>;
     expect(body.data).toEqual([running]);
     expect(listJobs).toHaveBeenCalledWith({ status: 'running' });
   });
@@ -119,7 +125,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/?session_id=s1&status=running');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<typeof running>;
     expect(body.data).toEqual([running]);
   });
 
@@ -131,7 +137,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/j1');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<typeof sampleJob>;
     expect(body.data).toEqual(sampleJob);
     expect(getJob).toHaveBeenCalledWith('j1');
   });
@@ -142,7 +148,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/missing');
     expect(res.status).toBe(404);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<null>;
     expect(body.code).toBe(404);
     expect(body.msg).toContain('Job not found');
   });
@@ -156,7 +162,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/j1/cancel', { method: 'POST' });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<typeof cancelled>;
     expect(body.data).toEqual(cancelled);
     expect(body.data.status).toBe('cancelled');
     expect(cancelJob).toHaveBeenCalledWith('j1');
@@ -168,7 +174,7 @@ describe('jobs route', () => {
     const app = createTestApp();
     const res = await app.request('/j1/cancel', { method: 'POST' });
     expect(res.status).toBe(404);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse<null>;
     expect(body.code).toBe(404);
     expect(body.msg).toContain('not found');
   });

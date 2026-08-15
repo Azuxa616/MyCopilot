@@ -41,6 +41,12 @@ import { parseAllAttachments } from '../../attachment/index.js';
 import { streamMessageHandler } from '../../streaming/lifecycle.js';
 import { stopStreamHandler } from '../../streaming/stop.js';
 
+type ApiResponse = {
+  code: number;
+  msg: string;
+  data: Record<string, unknown>;
+};
+
 function createTestApp() {
   const app = new Hono();
   app.onError(errorMiddleware());
@@ -113,7 +119,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -126,7 +132,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('No model configured');
   });
@@ -141,7 +147,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Model not found');
   });
@@ -157,7 +163,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Provider not found');
   });
@@ -173,7 +179,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Provider is disabled');
   });
@@ -196,7 +202,7 @@ describe('messages route', () => {
     const app = createTestApp();
     const res = await app.request('/sessions/s1/messages/msg1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
   });
 
@@ -206,7 +212,7 @@ describe('messages route', () => {
     const app = createTestApp();
     const res = await app.request('/sessions/s1/messages/msg1', { method: 'DELETE' });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 });

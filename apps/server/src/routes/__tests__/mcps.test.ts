@@ -12,6 +12,8 @@ vi.mock('../../repo/mcp.js', () => ({
   deleteMcp: vi.fn(),
 }));
 
+
+
 vi.mock('../../mcp/index.js', () => ({
   disconnect: vi.fn().mockResolvedValue(undefined),
   synchronizeMcpTools: vi.fn(),
@@ -37,6 +39,13 @@ import {
   testConnection,
 } from '../../mcp/index.js';
 import { deleteToolsByMcp } from '../../repo/tool.js';
+import type { Tool } from '@my-copilot/shared';
+
+type ApiResponse = {
+  code: number;
+  msg: string;
+  data: Record<string, unknown>;
+};
 
 function createTestApp() {
   const app = new Hono();
@@ -79,7 +88,7 @@ describe('mcps route', () => {
     const app = createTestApp();
     const res = await app.request('/');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body).toEqual({ code: 0, msg: 'ok', data: mockList });
   });
 
@@ -94,7 +103,7 @@ describe('mcps route', () => {
       body: JSON.stringify({ name: 'filesystem', description: 'fs mcp', config: stdioConfig }),
     });
     expect(res.status).toBe(201);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(created);
     expect(createMcp).toHaveBeenCalledWith({
       name: 'filesystem',
@@ -124,7 +133,7 @@ describe('mcps route', () => {
       body: JSON.stringify({ description: 'd', config: stdioConfig }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.msg).toContain('name');
   });
 
@@ -136,7 +145,7 @@ describe('mcps route', () => {
       body: JSON.stringify({ name: 'x', config: stdioConfig }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.msg).toContain('description');
   });
 
@@ -152,7 +161,7 @@ describe('mcps route', () => {
       }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.msg).toContain('command');
   });
 
@@ -168,7 +177,7 @@ describe('mcps route', () => {
       }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.msg).toContain('url');
   });
 
@@ -184,7 +193,7 @@ describe('mcps route', () => {
       }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.msg).toContain('transport');
   });
 
@@ -195,7 +204,7 @@ describe('mcps route', () => {
     const app = createTestApp();
     const res = await app.request('/m1');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(mcp);
   });
 
@@ -205,7 +214,7 @@ describe('mcps route', () => {
     const app = createTestApp();
     const res = await app.request('/m1');
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -220,7 +229,7 @@ describe('mcps route', () => {
       body: JSON.stringify({ name: 'renamed' }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(updated);
   });
 
@@ -253,7 +262,7 @@ describe('mcps route', () => {
     const app = createTestApp();
     const res = await app.request('/m1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
     expect(deleteToolsByMcp).toHaveBeenCalledWith('m1');
   });
@@ -269,7 +278,21 @@ describe('mcps route', () => {
   it('POST /:id/test returns tools when connection succeeds', async () => {
     const mcp = mockMcp();
     vi.mocked(getMcp).mockReturnValue(mcp);
-    const tools = [{ id: 't1', name: 'readFile' }] as any;
+    const tools: Tool[] = [
+      {
+        id: 't1',
+        name: 'readFile',
+        description: '',
+        inputSchema: { fields: [] },
+        type: 'mcp-provided',
+        safetyLevel: 'safe',
+        sourceMcpId: 'm1',
+        policyVersion: '1',
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
     vi.mocked(synchronizeMcpTools).mockResolvedValue({
       created: 1,
       updated: 0,
@@ -280,7 +303,7 @@ describe('mcps route', () => {
     const app = createTestApp();
     const res = await app.request('/m1/test', { method: 'POST' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(0);
     expect(body.data.success).toBe(true);
     expect(body.data.tools).toEqual(tools);
@@ -304,7 +327,7 @@ describe('mcps route', () => {
     const app = createTestApp();
     const res = await app.request('/m1/test', { method: 'POST' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(-1);
     expect(body.data.success).toBe(false);
     expect(body.msg).toContain('ENOENT');
@@ -316,7 +339,7 @@ describe('mcps route', () => {
     const app = createTestApp();
     const res = await app.request('/m1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
     expect(disconnect).toHaveBeenCalledWith('m1');
   });

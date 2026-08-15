@@ -93,8 +93,10 @@ describe('OllamaAdapter', () => {
     const adapter = new OllamaAdapter();
 
     try {
-      for await (const _ of adapter.chatCompletionStream(messages, createConfig())) {
+      for await (const _chunk of adapter.chatCompletionStream(messages, createConfig())) {
+        void _chunk;
         // should throw before yielding
+        throw new Error('Should not reach here');
       }
       expect.fail('Should have thrown');
     } catch (err) {

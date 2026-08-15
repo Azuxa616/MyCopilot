@@ -36,6 +36,12 @@ import { parseSkillMarkdown } from '../../skills/parser.js';
 import { syncDirectorySkills } from '../../skills/sync.js';
 import { getDb } from '../../db/index.js';
 
+type ApiResponse = {
+  code: number;
+  msg: string;
+  data: Record<string, unknown>;
+};
+
 function createTestApp(opts?: Parameters<typeof createSkillsApp>[0]) {
   const app = new Hono();
   app.onError(errorMiddleware());
@@ -70,7 +76,7 @@ describe('skills route', () => {
     const app = createTestApp();
     const res = await app.request('/');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body).toEqual({ code: 0, msg: 'ok', data: mockList });
   });
 
@@ -99,7 +105,7 @@ describe('skills route', () => {
       body: JSON.stringify({ source: 'upload', content: '---\nname: New\ndescription: desc\n---\n# Body' }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(mockSkillDetail);
     expect(createSkill).toHaveBeenCalledWith({
       name: 'New',
@@ -117,7 +123,7 @@ describe('skills route', () => {
       body: JSON.stringify({ content: '  ' }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('content');
   });
@@ -136,7 +142,7 @@ describe('skills route', () => {
       body: JSON.stringify({ content: 'no name' }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.msg).toContain('name');
   });
 
@@ -146,7 +152,7 @@ describe('skills route', () => {
     const app = createTestApp();
     const res = await app.request('/s1');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(mockSkillDetail);
   });
 
@@ -156,7 +162,7 @@ describe('skills route', () => {
     const app = createTestApp();
     const res = await app.request('/s1');
     expect(res.status).toBe(404);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -173,7 +179,7 @@ describe('skills route', () => {
       body: JSON.stringify({ name: 'Updated' }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.name).toBe('Updated');
   });
 
@@ -188,7 +194,7 @@ describe('skills route', () => {
       body: JSON.stringify({ name: 'Changed' }),
     });
     expect(res.status).toBe(403);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(403);
     expect(body.msg).toContain('Directory-sourced');
   });
@@ -211,7 +217,7 @@ describe('skills route', () => {
     const app = createTestApp();
     const res = await app.request('/s1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
   });
 
@@ -226,13 +232,13 @@ describe('skills route', () => {
   it('POST /rescan uses configured skillsDir', async () => {
     const syncResult = { created: 2, updated: 0, skipped: 1, deleted: 0 };
     vi.mocked(syncDirectorySkills).mockReturnValue(syncResult);
-    const mockDb = {} as any;
+    const mockDb = {} as ReturnType<typeof getDb>;
     vi.mocked(getDb).mockReturnValue(mockDb);
 
     const app = createTestApp({ skillsDir: '/skills' });
     const res = await app.request('/rescan', { method: 'POST' });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(syncResult);
     expect(syncDirectorySkills).toHaveBeenCalledWith(mockDb, '/skills');
   });
@@ -240,7 +246,7 @@ describe('skills route', () => {
   it('POST /rescan accepts directory from request body when not configured', async () => {
     const syncResult = { created: 1, updated: 0, skipped: 0, deleted: 0 };
     vi.mocked(syncDirectorySkills).mockReturnValue(syncResult);
-    const mockDb = {} as any;
+    const mockDb = {} as ReturnType<typeof getDb>;
     vi.mocked(getDb).mockReturnValue(mockDb);
 
     const app = createTestApp();
@@ -257,7 +263,7 @@ describe('skills route', () => {
     const app = createTestApp();
     const res = await app.request('/rescan', { method: 'POST' });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Skills directory');
   });

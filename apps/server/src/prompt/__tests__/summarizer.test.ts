@@ -40,6 +40,7 @@ function throwingAdapter(err: unknown): ProviderAdapter {
     chatCompletionStream: () => {
       return (async function* () {
         throw err;
+        yield { type: 'finish' as const, reason: 'stop' as const };
       })();
     },
   };
