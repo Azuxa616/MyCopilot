@@ -68,7 +68,9 @@ mcpsApp.post('/', async (c) => {
   if (body.enabled !== undefined) params.enabled = Boolean(body.enabled);
 
   const data = createMcp(params);
-  await trySynchronizeMcpTools(data);
+  // 工具同步放后台执行：stdio 子进程启动可能耗时 30s+，若 await 会阻塞创建
+  // 响应导致前端超时（记录已入库但页面无反馈）。显式同步入口：POST /:id/test。
+  void trySynchronizeMcpTools(data).catch(() => undefined);
   return successResponse(c, data, 201);
 });
 
@@ -104,7 +106,8 @@ mcpsApp.patch('/:id', async (c) => {
   if (!data) {
     throw new HttpError(404, 'MCP not found');
   }
-  await trySynchronizeMcpTools(data);
+  // 同 POST /：同步放后台，更新响应立即返回。
+  void trySynchronizeMcpTools(data).catch(() => undefined);
   return successResponse(c, data);
 });
 

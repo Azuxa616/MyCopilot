@@ -197,6 +197,27 @@ describe('mcps route', () => {
     expect(body.msg).toContain('transport');
   });
 
+  it('POST / responds without waiting for background tool sync', async () => {
+    const created = mockMcp();
+    vi.mocked(createMcp).mockReturnValue(created);
+    // Simulate a slow/hung MCP server: tool sync never settles. The route
+    // must still respond immediately (sync runs in the background).
+    vi.mocked(trySynchronizeMcpTools).mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+
+    const app = createTestApp();
+    const res = await app.request('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'filesystem', description: 'fs mcp', config: stdioConfig }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.data).toEqual(created);
+    expect(trySynchronizeMcpTools).toHaveBeenCalledWith(created);
+  });
+
   it('GET /:id returns mcp when found', async () => {
     const mcp = mockMcp();
     vi.mocked(getMcp).mockReturnValue(mcp);
@@ -242,6 +263,25 @@ describe('mcps route', () => {
     });
     expect(res.status).toBe(400);
     expect(updateMcp).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /:id responds without waiting for background tool sync', async () => {
+    const updated = mockMcp({ name: 'renamed' });
+    vi.mocked(updateMcp).mockReturnValue(updated);
+    vi.mocked(trySynchronizeMcpTools).mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+
+    const app = createTestApp();
+    const res = await app.request('/m1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'renamed' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.data).toEqual(updated);
+    expect(trySynchronizeMcpTools).toHaveBeenCalledWith(updated);
   });
 
   it('PATCH /:id returns 404 when not found', async () => {
