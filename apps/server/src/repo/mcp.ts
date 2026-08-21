@@ -21,6 +21,7 @@ interface McpRow {
   last_connected_at: number | null;
   created_at: number;
   updated_at: number;
+  source_plugin_id: string | null;
 }
 
 function rowToMcp(row: McpRow): Mcp {
@@ -88,16 +89,29 @@ export function getMcp(id: string): Mcp | undefined {
 
 export const getMcpById = getMcp;
 
-export function createMcp(params: CreateMcpParams): Mcp {
+/**
+ * createMcp 的扩展参数（插件能力桥 T5 专用）：允许调用方指定确定性 id
+ * （`${pluginId}:${serverId}` 命名空间形式）并标记来源插件
+ * （mcps.source_plugin_id）。两个字段均可省略，省略时行为与
+ * CreateMcpParams 完全一致（随机 id、无来源）。
+ */
+export interface CreateMcpWithSourceParams extends CreateMcpParams {
+  /** 确定性主键；省略时生成随机 id。 */
+  id?: string;
+  /** 贡献该 MCP 的插件 id；省略时写 NULL（非插件来源的 MCP）。 */
+  sourcePluginId?: string;
+}
+
+export function createMcp(params: CreateMcpWithSourceParams): Mcp {
   const db = getDb();
-  const id = generateId();
+  const id = params.id ?? generateId();
   const ts = now();
   const enabled = params.enabled ?? true;
   const cols = configToColumns(params.config);
 
   db.prepare(
-    `INSERT INTO mcps (id, name, description, transport, command, args, env, url, enabled, last_connected_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+    `INSERT INTO mcps (id, name, description, transport, command, args, env, url, enabled, last_connected_at, created_at, updated_at, source_plugin_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
   ).run(
     id,
     params.name,
@@ -110,6 +124,7 @@ export function createMcp(params: CreateMcpParams): Mcp {
     enabled ? 1 : 0,
     ts,
     ts,
+    params.sourcePluginId ?? null,
   );
 
   return {
@@ -169,6 +184,15 @@ export function deleteMcp(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM mcps WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+/** 列出某插件贡献的全部 MCP 行（能力桥 unregister 时逐个断连用）。 */
+export function listMcpsByPlugin(pluginId: string): Mcp[] {
+  const db = getDb();
+  const rows = db
+    .prepare('SELECT * FROM mcps WHERE source_plugin_id = ? ORDER BY rowid')
+    .all(pluginId) as McpRow[];
+  return rows.map(rowToMcp);
 }
 
 /** 删除某插件贡献的全部 MCP 行（uninstall 用）；返回删除的行数。 */
