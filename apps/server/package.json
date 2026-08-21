@@ -15,6 +15,7 @@
     "@hono/node-server": "^1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@my-copilot/shared": "workspace:*",
+    "ajv": "^8.20.0",
     "better-sqlite3": "^12.11.1",
     "gray-matter": "^4.0.3",
     "hono": "^4",
