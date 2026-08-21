@@ -10,6 +10,7 @@ import { listRegisteredTools } from '../tools/registry.js';
 import { runAgentLoop } from '../agent-loop/runner.js';
 import type { AgentLoopEvent } from '../agent-loop/runner.js';
 import type { AttachmentText } from '../prompt/assembler.js';
+import { buildSkillInjections } from '../prompt/skill-injections.js';
 import { registerStream, unregisterStream } from './registry.js';
 
 /** Parameters for the stream message handler. */
@@ -140,6 +141,8 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         history: [...history],
         userContent: userMessage.content,
         attachments,
+        // Skills 注入（修复死路径）：enabled skills 在执行期从 DB 解析进 prompt。
+        skills: buildSkillInjections(),
         tools: enabledTools,
         adapter,
         adapterConfig,
