@@ -74,6 +74,18 @@ export function listSkillsBySource(source: SkillSource): SkillMeta[] {
   return listSkills({ source });
 }
 
+/** 按插件 id + name 查找该插件贡献的 Skill 行（插件 skills 桥幂等 upsert 用）。 */
+export function findSkillByPluginAndName(
+  pluginId: string,
+  name: string,
+): SkillMeta | undefined {
+  const db = getDb();
+  const row = db
+    .prepare('SELECT * FROM skills WHERE source_plugin_id = ? AND name = ?')
+    .get(pluginId, name) as SkillRow | undefined;
+  return row ? rowToMeta(row) : undefined;
+}
+
 export function getSkill(id: string): SkillDetail | undefined {
   const db = getDb();
   const row = db.prepare('SELECT * FROM skills WHERE id = ?').get(id) as SkillRow | undefined;
@@ -94,17 +106,24 @@ export function findByFilePath(filePath: string): SkillDetail | undefined {
   return row ? rowToDetail(row) : undefined;
 }
 
-export function createSkill(params: CreateSkillParams): SkillDetail {
+/**
+ * 入参在 CreateSkillParams 基础上扩展可选 sourcePluginId（插件 provides.skills
+ * 桥接写入，DB 列见迁移 0005_plugins.sql）；普通调用方不传即写 NULL。
+ */
+export function createSkill(
+  params: CreateSkillParams & { sourcePluginId?: string },
+): SkillDetail {
   const db = getDb();
   const id = generateId();
   const ts = now();
   const enabled = params.enabled ?? true;
   const source: SkillSource = params.source;
   const filePath = params.filePath ?? null;
+  const sourcePluginId = params.sourcePluginId ?? null;
 
   db.prepare(
-    `INSERT INTO skills (id, name, description, body, source, file_path, enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO skills (id, name, description, body, source, file_path, source_plugin_id, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     params.name,
@@ -112,6 +131,7 @@ export function createSkill(params: CreateSkillParams): SkillDetail {
     params.body,
     source,
     filePath,
+    sourcePluginId,
     enabled ? 1 : 0,
     ts,
     ts,

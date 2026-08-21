@@ -5,7 +5,8 @@ export interface SkillFrontmatter {
   version?: string;
 }
 
-export type SkillSource = 'directory' | 'upload';
+/** Skill 来源：directory=目录同步、upload=用户上传、plugin=插件贡献（provides.skills 桥接写入）。 */
+export type SkillSource = 'directory' | 'upload' | 'plugin';
 
 export interface SkillMeta {
   id: string;
