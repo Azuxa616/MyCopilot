@@ -170,3 +170,10 @@ export function deleteMcp(id: string): boolean {
   const result = db.prepare('DELETE FROM mcps WHERE id = ?').run(id);
   return result.changes > 0;
 }
+
+/** 删除某插件贡献的全部 MCP 行（uninstall 用）；返回删除的行数。 */
+export function deleteMcpsByPlugin(pluginId: string): number {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM mcps WHERE source_plugin_id = ?').run(pluginId);
+  return result.changes;
+}

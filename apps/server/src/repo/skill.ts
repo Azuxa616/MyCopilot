@@ -169,3 +169,10 @@ export function deleteSkill(id: string): boolean {
   const result = db.prepare('DELETE FROM skills WHERE id = ?').run(id);
   return result.changes > 0;
 }
+
+/** 删除某插件贡献的全部 Skill 行（uninstall 用）；返回删除的行数。 */
+export function deleteSkillsByPlugin(pluginId: string): number {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM skills WHERE source_plugin_id = ?').run(pluginId);
+  return result.changes;
+}

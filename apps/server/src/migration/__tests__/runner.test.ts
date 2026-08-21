@@ -41,12 +41,16 @@ describe('runMigrations', () => {
     expect(tableNames).toContain('jobs');
     expect(tableNames).toContain('message_summaries');
     expect(tableNames).toContain('memories');
+    // Plugin system (0005)
+    expect(tableNames).toContain('plugins');
+    expect(tableNames).toContain('plugin_data');
+    expect(tableNames).toContain('plugin_lifecycle_events');
 
-    // applied_migrations has exactly 4 rows (0001..0004)
+    // applied_migrations has exactly 5 rows (0001..0005)
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(4);
+    expect(row.count).toBe(5);
 
     db.close();
   });
@@ -105,7 +109,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(4);
+    expect(row.count).toBe(5);
 
     db.close();
   });
