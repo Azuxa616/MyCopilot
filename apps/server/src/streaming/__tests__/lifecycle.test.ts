@@ -27,6 +27,11 @@ const mockListEnabledTools = vi.fn(() => []);
 
 const mockRunAgentLoop = vi.fn();
 
+// Skills 注入修复：sentinel 数组用于验证 buildSkillInjections() 的返回值
+// 原样传进 runAgentLoop 的 skills 参数。
+const MOCK_SKILL_INJECTIONS = [{ name: 'mock-skill', body: 'mock skill body' }];
+const mockBuildSkillInjections = vi.fn(() => MOCK_SKILL_INJECTIONS);
+
 // Track SSE writes for assertions
 let sseWrites: Array<{ event: string; data: string }> = [];
 let onAbortCallback: (() => void) | null = null;
@@ -61,6 +66,9 @@ vi.mock('../../repo/session.js', () => ({
 }));
 vi.mock('../../agent-loop/runner.js', () => ({
   runAgentLoop: mockRunAgentLoop,
+}));
+vi.mock('../../prompt/skill-injections.js', () => ({
+  buildSkillInjections: mockBuildSkillInjections,
 }));
 vi.mock('hono/streaming', () => ({
   streamSSE: mockStreamSSE,
@@ -224,6 +232,13 @@ describe('Stream Message Lifecycle', () => {
 
     // registerStream called
     expect(mockRegisterStream).toHaveBeenCalledWith('test-session');
+
+    // Skills 注入修复：enabled skills 经 buildSkillInjections() 注入
+    // runAgentLoop（此前的死路径）。
+    expect(mockBuildSkillInjections).toHaveBeenCalledTimes(1);
+    expect(mockRunAgentLoop).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: MOCK_SKILL_INJECTIONS }),
+    );
 
     // Check SSE events
     const deltaEvents = sseWrites.filter((w) => w.event === 'delta');

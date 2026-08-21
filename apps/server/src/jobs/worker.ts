@@ -240,6 +240,10 @@ export async function stop(timeoutMs: number = DEFAULT_STOP_TIMEOUT_MS): Promise
  * Tools are re-resolved via `listEnabledTools()` at execution time (not
  * read from the payload) so that toggling a tool between enqueue and
  * execution affects the run, matching sync-mode semantics exactly.
+ * Skills follow the same execution-time resolution via
+ * `buildSkillInjections()` — no payload snapshot, so toggling a skill
+ * between enqueue and execution affects the run too (and the enqueue/
+ * execute state drift disappears).
  */
 export function registerAgentLoopHandler(): void {
   registerJobHandler('agent-loop', async (job, signal) => {
@@ -249,12 +253,14 @@ export function registerAgentLoopHandler(): void {
       { getAdapter },
       { listEnabledTools },
       { listRegisteredTools },
+      { buildSkillInjections },
     ] =
       await Promise.all([
         import('../agent-loop/runner.js'),
         import('../llm/index.js'),
         import('../repo/tool.js'),
         import('../tools/registry.js'),
+        import('../prompt/skill-injections.js'),
       ]);
 
     const payload = job.payload as unknown as AgentLoopJobPayload;
@@ -272,6 +278,9 @@ export function registerAgentLoopHandler(): void {
         history: payload.history,
         userContent: payload.userContent,
         attachments: payload.attachments,
+        // Skills 注入（修复死路径）：执行期解析而非 payload 快照，与上方
+        // tools 的重解析语义一致。
+        skills: buildSkillInjections(),
         tools,
         adapter,
         adapterConfig: payload.adapterConfig,
