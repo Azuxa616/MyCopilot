@@ -11,6 +11,8 @@ export interface ServerConfig {
   serverPublicDir: string | null;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   maxAttachmentSizeMb: number;
+  demoMode: boolean;
+  demoToken: string | null;
 }
 
 export function loadConfig(db?: InstanceType<typeof Database>): ServerConfig {
@@ -77,6 +79,14 @@ export function loadConfig(db?: InstanceType<typeof Database>): ServerConfig {
   // MAX_ATTACHMENT_SIZE_MB — default 10
   const maxAttachmentSizeMb = Number(process.env.MAX_ATTACHMENT_SIZE_MB) || 10;
 
+  // DEMO_MODE — dual-token demo role
+  // (spec: docs/superpowers/specs/2026-08-22-demo-deployment-design.md §2)
+  const demoMode = process.env.DEMO_MODE === '1';
+  const demoToken = process.env.DEMO_TOKEN?.trim() || null;
+  if (demoMode && !demoToken) {
+    throw new Error('DEMO_MODE=1 requires DEMO_TOKEN to be set');
+  }
+
   return {
     authToken,
     dataDir,
@@ -85,5 +95,7 @@ export function loadConfig(db?: InstanceType<typeof Database>): ServerConfig {
     serverPublicDir,
     logLevel,
     maxAttachmentSizeMb,
+    demoMode,
+    demoToken,
   };
 }
