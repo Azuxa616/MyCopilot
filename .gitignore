@@ -57,4 +57,5 @@ apps/web/src/build-info.generated.json
 apps/server/src/build-info.generated.json
 
 # OMO artifacts
-.omo/.worktrees/
+.omo/
+.worktrees/
