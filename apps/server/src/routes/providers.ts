@@ -8,14 +8,19 @@ import {
 } from '../repo/provider.js';
 import { testProvider } from '../llm/tester.js';
 import { successResponse } from '../utils/response.js';
+import { maskApiKey, isMaskedApiKey } from '../utils/mask.js';
 import { HttpError } from '../middleware/error.js';
-import type { CreateProviderParams } from '@my-copilot/shared';
+import type { CreateProviderParams, Provider } from '@my-copilot/shared';
 
 export const providersApp = new Hono();
 
+function maskProvider(provider: Provider): Provider {
+  return { ...provider, apiKey: maskApiKey(provider.apiKey) };
+}
+
 providersApp.get('/', (c) => {
   const data = listProviders();
-  return successResponse(c, data);
+  return successResponse(c, data.map(maskProvider));
 });
 
 providersApp.post('/', async (c) => {
@@ -32,7 +37,7 @@ providersApp.post('/', async (c) => {
   }
 
   const data = createProvider(body);
-  return successResponse(c, data, 201);
+  return successResponse(c, maskProvider(data), 201);
 });
 
 providersApp.get('/:id', (c) => {
@@ -41,17 +46,21 @@ providersApp.get('/:id', (c) => {
   if (!data) {
     throw new HttpError(404, 'Provider not found');
   }
-  return successResponse(c, data);
+  return successResponse(c, maskProvider(data));
 });
 
 providersApp.patch('/:id', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
+  // Masked/empty apiKey round-trip → keep the stored key
+  if (typeof body.apiKey === 'string' && isMaskedApiKey(body.apiKey)) {
+    delete body.apiKey;
+  }
   const data = updateProvider(id, body);
   if (!data) {
     throw new HttpError(404, 'Provider not found');
   }
-  return successResponse(c, data);
+  return successResponse(c, maskProvider(data));
 });
 
 providersApp.delete('/:id', (c) => {
