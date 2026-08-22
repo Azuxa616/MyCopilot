@@ -13,6 +13,8 @@ import {
   createSkill,
   updateSkill,
   deleteSkill,
+  listSkillFiles,
+  getSkillFile,
 } from '../skill.js';
 
 describe('SkillRepo', () => {
@@ -191,5 +193,104 @@ describe('SkillRepo', () => {
     expect(deleteSkill(skill.id)).toBe(true);
     expect(getSkill(skill.id)).toBeUndefined();
     expect(deleteSkill(skill.id)).toBe(false);
+  });
+
+  it('createSkill persists triggers and files; reads back via detail/list/getSkillFile', () => {
+    const skill = createSkill({
+      name: 'Pack',
+      description: 'dir-pack skill',
+      body: '# entry',
+      source: 'upload',
+      triggers: ['review', '评审'],
+      files: [
+        { path: 'references/api.md', content: 'api doc' },
+        { path: 'assets/tpl.txt', content: 'template' },
+      ],
+    });
+
+    expect(skill.triggers).toEqual(['review', '评审']);
+    expect(skill.fileCount).toBe(2);
+
+    const detail = getSkill(skill.id);
+    expect(detail?.files).toEqual([
+      { path: 'assets/tpl.txt', size: 8 },
+      { path: 'references/api.md', size: 7 },
+    ]);
+
+    expect(getSkillFile(skill.id, 'references/api.md')).toEqual({
+      path: 'references/api.md',
+      content: 'api doc',
+    });
+    expect(getSkillFile(skill.id, 'nope.md')).toBeUndefined();
+  });
+
+  it('updateSkill with files fully replaces the file set', () => {
+    const skill = createSkill({
+      name: 'Pack',
+      description: '',
+      body: 'b',
+      source: 'upload',
+      files: [
+        { path: 'a.md', content: 'a' },
+        { path: 'b.md', content: 'b' },
+      ],
+    });
+
+    const updated = updateSkill(skill.id, {
+      files: [{ path: 'b.md', content: 'b2' }, { path: 'c.md', content: 'c' }],
+    });
+
+    expect(updated?.fileCount).toBe(2);
+    expect(listSkillFiles(skill.id).map((f) => f.path).sort()).toEqual(['b.md', 'c.md']);
+    expect(getSkillFile(skill.id, 'b.md')?.content).toBe('b2');
+    expect(getSkillFile(skill.id, 'a.md')).toBeUndefined();
+  });
+
+  it('updateSkill without files leaves the file set untouched', () => {
+    const skill = createSkill({
+      name: 'Pack',
+      description: '',
+      body: 'b',
+      source: 'upload',
+      files: [{ path: 'a.md', content: 'a' }],
+    });
+
+    updateSkill(skill.id, { name: 'Renamed' });
+    expect(listSkillFiles(skill.id)).toEqual([{ path: 'a.md', size: 1 }]);
+  });
+
+  it('updateSkill persists triggers', () => {
+    const skill = createSkill({ name: 'T', description: '', body: 'b', source: 'upload' });
+    const updated = updateSkill(skill.id, { triggers: ['x'] });
+    expect(updated?.triggers).toEqual(['x']);
+    expect(getSkill(skill.id)?.triggers).toEqual(['x']);
+  });
+
+  it('deleteSkill cascades to skill_files', () => {
+    const skill = createSkill({
+      name: 'Pack',
+      description: '',
+      body: 'b',
+      source: 'upload',
+      files: [{ path: 'a.md', content: 'a' }],
+    });
+
+    deleteSkill(skill.id);
+    expect(listSkillFiles(skill.id)).toEqual([]);
+  });
+
+  it('listSkills returns fileCount aggregated', () => {
+    createSkill({
+      name: 'WithFiles',
+      description: '',
+      body: 'b',
+      source: 'upload',
+      files: [{ path: 'a.md', content: 'a' }, { path: 'b.md', content: 'b' }],
+    });
+    createSkill({ name: 'Bare', description: '', body: 'b', source: 'upload' });
+
+    const names = new Map(listSkills().map((s) => [s.name, s.fileCount ?? 0]));
+    expect(names.get('WithFiles')).toBe(2);
+    expect(names.get('Bare')).toBe(0);
   });
 });

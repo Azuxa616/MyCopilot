@@ -4,6 +4,8 @@ import type {
   CreateSkillParams,
   UpdateSkillParams,
   SkillSource,
+  SkillFileMeta,
+  SkillFileInput,
 } from '@my-copilot/shared';
 import { getDb } from '../db/index.js';
 import { generateId, now } from './base.js';
@@ -18,6 +20,16 @@ interface SkillRow {
   enabled: number;
   created_at: number;
   updated_at: number;
+  triggers: string;
+}
+
+interface SkillFileRow {
+  id: string;
+  skill_id: string;
+  path: string;
+  content: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface ListSkillsFilter {
@@ -25,7 +37,39 @@ export interface ListSkillsFilter {
   source?: SkillSource;
 }
 
-function rowToMeta(row: SkillRow): SkillMeta {
+function parseTriggers(raw: string): string[] | undefined {
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((t) => typeof t === 'string') && parsed.length > 0) {
+      return parsed;
+    }
+  } catch {
+    // fallthrough: 坏数据按"无 triggers"处理
+  }
+  return undefined;
+}
+
+/** 全量替换某 skill 的附属文件（DELETE + INSERT）。 */
+function replaceSkillFiles(skillId: string, files: SkillFileInput[]): void {
+  const db = getDb();
+  const ts = now();
+  db.prepare('DELETE FROM skill_files WHERE skill_id = ?').run(skillId);
+  const insert = db.prepare(
+    `INSERT INTO skill_files (id, skill_id, path, content, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  for (const f of files) {
+    insert.run(generateId(), skillId, f.path, f.content, ts, ts);
+  }
+}
+
+function listSkillFileRows(skillId: string): SkillFileRow[] {
+  return getDb()
+    .prepare('SELECT * FROM skill_files WHERE skill_id = ? ORDER BY path')
+    .all(skillId) as SkillFileRow[];
+}
+
+function rowToMeta(row: SkillRow, fileCount = 0): SkillMeta {
   return {
     id: row.id,
     name: row.name,
@@ -35,13 +79,17 @@ function rowToMeta(row: SkillRow): SkillMeta {
     updatedAt: row.updated_at,
     source: row.source as SkillSource,
     filePath: row.file_path ?? undefined,
+    triggers: parseTriggers(row.triggers),
+    fileCount,
   };
 }
 
 function rowToDetail(row: SkillRow): SkillDetail {
+  const fileRows = listSkillFileRows(row.id);
   return {
-    ...rowToMeta(row),
+    ...rowToMeta(row, fileRows.length),
     content: row.body,
+    files: fileRows.map((f) => ({ path: f.path, size: f.content.length })),
   };
 }
 
@@ -63,7 +111,15 @@ export function listSkills(filter?: ListSkillsFilter): SkillMeta[] {
   const rows = db
     .prepare(`SELECT * FROM skills ${where} ORDER BY created_at DESC`)
     .all(...params) as SkillRow[];
-  return rows.map(rowToMeta);
+
+  const counts = new Map(
+    (
+      db
+        .prepare('SELECT skill_id, COUNT(*) as n FROM skill_files GROUP BY skill_id')
+        .all() as Array<{ skill_id: string; n: number }>
+    ).map((r) => [r.skill_id, r.n]),
+  );
+  return rows.map((row) => rowToMeta(row, counts.get(row.id) ?? 0));
 }
 
 export function listEnabledSkills(): SkillMeta[] {
@@ -122,8 +178,8 @@ export function createSkill(
   const sourcePluginId = params.sourcePluginId ?? null;
 
   db.prepare(
-    `INSERT INTO skills (id, name, description, body, source, file_path, source_plugin_id, enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO skills (id, name, description, body, source, file_path, source_plugin_id, enabled, triggers, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     params.name,
@@ -133,21 +189,16 @@ export function createSkill(
     filePath,
     sourcePluginId,
     enabled ? 1 : 0,
+    params.triggers ? JSON.stringify(params.triggers) : '[]',
     ts,
     ts,
   );
 
-  return {
-    id,
-    name: params.name,
-    description: params.description,
-    content: params.body,
-    source,
-    filePath: filePath ?? undefined,
-    enabled,
-    createdAt: ts,
-    updatedAt: ts,
-  };
+  if (params.files && params.files.length > 0) {
+    replaceSkillFiles(id, params.files);
+  }
+
+  return getSkill(id)!;
 }
 
 export function updateSkill(
@@ -163,25 +214,21 @@ export function updateSkill(
   const body = params.body ?? existing.body;
   const enabled =
     params.enabled !== undefined ? params.enabled : Boolean(existing.enabled);
+  const triggersRaw =
+    params.triggers !== undefined ? JSON.stringify(params.triggers) : existing.triggers;
   const ts = now();
 
   db.prepare(
     `UPDATE skills
-     SET name = ?, description = ?, body = ?, enabled = ?, updated_at = ?
+     SET name = ?, description = ?, body = ?, enabled = ?, triggers = ?, updated_at = ?
      WHERE id = ?`,
-  ).run(name, description, body, enabled ? 1 : 0, ts, id);
+  ).run(name, description, body, enabled ? 1 : 0, triggersRaw, ts, id);
 
-  return {
-    id,
-    name,
-    description,
-    content: body,
-    source: existing.source as SkillSource,
-    filePath: existing.file_path ?? undefined,
-    enabled,
-    createdAt: existing.created_at,
-    updatedAt: ts,
-  };
+  if (params.files !== undefined) {
+    replaceSkillFiles(id, params.files);
+  }
+
+  return getSkill(id);
 }
 
 export function deleteSkill(id: string): boolean {
@@ -195,4 +242,18 @@ export function deleteSkillsByPlugin(pluginId: string): number {
   const db = getDb();
   const result = db.prepare('DELETE FROM skills WHERE source_plugin_id = ?').run(pluginId);
   return result.changes;
+}
+
+export function listSkillFiles(skillId: string): SkillFileMeta[] {
+  return listSkillFileRows(skillId).map((f) => ({ path: f.path, size: f.content.length }));
+}
+
+export function getSkillFile(
+  skillId: string,
+  path: string,
+): { path: string; content: string } | undefined {
+  const row = getDb()
+    .prepare('SELECT * FROM skill_files WHERE skill_id = ? AND path = ?')
+    .get(skillId, path) as SkillFileRow | undefined;
+  return row ? { path: row.path, content: row.content } : undefined;
 }
