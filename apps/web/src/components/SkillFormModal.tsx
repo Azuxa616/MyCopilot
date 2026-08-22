@@ -4,7 +4,7 @@
 // this preview is best-effort and frontend-only.
 
 import { useState, useMemo } from 'react'
-import type { CreateSkillParams, SkillSource } from '@my-copilot/shared'
+import type { CreateSkillParams, SkillDetail, SkillSource, UpdateSkillParams } from '@my-copilot/shared'
 import Modal from './common/Modal'
 import { FormField, formControlClassName } from './common/FormField'
 
@@ -12,6 +12,9 @@ export interface SkillFormModalProps {
   open: boolean
   onClose: () => void
   onSave: (params: CreateSkillParams) => void
+  /** 编辑模式：要编辑的 skill（null/undefined = 新建）。directory 来源由调用方屏蔽。 */
+  editing?: SkillDetail | null
+  onUpdate?: (id: string, params: UpdateSkillParams) => void
 }
 
 type Mode = 'upload' | 'paste'
@@ -49,6 +52,8 @@ export default function SkillFormModal({
   open,
   onClose,
   onSave,
+  editing = null,
+  onUpdate,
 }: SkillFormModalProps) {
   const [mode, setMode] = useState<Mode>('upload')
   const [fileName, setFileName] = useState<string>('')
@@ -72,6 +77,12 @@ export default function SkillFormModal({
       setDescription('')
       setErrors({})
       setAutoFilled(false)
+      if (editing) {
+        setName(editing.name)
+        setDescription(editing.description)
+        setContent(editing.content)
+        setAutoFilled(false)
+      }
     }
   }
 
@@ -121,19 +132,27 @@ export default function SkillFormModal({
 
   const handleSubmit = () => {
     if (!validate()) return
-    const params: CreateSkillParams = {
-      name: name.trim(),
-      description: description.trim(),
-      body: content,
-      source: 'upload' as SkillSource, // frontend always creates as 'upload'
-      enabled: true,
+    if (editing && onUpdate) {
+      onUpdate(editing.id, {
+        name: name.trim(),
+        description: description.trim(),
+        body: content,
+      })
+    } else {
+      const params: CreateSkillParams = {
+        name: name.trim(),
+        description: description.trim(),
+        body: content,
+        source: 'upload' as SkillSource,
+        enabled: true,
+      }
+      onSave(params)
     }
-    onSave(params)
     onClose()
   }
 
   return (
-    <Modal open={open} onOpenChange={(o) => !o && onClose()} title="新建 Skill" width="640px">
+    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={editing ? '编辑 Skill' : '新建 Skill'} width="640px">
       <div className="flex flex-col gap-4">
         {/* Mode toggle */}
         <div className="flex gap-2 p-1 bg-bg-secondary rounded-lg border border-border-base">
@@ -240,7 +259,7 @@ export default function SkillFormModal({
             onClick={handleSubmit}
             className="px-4 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
           >
-            创建
+            {editing ? '保存' : '创建'}
           </button>
         </div>
       </div>

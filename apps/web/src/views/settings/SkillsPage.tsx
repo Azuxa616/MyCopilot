@@ -2,7 +2,7 @@
 // Directory-sourced skills are read-only: delete disabled, show a "Directory" badge.
 
 import { useState, useEffect, useCallback } from 'react'
-import type { SkillMeta, CreateSkillParams } from '@my-copilot/shared'
+import type { SkillMeta, CreateSkillParams, SkillDetail, UpdateSkillParams } from '@my-copilot/shared'
 import { api } from '../../api'
 import SkillFormModal from '../../components/SkillFormModal'
 import { Badge } from '../../components/common/Badge'
@@ -27,6 +27,7 @@ export function SkillsPage() {
   const [skills, setSkills] = useState<SkillMeta[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingSkill, setEditingSkill] = useState<SkillDetail | null>(null)
 
   const loadSkills = useCallback(async () => {
     setIsLoading(true)
@@ -69,6 +70,28 @@ export function SkillsPage() {
     } catch (error) {
       console.error('Failed to save skill:', error)
       showMessageAlert.error('保存 Skill 失败')
+    }
+  }
+
+  const handleEdit = async (skill: SkillMeta) => {
+    try {
+      const detail = await api.getSkill(skill.id)
+      setEditingSkill(detail)
+      setIsModalOpen(true)
+    } catch (error) {
+      console.error('Failed to load skill:', error)
+      showMessageAlert.error('加载 Skill 失败')
+    }
+  }
+
+  const handleModalUpdate = async (id: string, params: UpdateSkillParams) => {
+    try {
+      const updated = await api.updateSkill(id, params)
+      setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, ...updated } : s)))
+      showMessageAlert.success('Skill 已更新')
+    } catch (error) {
+      console.error('Failed to update skill:', error)
+      showMessageAlert.error('更新 Skill 失败')
     }
   }
 
@@ -125,6 +148,13 @@ export function SkillsPage() {
 
                 <div className="flex items-center gap-3 shrink-0 pl-4">
                   <button
+                    onClick={() => handleEdit(skill)}
+                    disabled={isDirectory}
+                    className="px-3 py-1.5 text-xs bg-bg-elevated border border-border-base text-text-primary rounded-lg hover:border-primary-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    编辑
+                  </button>
+                  <button
                     onClick={() => handleDelete(skill)}
                     disabled={isDirectory}
                     className="px-3 py-1.5 text-xs bg-error-50 border border-error-200 text-error-600 rounded-lg hover:bg-error-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -140,8 +170,13 @@ export function SkillsPage() {
 
       <SkillFormModal
         open={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false)
+          setEditingSkill(null)
+        }}
         onSave={handleModalSave}
+        editing={editingSkill}
+        onUpdate={handleModalUpdate}
       />
     </div>
   )
