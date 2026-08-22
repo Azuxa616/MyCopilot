@@ -436,6 +436,40 @@ export async function rescanSkills(): Promise<{ scanned: number }> {
     return response.data;
 }
 
+/**
+ * Import a skill directory pack from a ZIP file
+ * POST /api/skills/import (multipart/form-data)
+ */
+export async function importSkillZip(file: File): Promise<SkillMeta> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetchWithAuth('/api/skills/import', {
+        method: 'POST',
+        body: formData,
+    });
+    if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { msg?: string } | null;
+        throw new Error(body?.msg ?? `导入失败（HTTP ${response.status}）`);
+    }
+    const body = (await response.json()) as { data: SkillMeta };
+    return body.data;
+}
+
+/**
+ * Fetch one side file's content
+ * GET /api/skills/:id/files/:path（path 经 encodeURIComponent，'/' 编码为 %2F）
+ */
+export async function getSkillFile(
+    id: string,
+    path: string,
+): Promise<{ path: string; content: string }> {
+    const response = await enhancedFetch<{ data: { path: string; content: string } }>(
+        `/api/skills/${id}/files/${encodeURIComponent(path)}`,
+        { method: 'GET', timeout: 30000 },
+    );
+    return response.data;
+}
+
 // ─── MCPs API ───
 
 /**
