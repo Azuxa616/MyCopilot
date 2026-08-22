@@ -28,6 +28,7 @@ import { builtinExecutors } from './tools/builtins/index.js';
 import { syncDirectorySkills } from './skills/index.js';
 import { disconnectAll, synchronizeAllEnabledMcps } from './mcp/index.js';
 import { start as startJobWorker, stop as stopJobWorker, registerAgentLoopHandler } from './jobs/worker.js';
+import { seedDemoData } from './demo/seed.js';
 
 // Resolve dataDir first (needed for db init before full config load)
 const dataDir = resolve(process.env.DATA_DIR || './data');
@@ -37,6 +38,18 @@ if (!existsSync(dataDir)) {
 
 const db = initDatabase(dataDir);
 const config = loadConfig(db);
+
+// Demo seeding — create the demo provider/model when DEMO_MODE=1 and the
+// providers table is empty (idempotent; daily reset re-triggers it).
+if (config.demoMode) {
+  try {
+    const result = seedDemoData();
+    console.log(`[demo] seed: ${result.seeded ? 'created demo provider/model' : 'skipped (providers exist)'}`);
+  } catch (err) {
+    console.error('[demo] seed failed:', err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+}
 
 // Skills directory — optional. When set, directory skills are synced into the
 // DB at startup and the /api/skills/rescan endpoint scans it by default.
