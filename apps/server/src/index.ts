@@ -19,6 +19,7 @@ import { messagesApp } from './routes/messages.js';
 import { toolsApp } from './routes/tools.js';
 import { createSkillsApp } from './routes/skills.js';
 import { mcpsApp } from './routes/mcps.js';
+import { pluginsApp } from './routes/plugins.js';
 import { jobsApp } from './routes/jobs.js';
 import { debugRoutes } from './routes/debug.js';
 import { listAllEnabledModels } from './repo/model.js';
@@ -62,6 +63,7 @@ app.route('/api/sessions/:sessionId/messages', messagesApp);
 app.route('/api/tools', toolsApp);
 app.route('/api/skills', createSkillsApp({ skillsDir }));
 app.route('/api/mcps', mcpsApp);
+app.route('/api/plugins', pluginsApp);
 app.route('/api/jobs', jobsApp);
 
 // Debug route — mounted ONLY when MYCOPILOT_DEBUG === '1' (explicit opt-in).
