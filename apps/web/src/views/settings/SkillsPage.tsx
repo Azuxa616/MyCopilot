@@ -4,7 +4,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { SkillMeta, CreateSkillParams, SkillDetail, UpdateSkillParams } from '@my-copilot/shared'
 import { api } from '../../api'
-import { importSkillZip, getSkillFile } from '../../api/real'
 import SkillFormModal from '../../components/SkillFormModal'
 import { Badge } from '../../components/common/Badge'
 import { showMessageAlert } from '../../components/common/Alert/alertUtils'
@@ -106,7 +105,7 @@ export function SkillsPage() {
     if (!file) return
     setIsImporting(true)
     try {
-      await importSkillZip(file)
+      await api.importSkillZip(file)
       showMessageAlert.success('Skill 导入成功')
       await loadSkills()
     } catch (error) {
@@ -119,7 +118,7 @@ export function SkillsPage() {
 
   const handlePreviewFile = async (skillId: string, path: string) => {
     try {
-      const data = await getSkillFile(skillId, path)
+      const data = await api.getSkillFile(skillId, path)
       setFilePreview(data)
     } catch (error) {
       console.error('Failed to load skill file:', error)
