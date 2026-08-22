@@ -11,6 +11,7 @@ import { runAgentLoop } from '../agent-loop/runner.js';
 import type { AgentLoopEvent } from '../agent-loop/runner.js';
 import type { AttachmentText } from '../prompt/assembler.js';
 import { buildSkillInjections } from '../prompt/skill-injections.js';
+import { filterDemoTools } from '../demo/tools.js';
 import { registerStream, unregisterStream } from './registry.js';
 
 /** Parameters for the stream message handler. */
@@ -66,13 +67,13 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
   // are typically legacy test data — the API forbids manual create/delete of
   // tools, and syncMcpTools always writes a non-null source_mcp_id, so a null
   // source on a mcp-provided row is a data-integrity violation.
-  const enabledTools = [
+  const enabledTools = filterDemoTools([
     ...listRegisteredTools(),
     ...listEnabledTools().filter(
       (tool) =>
         tool.type === 'mcp-provided' && tool.sourceMcpId !== null,
     ),
-  ];
+  ]);
 
   // ─── Async mode (Step B): enqueue a job and return immediately ───
   // When AGENT_ASYNC_MODE=true the client does not hold an SSE connection;
