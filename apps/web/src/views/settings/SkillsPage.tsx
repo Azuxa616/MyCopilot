@@ -13,6 +13,7 @@ import { showMessageAlert } from '../../components/common/Alert/alertUtils'
 const sourceColorClass: Record<NonNullable<SkillMeta['source']>, string> = {
   upload: 'bg-blue-100 text-blue-700',
   directory: 'bg-gray-100 text-gray-600',
+  plugin: 'bg-purple-100 text-purple-700',
 }
 
 function SourceBadge({ source }: { source: SkillMeta['source'] }) {
