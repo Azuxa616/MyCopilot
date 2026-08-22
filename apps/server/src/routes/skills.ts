@@ -66,6 +66,7 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
       description: parsed.frontmatter.description,
       body: parsed.body,
       source,
+      triggers: parsed.frontmatter.triggers,
     });
 
     return successResponse(c, data, 201);
