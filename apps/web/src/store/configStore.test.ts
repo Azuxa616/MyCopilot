@@ -55,6 +55,16 @@ describe('submitAuthToken', () => {
     await useConfigStore.getState().submitAuthToken('any');
     expect(useConfigStore.getState().tokenError).toBe('网络错误，无法验证令牌');
   });
+
+  it('does not clobber an existing valid token on failed resubmission', async () => {
+    useConfigStore.setState({ authToken: 'valid-tok', role: 'admin', isTokenModalOpen: false });
+    mockFetchOnce(401);
+    await useConfigStore.getState().submitAuthToken('bad-guess');
+    const s = useConfigStore.getState();
+    expect(s.authToken).toBe('valid-tok');
+    expect(s.role).toBe('admin');
+    expect(s.tokenError).toBe('令牌无效，请重试');
+  });
 });
 
 describe('clearAuthToken', () => {

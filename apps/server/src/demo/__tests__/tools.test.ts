@@ -34,6 +34,10 @@ describe('DEMO_ALLOWED_TOOLS', () => {
     expect(DEMO_ALLOWED_TOOLS.has('http_fetch')).toBe(false);
     expect(DEMO_ALLOWED_TOOLS.has('web_search')).toBe(false);
   });
+
+  it('has exactly 7 entries (pin against accidental additions)', () => {
+    expect(DEMO_ALLOWED_TOOLS.size).toBe(7);
+  });
 });
 
 describe('filterDemoTools', () => {

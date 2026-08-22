@@ -174,4 +174,37 @@ describe('tokenAuthMiddleware demo token', () => {
     });
     expect(res.status).toBe(401);
   });
+
+  it.each([
+    ['GET', '/api/sessions'],
+    ['GET', '/api/sessions/abc123'],
+    ['PATCH', '/api/sessions/abc123'],
+    ['DELETE', '/api/sessions/abc123'],
+    ['GET', '/api/sessions/abc123/messages'],
+    ['POST', '/api/sessions/abc123/messages'],
+    ['POST', '/api/sessions/abc123/messages/stop'],
+    ['GET', '/api/sessions/abc123/summaries'],
+    ['DELETE', '/api/sessions/abc123/messages/msg9'],
+    ['GET', '/api/jobs'],
+    ['GET', '/api/jobs/stream'],
+    ['GET', '/api/auth/me'],
+  ])('demo token can %s %s (whitelist regression)', async (method, path) => {
+    const res = await demoApp.request(path, {
+      method,
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(401);
+  });
+
+  it('demo token gets 403 on nested admin-only paths (default deny regression)', async () => {
+    const res1 = await demoApp.request('/api/providers/prov1/models', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res1.status).toBe(403);
+    const res2 = await demoApp.request('/api/tools', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res2.status).toBe(403);
+  });
 });
