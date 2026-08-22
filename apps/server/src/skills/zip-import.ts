@@ -5,6 +5,7 @@ import {
   SKILL_MAX_FILES,
   SKILL_FILES_TOTAL_MAX_BYTES,
   isSkillTextFile,
+  isSafeSkillFilePath,
 } from './limits.js';
 
 /** parseSkillZip 的成功载荷（对齐 CreateSkillParams 的可编辑副本语义）。 */
@@ -77,19 +78,30 @@ export function parseSkillZip(buffer: Uint8Array): SkillZipResult {
     return { ok: false, error: 'SKILL.md 的 frontmatter 缺少 name 字段' };
   }
 
+  // 嵌套形态（<name>/SKILL.md）下附属文件剥离 pack 根前缀，与 scanner 的
+  // "相对 pack 根"语义对齐；pack 子目录之外的条目不属于该 pack，跳过。
+  const packPrefix = nestedSkill ? nestedSkill.slice(0, nestedSkill.indexOf('/') + 1) : '';
+
   // 收集附属文件（跳过入口自身与 scripts/）
   const files: Array<{ path: string; content: string }> = [];
   let totalBytes = 0;
   const oversize: string[] = [];
+  const unsafe: string[] = [];
 
   for (const [path, data] of fileEntries) {
     if (path === entryPath) continue;
     if (path === 'scripts' || path.startsWith('scripts/')) continue;
-    const baseName = path.split('/').pop()!;
+    if (packPrefix && !path.startsWith(packPrefix)) continue;
+    const relPath = packPrefix ? path.slice(packPrefix.length) : path;
+    const baseName = relPath.split('/').pop()!;
     if (!isSkillTextFile(baseName)) continue;
+    if (!isSafeSkillFilePath(relPath)) {
+      unsafe.push(path);
+      continue;
+    }
 
     if (data.length > SKILL_FILE_MAX_BYTES) {
-      oversize.push(path);
+      oversize.push(relPath);
       continue;
     }
     if (files.length >= SKILL_MAX_FILES) {
@@ -99,10 +111,16 @@ export function parseSkillZip(buffer: Uint8Array): SkillZipResult {
       return { ok: false, error: `附属文件总大小超过上限（${SKILL_FILES_TOTAL_MAX_BYTES} 字节）` };
     }
 
-    files.push({ path, content: strFromU8(data) });
+    files.push({ path: relPath, content: strFromU8(data) });
     totalBytes += data.length;
   }
 
+  if (unsafe.length > 0) {
+    return {
+      ok: false,
+      error: `以下 ZIP 条目路径不安全（不允许 ..、绝对路径或反斜杠）：${unsafe.join(', ')}`,
+    };
+  }
   if (oversize.length > 0) {
     return {
       ok: false,

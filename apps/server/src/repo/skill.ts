@@ -49,18 +49,20 @@ function parseTriggers(raw: string): string[] | undefined {
   return undefined;
 }
 
-/** 全量替换某 skill 的附属文件（DELETE + INSERT）。 */
+/** 全量替换某 skill 的附属文件（DELETE + INSERT，单事务保证原子性）。 */
 function replaceSkillFiles(skillId: string, files: SkillFileInput[]): void {
   const db = getDb();
   const ts = now();
-  db.prepare('DELETE FROM skill_files WHERE skill_id = ?').run(skillId);
-  const insert = db.prepare(
-    `INSERT INTO skill_files (id, skill_id, path, content, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  );
-  for (const f of files) {
-    insert.run(generateId(), skillId, f.path, f.content, ts, ts);
-  }
+  db.transaction(() => {
+    db.prepare('DELETE FROM skill_files WHERE skill_id = ?').run(skillId);
+    const insert = db.prepare(
+      `INSERT INTO skill_files (id, skill_id, path, content, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    for (const f of files) {
+      insert.run(generateId(), skillId, f.path, f.content, ts, ts);
+    }
+  })();
 }
 
 function listSkillFileRows(skillId: string): SkillFileRow[] {
@@ -177,26 +179,28 @@ export function createSkill(
   const filePath = params.filePath ?? null;
   const sourcePluginId = params.sourcePluginId ?? null;
 
-  db.prepare(
-    `INSERT INTO skills (id, name, description, body, source, file_path, source_plugin_id, enabled, triggers, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    params.name,
-    params.description,
-    params.body,
-    source,
-    filePath,
-    sourcePluginId,
-    enabled ? 1 : 0,
-    params.triggers ? JSON.stringify(params.triggers) : '[]',
-    ts,
-    ts,
-  );
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO skills (id, name, description, body, source, file_path, source_plugin_id, enabled, triggers, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      params.name,
+      params.description,
+      params.body,
+      source,
+      filePath,
+      sourcePluginId,
+      enabled ? 1 : 0,
+      params.triggers ? JSON.stringify(params.triggers) : '[]',
+      ts,
+      ts,
+    );
 
-  if (params.files && params.files.length > 0) {
-    replaceSkillFiles(id, params.files);
-  }
+    if (params.files && params.files.length > 0) {
+      replaceSkillFiles(id, params.files);
+    }
+  })();
 
   return getSkill(id)!;
 }
@@ -218,15 +222,17 @@ export function updateSkill(
     params.triggers !== undefined ? JSON.stringify(params.triggers) : existing.triggers;
   const ts = now();
 
-  db.prepare(
-    `UPDATE skills
-     SET name = ?, description = ?, body = ?, enabled = ?, triggers = ?, updated_at = ?
-     WHERE id = ?`,
-  ).run(name, description, body, enabled ? 1 : 0, triggersRaw, ts, id);
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE skills
+       SET name = ?, description = ?, body = ?, enabled = ?, triggers = ?, updated_at = ?
+       WHERE id = ?`,
+    ).run(name, description, body, enabled ? 1 : 0, triggersRaw, ts, id);
 
-  if (params.files !== undefined) {
-    replaceSkillFiles(id, params.files);
-  }
+    if (params.files !== undefined) {
+      replaceSkillFiles(id, params.files);
+    }
+  })();
 
   return getSkill(id);
 }

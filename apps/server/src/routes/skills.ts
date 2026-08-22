@@ -10,6 +10,7 @@ import {
 } from '../repo/skill.js';
 import { parseSkillMarkdown } from '../skills/parser.js';
 import { parseSkillZip } from '../skills/zip-import.js';
+import { isSafeSkillFilePath } from '../skills/limits.js';
 import { syncDirectorySkills, type SyncResult } from '../skills/sync.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
@@ -163,6 +164,15 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
     }
 
     const body = await c.req.json<UpdateSkillParams>();
+    if (body.files) {
+      const unsafe = body.files.filter((f) => !isSafeSkillFilePath(f.path));
+      if (unsafe.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid file path(s): ${unsafe.map((f) => f.path).join(', ')}`,
+        );
+      }
+    }
     const data = updateSkill(id, body);
     if (!data) {
       throw new HttpError(404, 'Skill not found');

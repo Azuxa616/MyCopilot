@@ -30,3 +30,14 @@ export function isSkillTextFile(fileName: string): boolean {
   if (dot < 0) return false;
   return TEXT_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
 }
+
+/**
+ * 判断附属文件相对路径是否安全：拒绝空路径、前导 `/`、反斜杠分隔、
+ * `.`/`..` 段与空段（`a//b`）。zip 导入（不安全条目 → 整包报错）与
+ * PATCH /:id 的 files 校验（不安全路径 → 400）共用本规则。
+ */
+export function isSafeSkillFilePath(path: string): boolean {
+  if (!path || path.startsWith('/') || path.includes('\\')) return false;
+  const segments = path.split('/');
+  return segments.every((s) => s.length > 0 && s !== '.' && s !== '..');
+}

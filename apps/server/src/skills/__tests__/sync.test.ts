@@ -212,4 +212,25 @@ body`,
     const skill = listSkillsBySource('directory').find((s) => s.name === 'Trig');
     expect(skill?.triggers).toEqual(['review', '评审']);
   });
+
+  it('detects triggers-only changes on rescan (C1 regression)', () => {
+    const skillFile = join(dir, 'trig-only.md');
+    writeFileSync(
+      skillFile,
+      `---\nname: TrigOnly\ndescription: d\n---\nbody`,
+    );
+    syncDirectorySkills(getDb(), dir);
+
+    // 仅修改 frontmatter triggers，其余字段不变
+    writeFileSync(
+      skillFile,
+      `---\nname: TrigOnly\ndescription: d\ntriggers:\n  - new-trigger\n---\nbody`,
+    );
+    const result = syncDirectorySkills(getDb(), dir);
+    expect(result.updated).toBe(1);
+    expect(result.skipped).toBe(0);
+
+    const skill = listSkillsBySource('directory').find((s) => s.name === 'TrigOnly');
+    expect(skill?.triggers).toEqual(['new-trigger']);
+  });
 });

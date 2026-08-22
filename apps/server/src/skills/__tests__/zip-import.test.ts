@@ -37,17 +37,39 @@ describe('parseSkillZip', () => {
     ]);
   });
 
-  it('parses a single-subdirectory pack (<name>/SKILL.md)', () => {
+  it('parses a single-subdirectory pack (<name>/SKILL.md), stripping the pack prefix', () => {
     const result = parseSkillZip(
       zipOf({
         'code-review/SKILL.md': VALID_SKILL_MD,
-        'code-review/README.md': 'readme',
+        'code-review/references/README.md': 'readme',
+        // pack 子目录之外的条目不属于该 pack，应被忽略
+        'outside.md': 'not part of the pack',
       }),
     );
 
     expect(result.ok).toBe(true);
-    // 附属文件保留 zip 内相对路径（含子目录前缀）
-    expect(result.skill?.files).toEqual([{ path: 'code-review/README.md', content: 'readme' }]);
+    // 附属文件剥离 pack 根前缀，与 scanner 的"相对 pack 根"语义一致
+    expect(result.skill?.files).toEqual([{ path: 'references/README.md', content: 'readme' }]);
+  });
+
+  it('rejects unsafe side-file paths (traversal / absolute / backslash)', () => {
+    const result = parseSkillZip(
+      zipOf({
+        'SKILL.md': VALID_SKILL_MD,
+        '../evil.md': 'traversal',
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('../evil.md');
+
+    const backslash = parseSkillZip(
+      zipOf({
+        'SKILL.md': VALID_SKILL_MD,
+        'dir\\file.md': 'windows separator',
+      }),
+    );
+    expect(backslash.ok).toBe(false);
+    expect(backslash.error).toContain('dir\\file.md');
   });
 
   it('falls back to a single flat .md at zip root (legacy shape)', () => {

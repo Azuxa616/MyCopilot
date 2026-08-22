@@ -313,6 +313,24 @@ describe('skills route', () => {
     });
   });
 
+  it('PATCH /:id rejects unsafe file paths with 400', async () => {
+    vi.mocked(getSkillMeta).mockReturnValue({ ...mockSkillMeta });
+
+    const app = createTestApp();
+    const res = await app.request('/s1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [
+          { path: 'ok.md', content: 'a' },
+          { path: '../evil.md', content: 'b' },
+        ],
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(vi.mocked(updateSkill)).not.toHaveBeenCalled();
+  });
+
   it('POST /import uploads a zip and creates an upload-source skill', async () => {
     vi.mocked(parseSkillZip).mockReturnValue({
       ok: true,

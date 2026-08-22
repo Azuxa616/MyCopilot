@@ -96,11 +96,16 @@ export function syncDirectorySkills(
 
     const detail = findByFilePath(disc.filePath);
     const fileDiff = diffSkillFiles(current.id, disc.files);
+    // triggers 数组按值比较（引用比较恒不等）；缺省与空数组视为相同。
+    const triggersChanged =
+      JSON.stringify(detail?.triggers ?? []) !==
+      JSON.stringify(disc.parsed.frontmatter.triggers ?? []);
     const contentChanged =
       !detail ||
       detail.name !== disc.parsed.frontmatter.name ||
       detail.description !== disc.parsed.frontmatter.description ||
       detail.content !== disc.parsed.body ||
+      triggersChanged ||
       fileDiff.changed;
 
     if (!contentChanged) {
