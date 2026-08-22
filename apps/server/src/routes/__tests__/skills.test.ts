@@ -20,6 +20,10 @@ vi.mock('../../skills/sync.js', () => ({
   syncDirectorySkills: vi.fn(),
 }));
 
+vi.mock('../../skills/zip-import.js', () => ({
+  parseSkillZip: vi.fn(),
+}));
+
 vi.mock('../../db/index.js', () => ({
   getDb: vi.fn(),
 }));
@@ -34,6 +38,7 @@ import {
 } from '../../repo/skill.js';
 import { parseSkillMarkdown } from '../../skills/parser.js';
 import { syncDirectorySkills } from '../../skills/sync.js';
+import { parseSkillZip } from '../../skills/zip-import.js';
 import { getDb } from '../../db/index.js';
 
 type ApiResponse = {
@@ -304,5 +309,55 @@ describe('skills route', () => {
       triggers: ['x'],
       files: [{ path: 'a.md', content: 'a' }],
     });
+  });
+
+  it('POST /import uploads a zip and creates an upload-source skill', async () => {
+    vi.mocked(parseSkillZip).mockReturnValue({
+      ok: true,
+      skill: {
+        name: 'Zipped',
+        description: 'd',
+        body: 'b',
+        files: [{ path: 'references/a.md', content: 'a' }],
+      },
+    });
+    vi.mocked(createSkill).mockReturnValue({ ...mockSkillDetail, id: 'sz1' });
+
+    const app = createTestApp();
+    const form = new FormData();
+    form.append(
+      'file',
+      new File([new Uint8Array([1, 2, 3])], 'pack.zip', { type: 'application/zip' }),
+    );
+
+    const res = await app.request('/import', { method: 'POST', body: form });
+    expect(res.status).toBe(201);
+    expect(vi.mocked(createSkill).mock.calls[0][0]).toMatchObject({
+      name: 'Zipped',
+      source: 'upload',
+      files: [{ path: 'references/a.md', content: 'a' }],
+    });
+  });
+
+  it('POST /import rejects a zip without usable SKILL.md', async () => {
+    vi.mocked(parseSkillZip).mockReturnValue({ ok: false, error: 'ZIP 中未找到 SKILL.md' });
+
+    const app = createTestApp();
+    const form = new FormData();
+    form.append('file', new File([new Uint8Array([1])], 'bad.zip'));
+
+    const res = await app.request('/import', { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ApiResponse;
+    expect(JSON.stringify(body)).toContain('SKILL.md');
+  });
+
+  it('POST /import rejects a missing file field', async () => {
+    const app = createTestApp();
+    const res = await app.request('/import', {
+      method: 'POST',
+      body: new FormData(),
+    });
+    expect(res.status).toBe(400);
   });
 });

@@ -8,6 +8,7 @@ import {
   deleteSkill,
 } from '../repo/skill.js';
 import { parseSkillMarkdown } from '../skills/parser.js';
+import { parseSkillZip } from '../skills/zip-import.js';
 import { syncDirectorySkills, type SyncResult } from '../skills/sync.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
@@ -67,6 +68,36 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
       body: parsed.body,
       source,
       triggers: parsed.frontmatter.triggers,
+    });
+
+    return successResponse(c, data, 201);
+  });
+
+  // POST /import — upload a ZIP containing a skill directory pack.
+  app.post('/import', async (c) => {
+    const body = await c.req.parseBody();
+    const file = body['file'];
+    if (!(file instanceof File)) {
+      throw new HttpError(400, 'Missing required field: file');
+    }
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      throw new HttpError(400, 'Only .zip files are supported');
+    }
+
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const parsed = parseSkillZip(buffer);
+    if (!parsed.ok || !parsed.skill) {
+      throw new HttpError(400, parsed.error ?? 'Invalid skill zip');
+    }
+
+    const { name, description, body: skillBody, triggers, files } = parsed.skill;
+    const data = createSkill({
+      name,
+      description,
+      body: skillBody,
+      triggers,
+      files,
+      source: 'upload',
     });
 
     return successResponse(c, data, 201);
