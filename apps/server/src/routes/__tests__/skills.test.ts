@@ -10,6 +10,7 @@ vi.mock('../../repo/skill.js', () => ({
   createSkill: vi.fn(),
   updateSkill: vi.fn(),
   deleteSkill: vi.fn(),
+  getSkillFile: vi.fn(),
 }));
 
 vi.mock('../../skills/parser.js', () => ({
@@ -35,6 +36,7 @@ import {
   createSkill,
   updateSkill,
   deleteSkill,
+  getSkillFile,
 } from '../../repo/skill.js';
 import { parseSkillMarkdown } from '../../skills/parser.js';
 import { syncDirectorySkills } from '../../skills/sync.js';
@@ -359,5 +361,38 @@ describe('skills route', () => {
       body: new FormData(),
     });
     expect(res.status).toBe(400);
+  });
+
+  it('GET /:id/files/* returns file content for a nested path', async () => {
+    vi.mocked(getSkillMeta).mockReturnValue({ ...mockSkillMeta });
+    vi.mocked(getSkillFile).mockReturnValue({
+      path: 'references/api.md',
+      content: 'api doc',
+    });
+
+    const app = createTestApp();
+    const res = await app.request('/s1/files/references%2Fapi.md');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.data).toEqual({ path: 'references/api.md', content: 'api doc' });
+    expect(vi.mocked(getSkillFile).mock.calls[0]).toEqual(['s1', 'references/api.md']);
+  });
+
+  it('GET /:id/files/* rejects path traversal', async () => {
+    const app = createTestApp();
+    const res = await app.request('/s1/files/..%2F..%2Fetc%2Fpasswd');
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /:id/files/* returns 404 for unknown skill or file', async () => {
+    vi.mocked(getSkillMeta).mockReturnValue(undefined);
+    const app = createTestApp();
+    const res1 = await app.request('/s1/files/nope.md');
+    expect(res1.status).toBe(404);
+
+    vi.mocked(getSkillMeta).mockReturnValue({ ...mockSkillMeta });
+    vi.mocked(getSkillFile).mockReturnValue(undefined);
+    const res2 = await app.request('/s1/files/nope.md');
+    expect(res2.status).toBe(404);
   });
 });

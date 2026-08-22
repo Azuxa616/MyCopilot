@@ -6,6 +6,7 @@ import {
   createSkill,
   updateSkill,
   deleteSkill,
+  getSkillFile,
 } from '../repo/skill.js';
 import { parseSkillMarkdown } from '../skills/parser.js';
 import { parseSkillZip } from '../skills/zip-import.js';
@@ -109,6 +110,40 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
     const data = getSkill(id);
     if (!data) {
       throw new HttpError(404, 'Skill not found');
+    }
+    return successResponse(c, data);
+  });
+
+  // GET /:id/files/* — return one side file's content (path may contain '/').
+  // Wildcard (not :path) so nested paths like references/api.md work; callers
+  // percent-encode the path (encodeURIComponent keeps '/' as %2F).
+  app.get('/:id/files/*', (c) => {
+    const id = c.req.param('id');
+
+    const marker = '/files/';
+    const idx = c.req.path.indexOf(marker);
+    let filePath = idx >= 0 ? c.req.path.slice(idx + marker.length) : '';
+    try {
+      filePath = decodeURIComponent(filePath);
+    } catch {
+      throw new HttpError(400, 'Invalid file path encoding');
+    }
+
+    if (
+      !filePath ||
+      filePath.includes('..') ||
+      filePath.startsWith('/') ||
+      filePath.includes('\\')
+    ) {
+      throw new HttpError(400, 'Invalid file path');
+    }
+
+    if (!getSkillMeta(id)) {
+      throw new HttpError(404, 'Skill not found');
+    }
+    const data = getSkillFile(id, filePath);
+    if (!data) {
+      throw new HttpError(404, 'File not found');
     }
     return successResponse(c, data);
   });
