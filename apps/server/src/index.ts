@@ -20,6 +20,7 @@ import { toolsApp } from './routes/tools.js';
 import { createSkillsApp } from './routes/skills.js';
 import { mcpsApp } from './routes/mcps.js';
 import { jobsApp } from './routes/jobs.js';
+import { authApp } from './routes/auth.js';
 import { debugRoutes } from './routes/debug.js';
 import { listAllEnabledModels } from './repo/model.js';
 import { registerTool } from './tools/registry.js';
@@ -51,8 +52,9 @@ app.onError(errorMiddleware());
 // Health route — public, must be BEFORE tokenAuth
 app.route('/api/health', healthApp);
 
-// Token auth middleware — all /api/* routes except public paths
-app.use('/api/*', tokenAuthMiddleware(['/api/health']));
+// Token auth middleware — all /api/* routes except public paths.
+// demoToken (from DEMO_TOKEN env via config) grants restricted demo-role access.
+app.use('/api/*', tokenAuthMiddleware(['/api/health'], config.demoToken ?? undefined));
 
 // API routes
 app.route('/api/providers', providersApp);
@@ -63,6 +65,7 @@ app.route('/api/tools', toolsApp);
 app.route('/api/skills', createSkillsApp({ skillsDir }));
 app.route('/api/mcps', mcpsApp);
 app.route('/api/jobs', jobsApp);
+app.route('/api/auth', authApp);
 
 // Debug route — mounted ONLY when MYCOPILOT_DEBUG === '1' (explicit opt-in).
 // Docker/prod never sets this flag, so the endpoint is fully absent (404),
