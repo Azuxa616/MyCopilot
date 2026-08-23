@@ -120,13 +120,15 @@ export function getState(id: string): LifecycleState | undefined {
 
 /**
  * 更新插件状态并刷新 updated_at。`error` 显式覆盖（传 `undefined`/省略
- * 写 NULL，用于成功转换时清除上次失败原因）。插件不存在时返回
- * `undefined`。
+ * 写 NULL，用于成功转换时清除上次失败原因）。`digest` 传入时覆盖、省略
+ * 时保持原值（COALESCE）——digest 是 verify 阶段写入一次的内容属性，
+ * 不随后续状态转换被清空。插件不存在时返回 `undefined`。
  */
 export function updatePluginState(
   id: string,
   state: LifecycleState,
   error?: string,
+  digest?: string,
 ): PluginRecord | undefined {
   const db = getDb();
   const existing = db
@@ -135,8 +137,8 @@ export function updatePluginState(
   if (!existing) return undefined;
 
   db.prepare(
-    `UPDATE plugins SET state = ?, error = ?, updated_at = ? WHERE id = ?`,
-  ).run(state, error ?? null, now(), id);
+    `UPDATE plugins SET state = ?, error = ?, digest = COALESCE(?, digest), updated_at = ? WHERE id = ?`,
+  ).run(state, error ?? null, digest ?? null, now(), id);
 
   return getPlugin(id);
 }
