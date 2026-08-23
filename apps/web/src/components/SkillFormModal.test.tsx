@@ -77,4 +77,18 @@ describe('SkillFormModal edit mode', () => {
     );
     expect(onUpdate).not.toHaveBeenCalled();
   });
+
+  it('create mode: template chip fills paste content and frontmatter fields', () => {
+    render(
+      <SkillFormModal open onClose={vi.fn()} onSave={vi.fn()} editing={null} onUpdate={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByText('代码评审'));
+
+    const textarea = screen
+      .getAllByRole('textbox')
+      .find((el) => el.className.includes('font-mono')) as HTMLTextAreaElement;
+    expect(textarea.value).toContain('name: code-review');
+    expect((screen.getByDisplayValue('code-review') as HTMLInputElement).value).toBe('code-review');
+  });
 });

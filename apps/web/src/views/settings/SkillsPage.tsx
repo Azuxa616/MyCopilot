@@ -2,11 +2,13 @@
 // Directory-sourced skills are read-only: delete disabled, show a "Directory" badge.
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { SkillMeta, CreateSkillParams, SkillDetail, UpdateSkillParams } from '@my-copilot/shared'
 import { api } from '../../api'
 import SkillFormModal from '../../components/SkillFormModal'
 import { Badge } from '../../components/common/Badge'
 import { showMessageAlert } from '../../components/common/Alert/alertUtils'
+import { useDraftStore } from '../../store/draftStore'
 
 // ─── Source badge ───
 
@@ -24,6 +26,7 @@ function SourceBadge({ source }: { source: SkillMeta['source'] }) {
 // ─── Page ───
 
 export function SkillsPage() {
+  const navigate = useNavigate()
   const [skills, setSkills] = useState<SkillMeta[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -147,6 +150,17 @@ export function SkillsPage() {
             {isImporting ? '导入中...' : '导入 ZIP'}
           </button>
           <button
+            onClick={() => {
+              useDraftStore.getState().setPendingDraft(
+                '我想创建一个 skill。请先向我确认用途与细节，然后按 Claude Code 生态格式生成 SKILL.md（YAML frontmatter 含 name/description，可选 triggers/always），把完整内容展示给我审阅；我确认后，使用 install_skill 工具的 content 参数保存。',
+              )
+              navigate('/')
+            }}
+            className="px-4 py-2 bg-bg-secondary text-text-primary border border-border-base rounded-lg hover:border-primary-400 transition-colors text-sm font-medium"
+          >
+            让 AI 生成
+          </button>
+          <button
             onClick={handleCreate}
             className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
           >
@@ -171,11 +185,14 @@ export function SkillsPage() {
                  <div className="flex items-center justify-between p-4 bg-bg-secondary border border-border-base rounded-lg hover:border-primary-400 transition-colors">
                 <div className="flex flex-col gap-1 min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-text-primary">
-                      {skill.name}
-                    </span>
-                    <SourceBadge source={skill.source} />
-                    {(skill.fileCount ?? 0) > 0 && (
+                     <span className="text-sm font-medium text-text-primary">
+                       {skill.name}
+                     </span>
+                     <SourceBadge source={skill.source} />
+                     {skill.always && (
+                       <Badge colorClass="bg-amber-100 text-amber-700">always</Badge>
+                     )}
+                     {(skill.fileCount ?? 0) > 0 && (
                       <button
                         onClick={() =>
                           setExpandedSkill(expandedSkill === skill.id ? null : skill.id)
