@@ -3,6 +3,8 @@ export interface SkillFrontmatter {
   description: string;
   triggers?: string[];
   version?: string;
+  /** 恒相关短 skill：全文常驻注入，不进清单（渐进披露例外，设计支柱三）。 */
+  always?: boolean;
 }
 
 /** Skill 来源：directory=目录同步、upload=用户上传、plugin=插件贡献（provides.skills 桥接写入）。 */
@@ -32,6 +34,8 @@ export interface SkillMeta {
   filePath?: string;
   /** frontmatter triggers（解析后持久化；缺省为空数组语义）。 */
   triggers?: string[];
+  /** 恒相关标记（frontmatter always；缺省 false 语义）。 */
+  always?: boolean;
   /** 附属文件数量（目录包模型；平铺/无附属为 0）。 */
   fileCount?: number;
 }
@@ -56,6 +60,7 @@ export interface CreateSkillParams {
   filePath?: string;
   enabled?: boolean;
   triggers?: string[];
+  always?: boolean;
   files?: SkillFileInput[];
 }
 
@@ -65,6 +70,7 @@ export interface UpdateSkillParams {
   body?: string;
   enabled?: boolean;
   triggers?: string[];
+  always?: boolean;
   /** 提供时全量替换该 skill 的附属文件。 */
   files?: SkillFileInput[];
 }
