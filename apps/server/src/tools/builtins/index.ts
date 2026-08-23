@@ -8,6 +8,8 @@ import { generateUuidExecutor } from './generate-uuid.js';
 import { hashTextExecutor } from './hash-text.js';
 import { httpFetchExecutor } from './http-fetch.js';
 import { jsonFormatExecutor } from './json-format.js';
+import { listGithubSkillsExecutor } from './list-github-skills.js';
+import { installSkillExecutor } from './install-skill.js';
 import { readSkillExecutor } from './read-skill.js';
 import { webSearchExecutor } from './web-search.js';
 
@@ -39,6 +41,8 @@ export const builtinExecutors: readonly BuiltinExecutorRegistration[] = [
   { name: 'base64_decode', executor: base64DecodeExecutor },
   { name: 'json_format', executor: jsonFormatExecutor },
   { name: 'read_skill', executor: readSkillExecutor },
+  { name: 'list_github_skills', executor: listGithubSkillsExecutor },
+  { name: 'install_skill', executor: installSkillExecutor },
   ...e2eTools,
 ];
 
@@ -51,5 +55,7 @@ export { generateUuidExecutor } from './generate-uuid.js';
 export { hashTextExecutor } from './hash-text.js';
 export { httpFetchExecutor, registerHttpFetch } from './http-fetch.js';
 export { jsonFormatExecutor } from './json-format.js';
+export { listGithubSkillsExecutor } from './list-github-skills.js';
+export { installSkillExecutor } from './install-skill.js';
 export { readSkillExecutor } from './read-skill.js';
 export { webSearchExecutor, registerWebSearch } from './web-search.js';
