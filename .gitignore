@@ -63,3 +63,4 @@ apps/server/src/build-info.generated.json
 # Demo instance runtime data & secrets
 docker/demo-data/
 docker/.env.demo
+docker/.env.personal

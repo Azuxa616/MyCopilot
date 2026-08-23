@@ -1,16 +1,19 @@
-version: '3.9'
+name: mycopilot
 services:
   mycopilot:
+    # 自用实例（泳道 personal）：仅绑定 127.0.0.1:3000，公网不可达（外出访问走 Tailscale/SSH 隧道）。
+    # 镜像默认从 GHCR 拉取（CI 构建推送）；IMAGE 未设置时回退为本地构建（首次部署/离线场景）。
+    image: ${IMAGE:-ghcr.io/azuxa616/my-copilot:latest}
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    # 自用实例仅绑定回环地址，公网不可达（外出访问走 Tailscale/SSH 隧道）
+    pull_policy: ${PULL_POLICY:-missing}
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
       - ./data:/app/data
     environment:
-      - AUTH_TOKEN=${AUTH_TOKEN:-}
+      - AUTH_TOKEN=${AUTH_TOKEN:?set in docker/.env.personal}
       - DATA_DIR=/app/data
       - PORT=3000
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
