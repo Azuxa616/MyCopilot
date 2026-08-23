@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: pnpm -r run lint
 
+      - name: Build shared (生成 dist 类型，server/web typecheck 依赖)
+        run: pnpm --filter @my-copilot/shared build
+
       - name: Typecheck
         run: pnpm -r run tsc --noEmit
 
