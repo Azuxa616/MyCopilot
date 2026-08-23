@@ -233,4 +233,32 @@ body`,
     const skill = listSkillsBySource('directory').find((s) => s.name === 'TrigOnly');
     expect(skill?.triggers).toEqual(['new-trigger']);
   });
+
+  it('syncs frontmatter always flag and detects always-only changes', () => {
+    const f = join(dir, 'al.md');
+    writeFileSync(
+      f,
+      `---
+name: Al
+description: d
+always: true
+---
+body`,
+    );
+    syncDirectorySkills(getDb(), dir);
+    const skill = listSkillsBySource('directory').find((s) => s.name === 'Al');
+    expect(skill?.always).toBe(true);
+
+    writeFileSync(
+      f,
+      `---
+name: Al
+description: d
+---
+body`,
+    ); // 仅去掉 always
+    const result = syncDirectorySkills(getDb(), dir);
+    expect(result.updated).toBe(1);
+    expect(listSkillsBySource('directory').find((s) => s.name === 'Al')?.always).toBe(false);
+  });
 });

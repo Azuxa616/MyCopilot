@@ -21,6 +21,7 @@ interface SkillRow {
   created_at: number;
   updated_at: number;
   triggers: string;
+  always: number;
 }
 
 interface SkillFileRow {
@@ -82,6 +83,7 @@ function rowToMeta(row: SkillRow, fileCount = 0): SkillMeta {
     source: row.source as SkillSource,
     filePath: row.file_path ?? undefined,
     triggers: parseTriggers(row.triggers),
+    always: Boolean(row.always),
     fileCount,
   };
 }
@@ -181,8 +183,8 @@ export function createSkill(
 
   db.transaction(() => {
     db.prepare(
-      `INSERT INTO skills (id, name, description, body, source, file_path, source_plugin_id, enabled, triggers, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO skills (id, name, description, body, source, file_path, source_plugin_id, enabled, triggers, always, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       params.name,
@@ -193,6 +195,7 @@ export function createSkill(
       sourcePluginId,
       enabled ? 1 : 0,
       params.triggers ? JSON.stringify(params.triggers) : '[]',
+      params.always ? 1 : 0,
       ts,
       ts,
     );
@@ -220,14 +223,16 @@ export function updateSkill(
     params.enabled !== undefined ? params.enabled : Boolean(existing.enabled);
   const triggersRaw =
     params.triggers !== undefined ? JSON.stringify(params.triggers) : existing.triggers;
+  const always =
+    params.always !== undefined ? params.always : Boolean(existing.always);
   const ts = now();
 
   db.transaction(() => {
     db.prepare(
       `UPDATE skills
-       SET name = ?, description = ?, body = ?, enabled = ?, triggers = ?, updated_at = ?
+       SET name = ?, description = ?, body = ?, enabled = ?, triggers = ?, always = ?, updated_at = ?
        WHERE id = ?`,
-    ).run(name, description, body, enabled ? 1 : 0, triggersRaw, ts, id);
+    ).run(name, description, body, enabled ? 1 : 0, triggersRaw, always ? 1 : 0, ts, id);
 
     if (params.files !== undefined) {
       replaceSkillFiles(id, params.files);

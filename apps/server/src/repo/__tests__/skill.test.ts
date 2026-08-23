@@ -293,4 +293,13 @@ describe('SkillRepo', () => {
     expect(names.get('WithFiles')).toBe(2);
     expect(names.get('Bare')).toBe(0);
   });
+
+  it('createSkill/updateSkill persist always flag', () => {
+    const skill = createSkill({ name: 'A', description: '', body: 'b', source: 'upload', always: true });
+    expect(skill.always).toBe(true);
+
+    const updated = updateSkill(skill.id, { always: false });
+    expect(updated?.always).toBe(false);
+    expect(getSkill(skill.id)?.always).toBe(false);
+  });
 });

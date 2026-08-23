@@ -87,6 +87,7 @@ export function syncDirectorySkills(
         source: 'directory',
         filePath: disc.filePath,
         triggers: disc.parsed.frontmatter.triggers,
+        always: disc.parsed.frontmatter.always ?? false,
         files: disc.files,
       });
       result.created += 1;
@@ -100,12 +101,16 @@ export function syncDirectorySkills(
     const triggersChanged =
       JSON.stringify(detail?.triggers ?? []) !==
       JSON.stringify(disc.parsed.frontmatter.triggers ?? []);
+    // always 按布尔值比较；缺省视为 false。
+    const alwaysChanged =
+      Boolean(detail?.always) !== Boolean(disc.parsed.frontmatter.always);
     const contentChanged =
       !detail ||
       detail.name !== disc.parsed.frontmatter.name ||
       detail.description !== disc.parsed.frontmatter.description ||
       detail.content !== disc.parsed.body ||
       triggersChanged ||
+      alwaysChanged ||
       fileDiff.changed;
 
     if (!contentChanged) {
@@ -118,6 +123,7 @@ export function syncDirectorySkills(
       description: disc.parsed.frontmatter.description,
       body: disc.parsed.body,
       triggers: disc.parsed.frontmatter.triggers ?? [],
+      always: disc.parsed.frontmatter.always ?? false,
       files: disc.files,
     });
     result.updated += 1;
