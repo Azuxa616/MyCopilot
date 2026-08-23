@@ -8,4 +8,8 @@ cd "$(dirname "$0")"
 
 docker compose -f docker-compose.demo.yml --env-file .env.demo down
 rm -rf ./demo-data
+mkdir -p ./demo-data
+# 容器内 app 用户 uid=999，目录须对其可写，否则 SQLITE_CANTOPEN
+chown 999:999 ./demo-data
+chmod 755 ./demo-data
 docker compose -f docker-compose.demo.yml --env-file .env.demo up -d
