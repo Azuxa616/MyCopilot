@@ -21,6 +21,16 @@ import type { SkillInjection } from './assembler.js';
 export function buildSkillInjections(): SkillInjection[] {
   return listSkills({ enabled: true }).flatMap((meta) => {
     const detail = getSkill(meta.id);
-    return detail ? [{ name: detail.name, body: detail.content }] : [];
+    return detail
+      ? [
+          {
+            name: detail.name,
+            description: detail.description,
+            triggers: detail.triggers,
+            body: detail.content,
+            always: detail.always,
+          },
+        ]
+      : [];
   });
 }
