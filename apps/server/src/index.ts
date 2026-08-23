@@ -140,11 +140,33 @@ void startJobWorker();
 
 // Static file serving — single-container mode
 if (config.serverPublicDir && existsSync(config.serverPublicDir)) {
+  const MIME_TYPES: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.map': 'application/json',
+    '.txt': 'text/plain; charset=utf-8',
+  };
   app.get('*', async (c) => {
     const path = c.req.path;
     const filePath = `${config.serverPublicDir}${path === '/' ? '/index.html' : path}`;
     try {
       const file = await readFile(filePath);
+      const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+      // 浏览器会拒绝执行 MIME 不对的 module 脚本，必须显式设置
+      c.header('Content-Type', MIME_TYPES[ext] ?? 'application/octet-stream');
       return c.body(file);
     } catch {
       return c.html(
