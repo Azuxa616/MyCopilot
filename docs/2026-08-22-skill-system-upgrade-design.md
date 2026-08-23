@@ -1,7 +1,7 @@
 # Skill 系统升级（目录包 + 渐进披露 + Agent 绑定作用域）设计
 
 **日期：** 2026-08-22
-**状态：** 设计提案，待用户批准后转入实施计划
+**状态：** P0+P1+P2 已实施并终审通过（分支 `skill-system-upgrade`，实施计划见 `docs/2026-08-22-skill-system-upgrade-plan.md`（P0+P1）与 `docs/2026-08-23-skill-system-upgrade-p2-plan.md`（P2），迁移至 0007）；P3 待排期。P2 终审补丁：解压炸弹防护（originalSize 累计拦截，github/zip 双通道）、远端 `always` 声明导入时剥离（不信任）、归档 URL 按输入 host 推导、`install_skill` 参数互斥、`POST /api/skills` 兼容结构化形态（修复 P1 遗留创建流断裂）。Minor 遗留（后续小批次）：fetch signal 透传、服务错误 4xx/5xx 分级、仓库导入跳过文件改为显式报错、清单字段换行转义、install 按名 upsert。
 **分支：** dev
 **来源：** "Skill 新建交互不合理"讨论（三个痛点）+ 业界 agent 产品调研
 
