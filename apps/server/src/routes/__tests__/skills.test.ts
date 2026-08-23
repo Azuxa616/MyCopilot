@@ -299,6 +299,24 @@ describe('skills route', () => {
     expect(vi.mocked(createSkill).mock.calls[0][0].triggers).toEqual(['a', 'b']);
   });
 
+  it('POST / accepts structured shape {name, description, body} (SkillFormModal flow)', async () => {
+    vi.mocked(createSkill).mockReturnValue({ ...mockSkillDetail, id: 's10' });
+
+    const app = createTestApp();
+    const res = await app.request('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'FromModal', description: 'd', body: '# b' }),
+    });
+    expect(res.status).toBe(201);
+    expect(vi.mocked(createSkill).mock.calls[0][0]).toMatchObject({
+      name: 'FromModal',
+      description: 'd',
+      body: '# b',
+      source: 'upload',
+    });
+  });
+
   it('PATCH /:id forwards triggers and files', async () => {
     vi.mocked(getSkillMeta).mockReturnValue({ ...mockSkillMeta });
     vi.mocked(updateSkill).mockReturnValue({ ...mockSkillDetail });

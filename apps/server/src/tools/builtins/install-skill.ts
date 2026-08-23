@@ -43,6 +43,10 @@ export const installSkillExecutor: ToolExecutor = {
       const path = optionalString(args, 'path', 1000);
       const content = optionalString(args, 'content', 512 * 1024);
 
+      if (repoUrl && content !== undefined) {
+        return errorResult('repoUrl 与 content 互斥：请只提供其一（仓库导入或草稿保存）。');
+      }
+
       if (repoUrl) {
         const detail = await importRepoSkill(repoUrl, path);
         return textResult(`已安装 skill「${detail.name}」：${detail.description}（下个会话起生效）`);

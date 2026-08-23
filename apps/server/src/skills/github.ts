@@ -46,13 +46,25 @@ export function parseGithubRepoUrl(url: string): { owner: string; repo: string; 
   } catch {
     throw new Error(`无效的仓库 URL：${url}`);
   }
-  if (!allowedHosts().includes(parsed.hostname.toLowerCase())) {
+  const host = parsed.hostname.toLowerCase();
+  if (!allowedHosts().includes(host)) {
     throw new Error(`仓库域名 ${parsed.hostname} 不允许（SKILL_IMPORT_ALLOWED_HOSTS）`);
   }
   const m = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
   if (!m) throw new Error(`无法从 URL 解析 owner/repo：${url}`);
   const [, owner, repo] = m;
-  return { owner, repo, archiveUrl: `https://codeload.github.com/${owner}/${repo}/zip/HEAD` };
+  // 归档地址从输入 host 推导：github.com 走 codeload；其他白名单 host
+  // （自建/Gitee 等）按通用 archive/HEAD.zip 约定。
+  const archiveUrl =
+    host === 'github.com'
+      ? `https://codeload.github.com/${owner}/${repo}/zip/HEAD`
+      : `https://${host}/${owner}/${repo}/archive/HEAD.zip`;
+  return { owner, repo, archiveUrl };
+}
+
+/** 解压后总量上限：压缩上限的 5 倍（防解压炸弹——deflate 压缩比可达 ~1000:1）。 */
+function maxDecompressedBytes(): number {
+  return maxArchiveBytes() * 5;
 }
 
 async function fetchArchive(url: string): Promise<Record<string, Uint8Array>> {
@@ -76,11 +88,23 @@ async function fetchArchive(url: string): Promise<Record<string, Uint8Array>> {
     throw new Error(`仓库归档超过上限（${mb} MB）`);
   }
 
+  // 解压炸弹防护：按 zip 头声明的 originalSize 累计拦截，超限即停止解压。
   let rawEntries: Record<string, Uint8Array>;
+  let totalOriginal = 0;
   try {
-    rawEntries = unzipSync(buf);
+    rawEntries = unzipSync(buf, {
+      filter: (file) => {
+        totalOriginal += file.originalSize;
+        return totalOriginal <= maxDecompressedBytes();
+      },
+    });
   } catch {
     throw new Error(`无法解析仓库归档：文件损坏或不是有效的 ZIP`);
+  }
+  if (totalOriginal > maxDecompressedBytes()) {
+    throw new Error(
+      `仓库归档解压后总量超过上限（${maxDecompressedBytes() / 1024 / 1024} MB），疑似压缩炸弹`,
+    );
   }
 
   const entries: Record<string, Uint8Array> = {};
@@ -113,27 +137,22 @@ function stripRoot(entries: Record<string, Uint8Array>): Map<string, Uint8Array>
   return result;
 }
 
+/** 统计 skill 的附属文件数（与 importRepoSkill 收集口径一致：排除 SKILL.md/scripts、按末段扩展名白名单）。 */
 function countSkillFiles(entries: Map<string, Uint8Array>, basePath: string): number {
   const prefix = basePath ? `${basePath}/` : '';
   let count = 0;
 
   for (const [path] of entries.entries()) {
-    if (path.startsWith(prefix)) {
-      const relPath = path.substring(prefix.length);
-      const segments = relPath.split('/');
+    if (!path.startsWith(prefix)) continue;
+    const relPath = path.substring(prefix.length);
+    if (relPath === 'SKILL.md') continue;
 
-      if (segments.length > 0) {
-        const basename = segments[0];
-        if (isSkillTextFile(basename) && isSafeSkillFilePath(relPath)) {
-          if (basePath === '') {
-            if (segments.length === 1) {
-              count++;
-            }
-          } else {
-            count++;
-          }
-        }
-      }
+    const segments = relPath.split('/');
+    if (segments.includes('scripts')) continue;
+
+    const basename = segments[segments.length - 1]!;
+    if (isSkillTextFile(basename) && isSafeSkillFilePath(relPath)) {
+      count++;
     }
   }
 
@@ -141,8 +160,8 @@ function countSkillFiles(entries: Map<string, Uint8Array>, basePath: string): nu
 }
 
 export async function listRepoSkills(url: string): Promise<GithubSkillManifest> {
-  const { owner, repo } = parseGithubRepoUrl(url);
-  const rawEntries = await fetchArchive(`https://codeload.github.com/${owner}/${repo}/zip/HEAD`);
+  const { owner, repo, archiveUrl } = parseGithubRepoUrl(url);
+  const rawEntries = await fetchArchive(archiveUrl);
   const entries = stripRoot(rawEntries);
 
   const manifestEntries: RepoSkillEntry[] = [];
@@ -198,8 +217,8 @@ export async function importRepoSkill(
   url: string,
   path?: string,
 ): Promise<SkillDetail> {
-  const { owner, repo } = parseGithubRepoUrl(url);
-  const rawEntries = await fetchArchive(`https://codeload.github.com/${owner}/${repo}/zip/HEAD`);
+  const { archiveUrl } = parseGithubRepoUrl(url);
+  const rawEntries = await fetchArchive(archiveUrl);
   const entries = stripRoot(rawEntries);
 
   const candidates: string[] = [];
@@ -275,19 +294,19 @@ export async function importRepoSkill(
     throw new Error(`skill 文件总大小超过上限（${SKILL_FILES_TOTAL_MAX_BYTES / 1024 / 1024} MB）`);
   }
 
-  const files = sideFiles
-    .map(({ path, content }) => {
-      const text = strFromU8(content);
-      return { path, content: text };
-    })
-    .filter(({ content }) => content !== undefined);
+  const files = sideFiles.map(({ path, content }) => ({
+    path,
+    content: strFromU8(content),
+  }));
 
   return createSkill({
     name: frontmatter.name,
     description: frontmatter.description,
     body,
     triggers: frontmatter.triggers,
-    always: frontmatter.always,
+    // 远端声明的 always 不信任（终审 I1）：仓库导入恒为清单形态，
+    // 用户审阅内容后可在管理页手动开启全文注入。
+    always: false,
     files: files.length > 0 ? files : undefined,
     source: 'upload',
   });

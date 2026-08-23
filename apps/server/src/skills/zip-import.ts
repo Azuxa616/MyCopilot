@@ -36,11 +36,22 @@ export interface SkillZipResult {
  * （导入路径按设计文档报 400，目录同步才是"跳过 + 计数"语义）。
  */
 export function parseSkillZip(buffer: Uint8Array): SkillZipResult {
+  // 解压炸弹防护：按 zip 头声明的 originalSize 累计拦截（压缩比可达 ~1000:1）。
+  const maxDecompressed = buffer.byteLength * 500;
   let entries: Record<string, Uint8Array>;
+  let totalOriginal = 0;
   try {
-    entries = unzipSync(buffer);
+    entries = unzipSync(buffer, {
+      filter: (file) => {
+        totalOriginal += file.originalSize;
+        return totalOriginal <= maxDecompressed;
+      },
+    });
   } catch {
     return { ok: false, error: '无法解析 ZIP 文件：文件损坏或不是有效的 ZIP 格式' };
+  }
+  if (totalOriginal > maxDecompressed) {
+    return { ok: false, error: `ZIP 解压后总量异常（疑似压缩炸弹），已拒绝` };
   }
 
   // 过滤目录条目（zip 中目录以 / 结尾）与隐藏文件

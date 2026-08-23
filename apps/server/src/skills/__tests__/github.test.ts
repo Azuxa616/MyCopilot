@@ -103,7 +103,8 @@ describe('importRepoSkill', () => {
       const detail = await importRepoSkill('https://github.com/o/r', 'pdf');
       expect(detail.source).toBe('upload');
       expect(detail.triggers).toEqual(['pdf']);
-      expect(detail.always).toBe(true);
+      // I1：远端声明的 always 不信任，导入恒为清单形态
+      expect(detail.always).toBe(false);
       expect(detail.files?.map((f) => f.path)).toEqual(['references/api.md']);
     } finally {
       getDb().close();
@@ -137,6 +138,48 @@ describe('importRepoSkill', () => {
       'a/SKILL.md': SKILL_MD('a'), 'b/SKILL.md': SKILL_MD('b'),
     })));
     await expect(importRepoSkill('https://github.com/o/r')).rejects.toThrow(/a.*b|多个/);
+  });
+
+  it('rejects decompression bombs via originalSize cap (C1 regression)', async () => {
+    // 压缩后很小，但声明的解压总量远超上限（1MB 上限 → 5MB 解压上限）
+    process.env.SKILL_IMPORT_MAX_MB = '1'; // fetchArchive 上限 1MB，解压上限 5MB
+    const bombRoot = 'r-1';
+    const huge = 'x'.repeat(6 * 1024 * 1024); // 6MB 原始内容，压缩后仅数十 KB
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      const body = zipSync({ [`${bombRoot}/a/SKILL.md`]: strToU8(SKILL_MD('a')), [`${bombRoot}/a/big.txt`]: strToU8(huge) });
+      return new Response(body, { status: 200, headers: { 'content-length': String(body.length) } });
+    }));
+    await expect(listRepoSkills('https://github.com/o/r')).rejects.toThrow(/解压|上限/);
+  });
+
+  it('strips remote always declaration on import (I1 regression)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => repoZip('r-1', {
+      'a/SKILL.md': `---\nname: a\ndescription: d\nalways: true\n---\nbody`,
+    })));
+
+    const { getDb, initDatabase } = await import('../../db/index.js');
+    const { mkdtempSync, rmSync, existsSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'gh-always-'));
+    initDatabase(dir);
+    try {
+      const detail = await importRepoSkill('https://github.com/o/r', 'a');
+      expect(detail.always).toBe(false); // 远端声明不信任，强制清单形态
+    } finally {
+      getDb().close();
+      if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('builds archive URL from input host for non-github whitelist (I2)', () => {
+    process.env.SKILL_IMPORT_ALLOWED_HOSTS = 'gitee.com';
+    const r = parseGithubRepoUrl('https://gitee.com/owner/repo');
+    expect(r.archiveUrl).toBe('https://gitee.com/owner/repo/archive/HEAD.zip');
+    // github.com 仍走 codeload（还原默认白名单后断言）
+    delete process.env.SKILL_IMPORT_ALLOWED_HOSTS;
+    const gh = parseGithubRepoUrl('https://github.com/o/r');
+    expect(gh.archiveUrl).toBe('https://codeload.github.com/o/r/zip/HEAD');
   });
 
   it('throws for unknown path', async () => {
