@@ -12,6 +12,7 @@ import { parseSkillMarkdown } from '../skills/parser.js';
 import { parseSkillZip } from '../skills/zip-import.js';
 import { isSafeSkillFilePath } from '../skills/limits.js';
 import { syncDirectorySkills, type SyncResult } from '../skills/sync.js';
+import { listRepoSkills, importRepoSkill } from '../skills/github.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import { getDb } from '../db/index.js';
@@ -104,6 +105,28 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
     });
 
     return successResponse(c, data, 201);
+  });
+
+  // GET /github/manifest — 列出仓库内的 skill 候选（只读，agent 仓库内检索用）。
+  app.get('/github/manifest', async (c) => {
+    const url = c.req.query('url');
+    if (!url) throw new HttpError(400, 'Missing required query: url');
+    try {
+      return successResponse(c, await listRepoSkills(url));
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // POST /import/github — 从仓库导入单个 skill（path 缺省要求仓库为单 skill 形态）。
+  app.post('/import/github', async (c) => {
+    const body = await c.req.json<{ url?: string; path?: string }>();
+    if (!body.url) throw new HttpError(400, 'Missing required field: url');
+    try {
+      return successResponse(c, await importRepoSkill(body.url, body.path), 201);
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
   });
 
   // GET /:id — return full skill detail (body exposed as `content`).

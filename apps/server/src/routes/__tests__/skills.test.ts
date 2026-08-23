@@ -29,6 +29,11 @@ vi.mock('../../db/index.js', () => ({
   getDb: vi.fn(),
 }));
 
+vi.mock('../../skills/github.js', () => ({
+  listRepoSkills: vi.fn(),
+  importRepoSkill: vi.fn(),
+}));
+
 import {
   listSkills,
   getSkill,
@@ -42,6 +47,7 @@ import { parseSkillMarkdown } from '../../skills/parser.js';
 import { syncDirectorySkills } from '../../skills/sync.js';
 import { parseSkillZip } from '../../skills/zip-import.js';
 import { getDb } from '../../db/index.js';
+import { listRepoSkills, importRepoSkill } from '../../skills/github.js';
 
 type ApiResponse = {
   code: number;
@@ -412,5 +418,56 @@ describe('skills route', () => {
     vi.mocked(getSkillFile).mockReturnValue(undefined);
     const res2 = await app.request('/s1/files/nope.md');
     expect(res2.status).toBe(404);
+  });
+
+  it('GET /github/manifest proxies listRepoSkills', async () => {
+    vi.mocked(listRepoSkills).mockResolvedValue({
+      repo: 'o/r',
+      ref: 'HEAD',
+      entries: [{ path: 'pdf', name: 'pdf', description: 'd', fileCount: 1 }],
+    });
+    const app = createTestApp();
+    const res = await app.request('/github/manifest?url=' + encodeURIComponent('https://github.com/o/r'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ApiResponse;
+    expect((body.data as { entries: unknown[] }).entries).toHaveLength(1);
+  });
+
+  it('GET /github/manifest rejects errors with 400', async () => {
+    vi.mocked(listRepoSkills).mockRejectedValue(new Error('仓库域名 evil.com 不允许'));
+    const app = createTestApp();
+    const res = await app.request('/github/manifest?url=' + encodeURIComponent('https://evil.com/a/b'));
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /github/manifest requires url query', async () => {
+    const app = createTestApp();
+    const res = await app.request('/github/manifest');
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /import/github creates skill via importRepoSkill', async () => {
+    vi.mocked(importRepoSkill).mockResolvedValue({ ...mockSkillDetail, id: 'gh1' });
+    const app = createTestApp();
+    const res = await app.request('/import/github', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://github.com/o/r', path: 'pdf' }),
+    });
+    expect(res.status).toBe(201);
+    expect(vi.mocked(importRepoSkill).mock.calls[0]).toEqual(['https://github.com/o/r', 'pdf']);
+  });
+
+  it('POST /import/github rejects service errors with 400', async () => {
+    vi.mocked(importRepoSkill).mockRejectedValue(new Error('仓库包含多个 skill（a、b），请指定 path'));
+    const app = createTestApp();
+    const res = await app.request('/import/github', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://github.com/o/r' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ApiResponse;
+    expect(JSON.stringify(body)).toContain('多个');
   });
 });
