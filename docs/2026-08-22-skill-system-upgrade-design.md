@@ -1,7 +1,7 @@
 # Skill 系统升级（目录包 + 渐进披露 + Agent 绑定作用域）设计
 
 **日期：** 2026-08-22
-**状态：** P0+P1 已实施并终审通过（分支 `skill-system-upgrade`，实施计划 `docs/2026-08-22-skill-system-upgrade-plan.md`，迁移实际编号 `0006_skill_files.sql`）；P2/P3 待排期
+**状态：** 设计提案，待用户批准后转入实施计划
 **分支：** dev
 **来源：** "Skill 新建交互不合理"讨论（三个痛点）+ 业界 agent 产品调研
 
@@ -205,7 +205,8 @@ ALTER TABLE skills ADD COLUMN triggers TEXT NOT NULL DEFAULT '[]';  -- JSON stri
 - `parser`：`triggers` / `always` 解析与容错
 - `sync`：附属文件 create/update/delete diff、计数正确性
 - `repo/skill`：`skill_files` 全量替换语义、级联删除
-- `routes`：ZIP 导入（合法 / 缺 SKILL.md / 超限）、files 路径穿越校验
+- `routes`：ZIP 导入（合法 / 缺 SKILL.md / 超限）、files 路径穿越校验、GitHub manifest/import 端点（域名白名单、归档大小上限、path 定位）
+- `list_github_skills` / `install_skill` 工具：安全级正确挂载、审批流触发（restricted）、错误信息
 - `read_skill`：有效集过滤（绑定 ∩ 启用）、输出截断、错误信息
 - `assembler`：清单格式、`always` 全文例外、排序稳定性
 - **P0 集成测试**：lifecycle / worker 传参后，skills 内容出现在一次真实对话的 prompt 中
@@ -230,8 +231,42 @@ ALTER TABLE skills ADD COLUMN triggers TEXT NOT NULL DEFAULT '[]';  -- JSON stri
 |---|---|---|
 | **P0（立即）** | lifecycle / worker 补齐 skills 传参，现有功能先真正生效 | 无（diy-agent 设计已计划顺带修，先行者交付） |
 | **P1** | `skill_files` 表 + scanner 双模式 + triggers 持久化 + 编辑 UI + ZIP 导入 + `agent_skills` 绑定生效 | 建议与 DIY agent 同期（一次迁移、一套绑定过滤） |
-| **P2** | 渐进披露（清单注入 + `read_skill` + `always`）+ GitHub URL 导入 + AI 生成入口 + 模板 | P1 的目录包模型 |
+| **P2** | 渐进披露（清单注入 + `read_skill` + `always`）+ GitHub 仓库导入（含 agent 自主装载，见"GitHub 仓库导入与 agent 自主装载"节）+ AI 生成入口 + 模板 | P1 的目录包模型 |
 | **P3** | 插件 RFC `provides.skills` 升级为目录包，沿用 `pluginId:resourceName` 命名空间 | 插件系统实施 |
+
+### GitHub 仓库导入与 agent 自主装载（P2 扩展，2026-08-23 补充）
+
+用户需求：**提供一个 skill 仓库链接（+ 可选描述），由 agent 自行在仓库内定位符合描述的 skill 并装载入库**。这不是给 agent 通用写权限，而是提供一条受审批流约束的专用链路——成熟先例：`Kamalnrf/claude-plugins` 的 `skills-discovery` 元 skill（装上后 agent 可自主搜索/比较/安装其他 skill）。
+
+**服务端地基（两个新端点，格式沿用既有 parseSkillZip 逻辑）：**
+
+1. `GET /api/skills/github/manifest?url=<repo>` —— 列出仓库内全部 skill 候选：服务端拉取 GitHub 归档（codeload zip，`HEAD` 默认分支）、定位每个 `<name>/SKILL.md` / `*.md` 条目，返回 `[{ name, description, path, fileCount }]`。**只读、无副作用**，agent 用它做仓库内检索/匹配。
+2. `POST /api/skills/import/github` —— `{ url, path? }`：`path` 指定仓库内某个 skill 目录；缺省时要求仓库本身就是单 skill 形态。落库 `source = 'upload'`（可编辑副本语义，与 ZIP 导入一致）。
+
+**agent 工具面（新增两个内置工具，均挂既有三级安全体系）：**
+
+| 工具 | 安全级 | 入参 | 行为 |
+|---|---|---|---|
+| `list_github_skills` | **safe**（只读网络获取） | `{ repoUrl }` | 调 manifest 端点，返回候选清单（name + description + fileCount） |
+| `install_skill` | **restricted**（每会话首用需确认） | `{ repoUrl?, path?, content? }` | 仓库路径走 `/import/github`；`content` 直接走 `createSkill`。restricted 定级理由：skill = 持久化 prompt 注入，一次安装影响未来所有会话，必须过审批流 |
+
+**典型对话流（用户只出仓库链接和一句话）：**
+```
+用户：https://github.com/anthropics/skills  帮我装个能处理 PDF 的
+agent: list_github_skills(repoUrl)              → safe，直接执行
+       （模型读候选清单，匹配 description ≈ PDF）
+agent: install_skill(repoUrl, path="document-skills/pdf")  → restricted
+       → 审批弹窗（用户看到将安装的 skill 名/描述）
+       → 入库，enabled=true
+agent: 已装好「pdf」，下个会话起生效
+```
+
+**边界与约束：**
+- SSRF：服务端仅允许 `github.com/<owner>/<repo>`（及 `codeload.github.com` 归档域名），拒绝其他 host——这是对开放问题 5 的回答：**域名白名单从 v1 就做**（配置项 `SKILL_IMPORT_ALLOWED_HOSTS`，默认仅 GitHub），因为它同时是 agent 自主装载的安全前提
+- 归档大小上限：复用附件 `MAX_ATTACHMENT_SIZE_MB` 量级（防 zip bomb）
+- agent 不持有 AUTH_TOKEN；工具内部经 server 本地调用（同进程 repo 函数或内部 fetch），不产生权限提升
+- 聚合站联动是免费副产品：Skillselion / claude-plugins.dev / agentskill.sh 等目录的条目最终都指回 GitHub 仓库，"贴仓库 URL"即可装载任意站内条目；后续若做站内浏览体验，Skillselion 与 claude-plugins.dev 有公开 registry API 可查
+
 
 ## 开放问题
 
@@ -239,8 +274,9 @@ ALTER TABLE skills ADD COLUMN triggers TEXT NOT NULL DEFAULT '[]';  -- JSON stri
 2. **`version` 字段的用途**：仅展示，还是参与目录同步的更新提示（本地已改、上游有新版本）？
 3. **AI 生成 skill 的交互形态**：独立入口（设置页按钮 → 模板会话）还是对话中 `@生成skill` 触发？v1 建议前者。
 4. **导入来源的可见性**：`source` 保持两值、以导入时间戳区分，是否满足"从哪来"的展示需求？
-5. **GitHub 导入的安全边界**：拉取任意仓库 URL 的 SSRF / 内容注入风险面——按"可信用户"威胁模型记录即可，还是加域名白名单配置？
+5. ~~**GitHub 导入的安全边界**~~ **已决策（2026-08-23）**：域名白名单 v1 即做——`SKILL_IMPORT_ALLOWED_HOSTS` 配置项（默认仅 `github.com` / `codeload.github.com`），理由：它同时是 agent 自主装载（`install_skill` 工具）的安全前提，见"GitHub 仓库导入与 agent 自主装载"节。归档大小上限复用 `MAX_ATTACHMENT_SIZE_MB`。
 6. **多语言清单**：注入清单中的 name/description 保持原文（skill 作者语言），还是允许用户侧覆盖翻译？（建议 v1 原文）
+7. **agent 匹配 skill 的裁决权**：仓库内多个候选都"符合描述"时，agent 自行挑一个（用户事后在管理页换），还是逐个呈报让用户选？（建议 v1：候选 ≤3 时呈报，>3 时 agent 挑选并说明理由——审批弹窗本就是最终确认点）
 
 ## 未来演进
 
