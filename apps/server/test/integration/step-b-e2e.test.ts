@@ -669,8 +669,13 @@ describe('Step B E2E', () => {
       history,
       userContent: 'continue',
       skills: [
-        { name: 'code-review', body: 'Always check for edge cases.' },
-        { name: 'testing', body: 'Prefer integration tests.' },
+        // 渐进披露（P2）：常规 skill 仅进清单；always skill 全文注入
+        {
+          name: 'code-review',
+          description: '逐文件评审代码变更',
+          body: 'Always check for edge cases.',
+        },
+        { name: 'persona', description: '', body: 'Prefer integration tests.', always: true },
       ],
       summary: { text: 'Prior turns discussed the architecture.' },
       maxTokens: 4500,
@@ -683,10 +688,12 @@ describe('Step B E2E', () => {
     const systemText = systemMessages.map((m) => m.content ?? '').join('\n==\n');
     // Default Chinese instruction.
     expect(systemText).toContain('AI 助手');
-    // Both skills injected.
+    // Manifest entry injected (name + description, no body); always skill full text.
     expect(systemText).toContain('code-review');
-    expect(systemText).toContain('Always check for edge cases.');
-    expect(systemText).toContain('testing');
+    expect(systemText).toContain('逐文件评审代码变更');
+    expect(systemText).toContain('read_skill');
+    expect(systemText).not.toContain('Always check for edge cases.');
+    expect(systemText).toContain('# Skill: persona');
     expect(systemText).toContain('Prefer integration tests.');
     // Summary injected as the third system message.
     expect(systemText).toContain('Previous conversation summary');

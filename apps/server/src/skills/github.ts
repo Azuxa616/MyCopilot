@@ -79,7 +79,7 @@ async function fetchArchive(url: string): Promise<Record<string, Uint8Array>> {
   let rawEntries: Record<string, Uint8Array>;
   try {
     rawEntries = unzipSync(buf);
-  } catch (e) {
+  } catch {
     throw new Error(`无法解析仓库归档：文件损坏或不是有效的 ZIP`);
   }
 

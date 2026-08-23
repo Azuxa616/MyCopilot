@@ -559,7 +559,13 @@ describe('Agent Loop E2E', () => {
       makeParams({
         adapter: skillAdapter,
         skills: [
-          { name: 'code-review', body: 'Always check for edge cases.' },
+          // 渐进披露（P2）：常规 skill 仅进清单；always skill 全文注入
+          {
+            name: 'code-review',
+            description: '逐文件评审代码变更',
+            body: 'Always check for edge cases.',
+          },
+          { name: 'persona', description: '', body: 'You are terse.', always: true },
         ],
       }),
     );
@@ -567,12 +573,16 @@ describe('Agent Loop E2E', () => {
     expect(captured.messages.length).toBeGreaterThanOrEqual(1);
     const firstCall = captured.messages[0]!;
 
-    // System prompt must contain both the default and the skill block.
+    // System prompt must contain the manifest entry (no body) + always full text.
     const systemContents = firstCall
       .filter((m) => m.role === 'system')
       .map((m) => m.content ?? '');
     const joined = systemContents.join('\n==\n');
     expect(joined).toContain('code-review');
-    expect(joined).toContain('Always check for edge cases.');
+    expect(joined).toContain('逐文件评审代码变更');
+    expect(joined).toContain('read_skill');
+    expect(joined).not.toContain('Always check for edge cases.');
+    expect(joined).toContain('# Skill: persona');
+    expect(joined).toContain('You are terse.');
   });
 });
