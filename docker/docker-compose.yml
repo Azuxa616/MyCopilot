@@ -4,8 +4,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    # 自用实例仅绑定回环地址，公网不可达（外出访问走 Tailscale/SSH 隧道）
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./data:/app/data
     environment:

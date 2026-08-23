@@ -12,6 +12,7 @@ import IconCollapsedRight from '../../assets/icon/collapsed-right.svg?react'
 import IconPlus from '../../assets/icon/plus.svg?react'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
+import { useConfigStore } from '../../store/configStore'
 
 export interface AsiderProps {
   isCollapsed?: boolean;
@@ -34,6 +35,9 @@ export default function Asider({
   const setSelectedSessionId = useSessionStore((state) => state.setSelectedSessionId);
   const deleteSessionSummary = useSessionStore((state) => state.deleteSessionSummary);
   const enterNewSession = useSessionStore((state) => state.enterNewSession);
+
+  // demo 角色隐藏设置入口（demo token 无权访问设置页接口，避免一屏 403）
+  const role = useConfigStore((state) => state.role);
 
   // Handle session selection
   const handleItemClick = (sessionId: string) => {
@@ -131,34 +135,36 @@ export default function Asider({
 
       {/* footer: settings nav + app version */}
       <footer className="flex flex-col shrink-0 border-t border-border-base bg-bg-secondary">
-        <div className="flex flex-col">
-          <span className={`px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-text-tertiary ${isCollapsed ? 'hidden' : ''}`}>
-            设置
-          </span>
-          {([
-            { key: 'providers', label: 'Providers', icon: '🤖' },
-            { key: 'tools', label: 'Tools', icon: '🔧' },
-            { key: 'skills', label: 'Skills', icon: '📜' },
-            { key: 'mcps', label: 'MCPs', icon: '🔌' },
-          ] as const).map((item) => {
-            const active = isSettingsActive(item.key);
-            return (
-              <button
-                key={item.key}
-                onClick={() => goToSettings(item.key)}
-                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-2'} ${isCollapsed ? 'px-2' : 'px-4'} py-2 text-sm transition-colors ${
-                  active
-                    ? 'text-primary-500 bg-primary-50'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
-                }`}
-                title={isCollapsed ? item.label : undefined}
-              >
-                <span>{item.icon}</span>
-                {!isCollapsed && <span>{item.label}</span>}
-              </button>
-            );
-          })}
-        </div>
+        {role !== 'demo' && (
+          <div className="flex flex-col">
+            <span className={`px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-text-tertiary ${isCollapsed ? 'hidden' : ''}`}>
+              设置
+            </span>
+            {([
+              { key: 'providers', label: 'Providers', icon: '🤖' },
+              { key: 'tools', label: 'Tools', icon: '🔧' },
+              { key: 'skills', label: 'Skills', icon: '📜' },
+              { key: 'mcps', label: 'MCPs', icon: '🔌' },
+            ] as const).map((item) => {
+              const active = isSettingsActive(item.key);
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => goToSettings(item.key)}
+                  className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-2'} ${isCollapsed ? 'px-2' : 'px-4'} py-2 text-sm transition-colors ${
+                    active
+                      ? 'text-primary-500 bg-primary-50'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+                  }`}
+                  title={isCollapsed ? item.label : undefined}
+                >
+                  <span>{item.icon}</span>
+                  {!isCollapsed && <span>{item.label}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {!isCollapsed && (
           <div className="w-full text-center text-xs py-2 text-text-tertiary bg-bg-tertiary flex flex-col items-center">
             <span>MyCopilot Demo</span>

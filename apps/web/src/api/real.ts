@@ -8,6 +8,7 @@ import type {
   Session, SessionSummary, CreateSessionParams,
   Provider, CreateProviderParams, Model, CreateModelParams,
   Message,
+  AuthInfo,
   Tool, UpdateToolParams,
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
   Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
@@ -133,6 +134,16 @@ export async function stopStream(sessionId: string, msgId?: string): Promise<voi
         method: 'POST',
         timeout: 10000,
     });
+}
+
+// ─── Auth APIs ───
+
+export async function fetchAuthMe(): Promise<AuthInfo> {
+    const response = await enhancedFetch<{ data: AuthInfo }>('/api/auth/me', {
+        method: 'GET',
+        timeout: 30000,
+    });
+    return response.data;
 }
 
 // ─── Provider APIs ───

@@ -44,7 +44,7 @@ describe('providers route', () => {
     const res = await app.request('/');
     expect(res.status).toBe(200);
     const body = (await res.json()) as ApiResponse;
-    expect(body).toEqual({ code: 0, msg: 'ok', data: mockProviders });
+    expect(body).toEqual({ code: 0, msg: 'ok', data: mockProviders.map((p) => ({ ...p, apiKey: '****' })) });
   });
 
   it('POST / creates provider with valid body', async () => {
@@ -59,7 +59,7 @@ describe('providers route', () => {
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as ApiResponse;
-    expect(body.data).toEqual(mockProvider);
+    expect(body.data).toEqual({ ...mockProvider, apiKey: '****' });
   });
 
   it('POST / returns 400 when required fields are missing', async () => {
@@ -83,7 +83,7 @@ describe('providers route', () => {
     const res = await app.request('/p1');
     expect(res.status).toBe(200);
     const body = (await res.json()) as ApiResponse;
-    expect(body.data).toEqual(mockProvider);
+    expect(body.data).toEqual({ ...mockProvider, apiKey: '****' });
   });
 
   it('GET /:id returns 404 when not found', async () => {
@@ -108,7 +108,7 @@ describe('providers route', () => {
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as ApiResponse;
-    expect(body.data).toEqual(updated);
+    expect(body.data).toEqual({ ...updated, apiKey: '****' });
   });
 
   it('PATCH /:id returns 404 when not found', async () => {

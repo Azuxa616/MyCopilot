@@ -97,3 +97,114 @@ describe('tokenAuthMiddleware', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('tokenAuthMiddleware demo token', () => {
+  function createDemoApp() {
+    const app = new Hono();
+    app.use('/api/*', tokenAuthMiddleware(['/api/health'], 'demo-token-456'));
+    app.onError(errorMiddleware());
+
+    app.get('/api/sessions', (c) => c.json({ data: [] }));
+    app.post('/api/sessions', (c) => c.json({ data: {} }, 201));
+    app.get('/api/models', (c) => c.json({ data: [] }));
+    app.get('/api/providers', (c) => c.json({ data: [] }));
+    app.get('/api/jobs/abc', (c) => c.json({ data: {} }));
+    app.post('/api/jobs/abc/cancel', (c) => c.json({ data: {} }));
+    app.get('/api/auth/me', (c) => c.json({ data: { role: 'demo' } }));
+    return app;
+  }
+
+  const demoApp = createDemoApp();
+
+  it('demo token can GET /api/models (whitelisted)', async () => {
+    const res = await demoApp.request('/api/models', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('demo token can POST /api/sessions (whitelisted)', async () => {
+    const res = await demoApp.request('/api/sessions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('demo token can GET /api/jobs/:id and POST cancel (whitelisted)', async () => {
+    const res1 = await demoApp.request('/api/jobs/abc', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res1.status).toBe(200);
+    const res2 = await demoApp.request('/api/jobs/abc/cancel', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res2.status).toBe(200);
+  });
+
+  it('demo token gets 403 on /api/providers (not whitelisted)', async () => {
+    const res = await demoApp.request('/api/providers', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('admin token (config table) bypasses whitelist on /api/providers', async () => {
+    const res = await demoApp.request('/api/providers', {
+      headers: { Authorization: 'Bearer test-token-123' },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('unknown token gets 401 even on whitelisted route', async () => {
+    const res = await demoApp.request('/api/models', {
+      headers: { Authorization: 'Bearer no-such-token' },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('without demoToken configured, demo-like token gets 401', async () => {
+    const app = new Hono();
+    app.use('/api/*', tokenAuthMiddleware(['/api/health']));
+    app.onError(errorMiddleware());
+    app.get('/api/sessions', (c) => c.json({ data: [] }));
+    const res = await app.request('/api/sessions', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it.each([
+    ['GET', '/api/sessions'],
+    ['GET', '/api/sessions/abc123'],
+    ['PATCH', '/api/sessions/abc123'],
+    ['DELETE', '/api/sessions/abc123'],
+    ['GET', '/api/sessions/abc123/messages'],
+    ['POST', '/api/sessions/abc123/messages'],
+    ['POST', '/api/sessions/abc123/messages/stop'],
+    ['GET', '/api/sessions/abc123/summaries'],
+    ['DELETE', '/api/sessions/abc123/messages/msg9'],
+    ['GET', '/api/jobs'],
+    ['GET', '/api/jobs/stream'],
+    ['GET', '/api/auth/me'],
+  ])('demo token can %s %s (whitelist regression)', async (method, path) => {
+    const res = await demoApp.request(path, {
+      method,
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(401);
+  });
+
+  it('demo token gets 403 on nested admin-only paths (default deny regression)', async () => {
+    const res1 = await demoApp.request('/api/providers/prov1/models', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res1.status).toBe(403);
+    const res2 = await demoApp.request('/api/tools', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res2.status).toBe(403);
+  });
+});

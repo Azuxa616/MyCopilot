@@ -253,6 +253,7 @@ export function registerAgentLoopHandler(): void {
       { getAdapter },
       { listEnabledTools },
       { listRegisteredTools },
+      { filterDemoTools },
       { buildSkillInjections },
     ] =
       await Promise.all([
@@ -260,15 +261,16 @@ export function registerAgentLoopHandler(): void {
         import('../llm/index.js'),
         import('../repo/tool.js'),
         import('../tools/registry.js'),
+        import('../demo/tools.js'),
         import('../prompt/skill-injections.js'),
       ]);
 
     const payload = job.payload as unknown as AgentLoopJobPayload;
     const adapter = getAdapter(payload.adapterType);
-    const tools = [
+    const tools = filterDemoTools([
       ...listRegisteredTools(),
       ...listEnabledTools().filter((tool) => tool.type === 'mcp-provided'),
-    ];
+    ]);
 
     return runAgentLoopAsJob(
       job,

@@ -79,9 +79,11 @@ export default function ChatShell() {
   const loadModels = useCallback(async () => {
     setIsLoadingModels(true)
     try {
+      // demo 角色（DEMO_TOKEN）访问 /api/providers 会返回 403；模型列表是聊天的关键路径，
+      // 不能因 providers 拉取失败而整体失败——失败时降级为空列表，下拉框仅显示模型名。
       const [models, providers] = await Promise.all([
         api.fetchAllModels(),
-        api.fetchProviders(),
+        api.fetchProviders().catch(() => [] as Provider[]),
       ])
       setAllModels(models)
       const map: Record<string, Provider> = {}

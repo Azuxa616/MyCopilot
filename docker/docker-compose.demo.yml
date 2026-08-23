@@ -1,0 +1,35 @@
+# docker/docker-compose.demo.yml
+# 演示实例：仅绑定 127.0.0.1:3100，由宿主机 nginx 反代对外。
+# 与自用实例（docker-compose.yml，project mycopilot）使用不同 project
+# name 与数据卷 → 独立 bridge 网络 + 独立 SQLite，互不可达。
+version: '3.9'
+name: mycopilot-demo
+services:
+  mycopilot-demo:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "127.0.0.1:3100:3000"
+    volumes:
+      - ./demo-data:/app/data
+    environment:
+      - AUTH_TOKEN=${AUTH_TOKEN:?set in docker/.env.demo}
+      - DEMO_MODE=1
+      - DEMO_TOKEN=${DEMO_TOKEN:?set in docker/.env.demo}
+      - DEMO_PROVIDER_NAME=${DEMO_PROVIDER_NAME:-Demo Provider}
+      - DEMO_PROVIDER_BASE_URL=${DEMO_PROVIDER_BASE_URL:?set in docker/.env.demo}
+      - DEMO_PROVIDER_API_KEY=${DEMO_PROVIDER_API_KEY:?set in docker/.env.demo}
+      - DEMO_PROVIDER_MODEL=${DEMO_PROVIDER_MODEL:?set in docker/.env.demo}
+      - DATA_DIR=/app/data
+      - PORT=3000
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MAX_ATTACHMENT_SIZE_MB=2
+      - SERVER_PUBLIC_DIR=/app/apps/web/dist
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
