@@ -14,6 +14,31 @@ export interface Mcp {
   description: string;
   config: McpConfig;
   enabled: boolean;
+  lastConnectedAt?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface CreateMcpParams {
+  name: string;
+  description: string;
+  config: McpConfig;
+  enabled?: boolean;
+}
+
+export interface UpdateMcpParams {
+  name?: string;
+  description?: string;
+  config?: McpConfig;
+  enabled?: boolean;
+}
+
+export interface TestMcpConfigParams {
+  config: McpConfig;
+}
+
+export interface TestMcpConfigResult {
+  success: boolean;
+  tools?: string[];
+  error?: string;
 }

@@ -1,6 +1,6 @@
 // ModelFormModal - Create / Edit model modal
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { Model, CreateModelParams } from '@my-copilot/shared'
 import Modal from './common/Modal'
 import { FormField, formControlClassName } from './common/FormField'
@@ -24,7 +24,21 @@ export default function ModelFormModal({
   const [displayName, setDisplayName] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
+  // Reset form when the modal opens.
+  // 渲染期守卫式状态调整（react.dev "You Might Not Need an Effect"），
+  // 哨兵 null 保证首帧即执行，与原 mount effect 行为一致。
+  const [hydratedFor, setHydratedFor] = useState<{
+    open: boolean
+    mode: 'create' | 'edit'
+    model: Model | undefined
+  } | null>(null)
+  if (
+    hydratedFor === null ||
+    hydratedFor.open !== open ||
+    hydratedFor.mode !== mode ||
+    hydratedFor.model !== model
+  ) {
+    setHydratedFor({ open, mode, model })
     if (open) {
       if (mode === 'edit' && model) {
         setName(model.name);
@@ -35,7 +49,7 @@ export default function ModelFormModal({
       }
       setErrors({});
     }
-  }, [open, mode, model]);
+  }
 
   const validate = (): boolean => {
     const nextErrors: Record<string, string> = {};

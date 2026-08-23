@@ -4,3 +4,5 @@ export * from './provider.js';
 export * from './model.js';
 export * from './session.js';
 export * from './message.js';
+export * from './agent.js';
+export * from './tool-approval.js';

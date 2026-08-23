@@ -11,6 +11,8 @@ import ReactMarkdownRenderer from '../MarkdownRenderer'
 import Avatar from './Avatar'
 import MessageActions from './MessageActions'
 import AttachmentCard from '../Sender/AttachmentCard'
+import ToolCallsBlock from './ToolCallsBlock'
+import ReasoningBlock from './ReasoningBlock'
 // Utils
 import { getRelativeTime } from '../../utils/time'
 import { showMessageAlert } from './Alert/alertUtils'
@@ -134,14 +136,32 @@ function RenderActions({
 interface RenderMetaProps {
   isSystem: boolean
   isUser: boolean
+  isTool: boolean
+  toolCallId?: string
+  messageId?: string
 }
 
-function RenderMeta({ isSystem, isUser }: RenderMetaProps) {
+function RenderMeta({ isSystem, isUser, isTool, toolCallId, messageId }: RenderMetaProps) {
   if (isSystem) return null
+  if (isTool) {
+    // tool 角色消息：显示工具响应标识（toolCallId 取短形式）
+    const shortId = toolCallId ? toolCallId.length > 12 ? `${toolCallId.slice(0, 10)}…` : toolCallId : ''
+    return (
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-text-tertiary px-1">
+        <span aria-hidden>🔧</span>
+        <span>工具响应{shortId ? ` · ${shortId}` : ''}</span>
+      </div>
+    )
+  }
   const roleLabel = isUser ? "我" : 'MyCopilot'
   return (
     <div className="mb-1 flex items-center gap-2 text-[11px] text-text-tertiary px-1">
       <span>{roleLabel}</span>
+      {import.meta.env.DEV && messageId && (
+        <span className="text-[10px] text-text-tertiary font-mono">
+          mid:{messageId.slice(0, 8)}
+        </span>
+      )}
     </div>
   )
 }
@@ -287,10 +307,18 @@ export default function MessageCard({
         </div>
       )}
       <div className={`flex flex-col items-${isUser ? 'end' : 'start'} gap-1 w-[calc(100%-100px)] `}>
-        <RenderMeta isSystem={isSystem} isUser={isUser} />
+        <RenderMeta
+          isSystem={isSystem}
+          isUser={isUser}
+          isTool={message.role === MessageRole.TOOL}
+          toolCallId={message.toolCallId}
+          messageId={message.id}
+        />
 
         <div className={bubbleClass}>
           {StatusBar}
+          {/* Extended Thinking：推理文本与正文分开渲染（默认折叠，无 reasoningText 不渲染） */}
+          {isAssistant && !isFailed && <ReasoningBlock message={message} />}
           <RenderContent
             message={message}
             isSystem={isSystem}
@@ -300,6 +328,9 @@ export default function MessageCard({
             isStreaming={isStreaming ?? false}
           />
         </div>
+
+        {/* NEW: Render tool calls block if present */}
+        <ToolCallsBlock message={message} debugMode={import.meta.env.DEV} />
 
         {message.attachments.length > 0 && (
           <div className="ml-2 shrink-0">

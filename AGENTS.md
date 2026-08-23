@@ -56,6 +56,17 @@ MyCopilot/
 - **API mode**: Mock/Real toggle driven from `configStore` at runtime
 - **Chunk splitting**: Custom vendor chunks in Vite (react-vendor, ui-vendor, utils-vendor)
 
+## DOCUMENTATION LANGUAGE (项目级强制约定)
+- **所有面向用户/开发者阅读的文档一律用中文撰写**：RFC、README、设计文档（`docs/`）、用户指南、ARCHITECTURE/CHANGELOG 等
+- **代码标识符一律保留英文**：字段名、类型名、函数名、变量名、枚举值（如 `Run`、`status`、`in_progress`、`SafetyLevel`、`MAX_SAME_TOOL_CALLS`）
+- **技术缩写保留英文原文**：SSE、JSON、API、HTTP、MCP、LLM、URL、SQL、CSP、AST、LSP、SPDX 等
+- **形式化工件中的描述性文字用中文**：JSON Schema 的 `description` 字段值、TypeScript 的 JSDoc 注释、Mermaid 图表的节点 label（节点 ID 和语法关键字保留英文）
+- **专有名词/产品名保留原文**：MyCopilot、OpenAI、Anthropic、React、Hono、Vitest、Zustand 等
+- **章节标题中文化**：Motivation→动机、Goals→目标、Non-Goals→非目标、Specification→规范、Migration→迁移、Open Questions→开放问题、References→参考文献、Threat Model→威胁模型 等
+- **结构标记同步中文化**：ADR→决策、Anti-pattern→反例、"A conforming implementation MUST"→"合规实现必须" 等
+- **源码注释**：暂不强制中文化（作为独立任务另行评估），但新增注释鼓励用中文
+- **例外**：第三方引用、命令行示例、代码块内容、API 字面量保持原文
+
 ## ANTI-PATTERNS (THIS PROJECT)
 - Do NOT use standard Vite — always rolldown-vite
 - Do NOT put hooks in `src/hooks/` — they live inside component directories

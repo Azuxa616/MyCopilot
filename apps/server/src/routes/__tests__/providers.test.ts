@@ -18,6 +18,12 @@ vi.mock('../../llm/tester.js', () => ({
 import { listProviders, getProvider, createProvider, updateProvider, deleteProvider } from '../../repo/provider.js';
 import { testProvider } from '../../llm/tester.js';
 
+type ApiResponse = {
+  code: number;
+  msg: string;
+  data: Record<string, unknown>;
+};
+
 function createTestApp() {
   const app = new Hono();
   app.onError(errorMiddleware());
@@ -37,8 +43,8 @@ describe('providers route', () => {
     const app = createTestApp();
     const res = await app.request('/');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
-    expect(body).toEqual({ code: 0, msg: 'ok', data: mockProviders });
+    const body = (await res.json()) as ApiResponse;
+    expect(body).toEqual({ code: 0, msg: 'ok', data: mockProviders.map((p) => ({ ...p, apiKey: '****' })) });
   });
 
   it('POST / creates provider with valid body', async () => {
@@ -52,8 +58,8 @@ describe('providers route', () => {
       body: JSON.stringify({ name: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com', apiKey: 'sk-test' }),
     });
     expect(res.status).toBe(201);
-    const body = await res.json() as any;
-    expect(body.data).toEqual(mockProvider);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.data).toEqual({ ...mockProvider, apiKey: '****' });
   });
 
   it('POST / returns 400 when required fields are missing', async () => {
@@ -64,7 +70,7 @@ describe('providers route', () => {
       body: JSON.stringify({ name: 'OpenAI' }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Missing required fields');
   });
@@ -76,8 +82,8 @@ describe('providers route', () => {
     const app = createTestApp();
     const res = await app.request('/p1');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
-    expect(body.data).toEqual(mockProvider);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.data).toEqual({ ...mockProvider, apiKey: '****' });
   });
 
   it('GET /:id returns 404 when not found', async () => {
@@ -86,7 +92,7 @@ describe('providers route', () => {
     const app = createTestApp();
     const res = await app.request('/p1');
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -101,8 +107,8 @@ describe('providers route', () => {
       body: JSON.stringify({ name: 'Updated' }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
-    expect(body.data).toEqual(updated);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.data).toEqual({ ...updated, apiKey: '****' });
   });
 
   it('PATCH /:id returns 404 when not found', async () => {
@@ -115,7 +121,7 @@ describe('providers route', () => {
       body: JSON.stringify({ name: 'Updated' }),
     });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -125,7 +131,7 @@ describe('providers route', () => {
     const app = createTestApp();
     const res = await app.request('/p1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
   });
 
@@ -135,7 +141,7 @@ describe('providers route', () => {
     const app = createTestApp();
     const res = await app.request('/p1', { method: 'DELETE' });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -147,7 +153,7 @@ describe('providers route', () => {
     const app = createTestApp();
     const res = await app.request('/p1/test', { method: 'POST' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual({ success: true, latencyMs: 100 });
   });
 
@@ -157,7 +163,7 @@ describe('providers route', () => {
     const app = createTestApp();
     const res = await app.request('/p1/test', { method: 'POST' });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 });

@@ -1,0 +1,363 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/plugin.manifest.schema.json",
+  "title": "Plugin Manifest",
+  "description": "MyCopilot 插件清单（plugin.json）的自包含 JSON Schema（draft-07）。内部引用仅使用 $defs；无外部 $ref。通过 allOf/oneOf/$ref 组合，使能力块保持独立可复用。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "version",
+    "description",
+    "author",
+    "license",
+    "engineCompatibility",
+    "source",
+    "permissions",
+    "provides"
+  ],
+  "allOf": [
+    { "$ref": "#/$defs/CoreFields" },
+    { "$ref": "#/$defs/Capabilities" }
+  ],
+  "properties": {
+    "name": { "$ref": "#/$defs/PluginName" },
+    "version": { "$ref": "#/$defs/SemVer" },
+    "description": { "$ref": "#/$defs/NonEmptyString" },
+    "author": { "$ref": "#/$defs/Author" },
+    "license": { "$ref": "#/$defs/SpdxLicense" },
+    "homepage": { "$ref": "#/$defs/HttpsUrl" },
+    "icon": { "$ref": "#/$defs/HttpsUrl" },
+    "keywords": {
+      "type": "array",
+      "description": "在 UI 中显示的自由形式标签；不用于命名空间。",
+      "items": { "$ref": "#/$defs/NonEmptyString" },
+      "maxItems": 20,
+      "uniqueItems": true
+    },
+    "engineCompatibility": { "$ref": "#/$defs/EngineCompatibility" },
+    "source": { "$ref": "#/$defs/PluginSource" },
+    "permissions": { "$ref": "#/$defs/PluginPermissions" },
+    "provides": { "$ref": "#/$defs/PluginProvides" },
+    "dependencies": {
+      "type": "array",
+      "description": "本插件依赖的其他插件，按名称 + semver 范围解析。",
+      "items": { "$ref": "#/$defs/PluginDependency" },
+      "default": []
+    },
+    "lifecycleHooks": { "$ref": "#/$defs/LifecycleHooks" },
+    "type": {
+      "type": "string",
+      "description": "插件主要用途类型，开放枚举：frontend-response/backend-tool-only/llm-adapter/storage-provider/mcp-server-only/agent-preset，宿主将未知类型视为不透明对象。",
+      "maxLength": 64
+    }
+  },
+  "$defs": {
+    "NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "PluginName": {
+      "type": "string",
+      "description": "小写 kebab-case 标识符。跨版本稳定；用作命名空间前缀 'pluginId:resourceName'。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "SemVer": {
+      "type": "string",
+      "description": "语义化版本 2.0.0 字符串。",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "SemVerRange": {
+      "type": "string",
+      "description": "npm 风格的 semver 范围，应用于 engineCompatibility 和 dependencies。",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "HttpsUrl": {
+      "type": "string",
+      "pattern": "^https://[\\w.-]+(?:\\.[a-zA-Z]{2,})(?:/[^\\s]*)?$",
+      "maxLength": 2048
+    },
+    "Author": {
+      "type": "object",
+      "description": "插件的作者或维护者。",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/NonEmptyString" },
+        "email": {
+          "type": "string",
+          "description": "作者联系邮箱。通过正则校验以保持 schema 自包含（无需 ajv-formats 插件）。",
+          "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+          "maxLength": 254
+        },
+        "url": { "$ref": "#/$defs/HttpsUrl" }
+      }
+    },
+    "SpdxLicense": {
+      "type": "string",
+      "description": "SPDX 许可证标识符（例如 MIT、Apache-2.0、GPL-3.0-only）。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "PluginSource": {
+      "type": "string",
+      "description": "按决策 A4 的来源层级。'built-in' 不是插件来源：内置项编译进宿主且从不走插件协议。一方插件为 'official'；用户安装的插件为 'community'。",
+      "enum": ["official", "community"]
+    },
+    "EngineCompatibility": {
+      "type": "object",
+      "description": "宿主引擎（MyCopilot server）版本约束。",
+      "additionalProperties": false,
+      "required": ["minVersion"],
+      "properties": {
+        "minVersion": {
+          "description": "插件可运行的最低宿主版本（SemVer）。",
+          "$ref": "#/$defs/SemVer"
+        },
+        "maxVersion": {
+          "description": "宿主版本的可选上界（开区间）。",
+          "$ref": "#/$defs/SemVerRange"
+        }
+      }
+    },
+    "PluginPermissions": {
+      "type": "object",
+      "description": "最小权限能力声明。省略时每个权限默认为最受限的值。",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "boolean",
+          "description": "插件可以注册后端工具执行器。",
+          "default": false
+        },
+        "network": {
+          "type": "boolean",
+          "description": "插件可以打开出站网络套接字。",
+          "default": false
+        },
+        "filesystem": { "$ref": "#/$defs/FilesystemPermissions" },
+        "childProcess": {
+          "type": "boolean",
+          "description": "插件可以派生子进程。对于进程外运行的 Tier 3 社区插件是隐含的；仍需声明以便审计。",
+          "default": false
+        },
+        "envVars": {
+          "type": "array",
+          "description": "插件可读取的环境变量名允许列表。",
+          "items": { "$ref": "#/$defs/NonEmptyString" },
+          "maxItems": 50,
+          "uniqueItems": true,
+          "default": []
+        }
+      }
+    },
+    "FilesystemPermissions": {
+      "type": "object",
+      "description": "文件系统访问默认限定在 $PLUGINS_DIR/<plugin_id>/；写入路径相对于该前缀解释。",
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "type": "array",
+          "description": "插件可读取的 glob 模式（相对于插件沙箱）。",
+          "items": { "$ref": "#/$defs/NonEmptyString" },
+          "maxItems": 50,
+          "uniqueItems": true,
+          "default": []
+        },
+        "write": {
+          "type": "array",
+          "description": "插件可写入的 glob 模式（相对于插件沙箱）。空数组表示无写入；键缺失也表示无写入。",
+          "items": { "$ref": "#/$defs/NonEmptyString" },
+          "maxItems": 50,
+          "uniqueItems": true,
+          "default": []
+        }
+      }
+    },
+    "PluginProvides": {
+      "type": "object",
+      "description": "插件贡献的能力块。至少一个块必须非空；空的 'provides' 无效。",
+      "additionalProperties": false,
+      "properties": {
+        "mcpServers": {
+          "type": "array",
+          "description": "本插件内嵌的 MCP 服务描述符。每个通过 apps/server/src/mcp/manager.ts 连接。",
+          "items": { "$ref": "#/$defs/McpServerRef" },
+          "default": []
+        },
+        "skills": {
+          "type": "array",
+          "description": "插件包中 skills/ 下的 skill 文件引用。",
+          "items": { "$ref": "#/$defs/SkillRef" },
+          "default": []
+        },
+        "rules": {
+          "type": "array",
+          "description": "rules/ 下的规则文件引用（注入到 prompt 中的确定性策略文本）。",
+          "items": { "$ref": "#/$defs/RuleRef" },
+          "default": []
+        },
+        "frontendEntry": {
+          "description": "按决策 A2 加载到 iframe+CSP 沙箱中的前端打包产物入口（HTML/JS）。",
+          "$ref": "#/$defs/FrontendEntry"
+        },
+        "contextProviders": {
+          "type": "array",
+          "description": "Context provider 引用（MAY 扩展点，见 A3）。默认为空。",
+          "items": { "$ref": "#/$defs/ContextProviderRef" },
+          "default": []
+        },
+        "memoryBackends": {
+          "type": "array",
+          "description": "Memory backend 引用（MAY 扩展点，见 A3）。默认为空。",
+          "items": { "$ref": "#/$defs/MemoryBackendRef" },
+          "default": []
+        }
+      },
+      "anyOf": [
+        { "required": ["mcpServers"], "properties": { "mcpServers": { "minItems": 1 } } },
+        { "required": ["skills"], "properties": { "skills": { "minItems": 1 } } },
+        { "required": ["rules"], "properties": { "rules": { "minItems": 1 } } },
+        { "required": ["frontendEntry"] },
+        { "required": ["contextProviders"], "properties": { "contextProviders": { "minItems": 1 } } },
+        { "required": ["memoryBackends"], "properties": { "memoryBackends": { "minItems": 1 } } }
+      ]
+    },
+    "McpServerRef": {
+      "type": "object",
+      "description": "MCP 服务描述符；镜像现有 MCP manager 消费的 McpConfig 形状。",
+      "additionalProperties": false,
+      "required": ["id", "transport"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$"
+        },
+        "transport": {
+          "type": "string",
+          "description": "传输类型。'stdio' 是当前唯一生产支持的传输（apps/server/src/mcp/transport-factory.ts）；'http' 保留给未来的远程插件。",
+          "enum": ["stdio", "http"]
+        },
+        "command": { "$ref": "#/$defs/NonEmptyString" },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "url": { "$ref": "#/$defs/HttpsUrl" }
+      }
+    },
+    "SkillRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "插件包下的相对路径，例如 'skills/code-review.md'。",
+          "pattern": "^skills/[A-Za-z0-9._/-]+\\.md$"
+        }
+      }
+    },
+    "RuleRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^rules/[A-Za-z0-9._/-]+\\.(md|txt)$"
+        }
+      }
+    },
+    "FrontendEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry"],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "description": "提供给沙箱 iframe 的 HTML 入口。",
+          "pattern": "^frontend/index\\.html$"
+        },
+        "csp": {
+          "type": "string",
+          "description": "应用于 iframe 的可选 Content-Security-Policy 头值。",
+          "minLength": 1
+        }
+      }
+    },
+    "ContextProviderRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" }
+      }
+    },
+    "MemoryBackendRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" }
+      }
+    },
+    "PluginDependency": {
+      "type": "object",
+      "description": "插件依赖，安装时按名称 + semver 范围解析。",
+      "additionalProperties": false,
+      "required": ["name", "versionRange"],
+      "properties": {
+        "name": { "$ref": "#/$defs/PluginName" },
+        "versionRange": { "$ref": "#/$defs/SemVerRange" }
+      }
+    },
+    "LifecycleHooks": {
+      "type": "object",
+      "description": "在生命周期转换时调用的可选入口点（见 plugin.lifecycle-event.schema.json）。钩子在带外运行；钩子失败为 fail-fast。",
+      "additionalProperties": false,
+      "properties": {
+        "onInstall": { "$ref": "#/$defs/HookEntry" },
+        "onUninstall": { "$ref": "#/$defs/HookEntry" },
+        "onEnable": { "$ref": "#/$defs/HookEntry" }
+      }
+    },
+    "HookEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": { "$ref": "#/$defs/NonEmptyString" },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 30000,
+          "default": 5000
+        }
+      }
+    },
+    "CoreFields": {
+      "type": "object",
+      "description": "组合标记：打包九个必需的清单字段。重新声明为 $defs 节点，以便其他 schema 可复用同一字段集。",
+      "required": [
+        "name",
+        "version",
+        "description",
+        "author",
+        "license",
+        "engineCompatibility",
+        "source",
+        "permissions",
+        "provides"
+      ]
+    },
+    "Capabilities": {
+      "type": "object",
+      "description": "组合标记，确保每个能力对象设置 additionalProperties:false 并使用小写 kebab-case id。"
+    }
+  }
+}

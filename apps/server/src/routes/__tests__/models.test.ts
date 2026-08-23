@@ -13,6 +13,12 @@ vi.mock('../../repo/model.js', () => ({
 
 import { listModelsByProvider, getModel, createModel, updateModel, deleteModel } from '../../repo/model.js';
 
+type ApiResponse = {
+  code: number;
+  msg: string;
+  data: Record<string, unknown>;
+};
+
 function createTestApp() {
   const app = new Hono();
   app.onError(errorMiddleware());
@@ -32,7 +38,7 @@ describe('models route', () => {
     const app = createTestApp();
     const res = await app.request('/providers/p1/models');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body).toEqual({ code: 0, msg: 'ok', data: mockModels });
   });
 
@@ -47,7 +53,7 @@ describe('models route', () => {
       body: JSON.stringify({ name: 'gpt-4' }),
     });
     expect(res.status).toBe(201);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(mockModel);
     expect(createModel).toHaveBeenCalledWith('p1', { name: 'gpt-4' });
   });
@@ -60,7 +66,7 @@ describe('models route', () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Missing required field');
   });
@@ -72,7 +78,7 @@ describe('models route', () => {
     const app = createTestApp();
     const res = await app.request('/providers/p1/models/m1');
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(mockModel);
   });
 
@@ -82,7 +88,7 @@ describe('models route', () => {
     const app = createTestApp();
     const res = await app.request('/providers/p1/models/m1');
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -97,7 +103,7 @@ describe('models route', () => {
       body: JSON.stringify({ name: 'gpt-4-turbo' }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data).toEqual(updated);
   });
 
@@ -111,7 +117,7 @@ describe('models route', () => {
       body: JSON.stringify({ name: 'gpt-4-turbo' }),
     });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -121,7 +127,7 @@ describe('models route', () => {
     const app = createTestApp();
     const res = await app.request('/providers/p1/models/m1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
   });
 
@@ -131,7 +137,7 @@ describe('models route', () => {
     const app = createTestApp();
     const res = await app.request('/providers/p1/models/m1', { method: 'DELETE' });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 });

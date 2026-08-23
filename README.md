@@ -1,208 +1,142 @@
-# MyCopilot AI 对话应用Demo
+# MyCopilot
 
-<div align="center">
-  <h1>MyCopilot</h1>
-  <p>🚀 纯前端实现的现代化 AI 对话应用Demo，基于 React + TypeScript 构建</p>
-  <p>✨ 支持流式响应、Markdown 渲染、历史会话管理等完整功能</p>
-</div>
+一个可自托管的全栈 AI 对话应用：用熟悉的聊天界面连接 OpenAI 兼容模型，并在同一个工作区里管理会话、模型供应商、Skills、工具和 MCP 服务。
 
----
+MyCopilot 面向两类使用者：
 
-## 📋 项目简介
+- **普通用户**：打开网页、配置模型，就可以开始多轮对话、上传附件并查看历史会话。
+- **开发者**：可以把它当作一个 React + Hono 的 AI 应用基座，继续扩展模型适配、工具调用、Skills 或 MCP 集成。
 
-MyCopilot 是一个功能完整的 AI 对话应用 Demo，采用现代前端技术栈构建，提供了流畅的对话体验和丰富的交互功能。项目实现了完整的对话流管理，包括消息发送、AI 回复渲染、历史会话管理等核心功能，并支持与真实 AI API 的集成。
+## 能做什么
 
-项目基于详细的任务书开发，已完成 95% 的核心功能要求。
-## 🌟 核心功能
+### 对话体验
 
-### ✅ 已完成功能
+- 多会话管理：新建、切换、删除会话，并在 SQLite 中保存历史消息。
+- 流式回复：通过 SSE 实时显示模型输出，支持停止正在进行的生成。
+- Markdown 消息：支持 GFM、表格、链接、代码块和语法高亮。
+- 附件上下文：支持将文本、Markdown、CSV、DOCX 等附件解析后注入当前请求；单个附件默认限制为 10 MB。
+- 上下文处理：服务端会根据上下文预算截断历史消息，并可生成会话摘要，避免长对话无限增长。
 
-- **💬 完整的对话界面**
-  - 支持用户与 AI 的对话气泡渲染
-  - 智能滚动和新消息自动定位
-  - 消息状态管理（发送中、已发送、失败）
+### 模型与服务配置
 
-- **📝 富文本渲染**
-  - 完整的 Markdown 语法支持（标题、列表、链接、表格等）
-  - 代码块语法高亮（40+ 语言支持）
-  - 一键复制代码块功能
+- Provider / Model 管理：配置多个 OpenAI 兼容或 Ollama 服务，按会话选择模型。
+- Token 认证：服务端使用 Bearer Token 保护 API；首次启动时可从日志获取自动生成的 token。
+- 本地数据：会话、消息、Provider、模型和工具配置保存在服务端 SQLite 数据库中。
 
-- **⚡ 流式响应**
-  - 真实的打字机效果
-  - 支持 OpenAI 兼容 API 流式调用
-  - 可中断的流式生成
+### Agent 能力
 
-- **📚 历史会话管理**
-  - 新建、切换、删除对话
-  - 对话标题自动生成
-  - 本地数据持久化
+- **内置工具**：包含计算、编码/解码、哈希、JSON 格式化、UUID、当前时间，以及 HTTP 获取和网页搜索等工具。
+- **工具安全策略**：安全工具可直接执行；受限工具需要在会话内确认；高风险工具每次调用都需要确认。
+- **Skills**：通过 Markdown 定义可复用的工作方式，可在界面中管理，也可以从目录同步。
+- **MCP**：连接 stdio 或 HTTP MCP 服务，自动同步服务提供的工具。
+- **后台任务**：较长的 Agent 执行通过后台 job worker 处理，并通过 SSE 向前端推送进度。
 
-- **📎 多模态支持**
-  - 文件上传功能
-  - 附件预览和展示
-  - 支持图片等多媒体内容
-
-- **🚀 性能优化**
-  - 虚拟滚动技术，支持大量消息的流畅交互
-  - 智能的滚动行为和内存管理
-
-- **🔧 高级特性**
-  - Mock/Real API 模式切换
-  - 完整的错误处理和重试机制
-  - 响应式设计，适配不同屏幕尺寸
-### 🎯 待完善的功能
-- 虚拟滚动优化
-- 上下文可选择夹带其他聊天
-- 聊天标题手动/自动修改
-- 上下文真实夹带附件
-- 响应式适配
-- 语音对话
-
-## 🛠️ 技术栈
-
-### 核心框架
-- **前端框架**: React 19 + TypeScript
-- **构建工具**: Vite (rolldown)
-- **样式框架**: TailwindCSS 4
-- **状态管理**: Zustand 5
-- **包管理器**: pnpm
-
-### 主要依赖
-- **UI 组件**: React DOM
-- **Markdown 渲染**: react-markdown + remark-gfm + rehype-raw
-- **代码高亮**: rehype-prism-plus (基于 Prism.js)
-- **虚拟滚动**: @tanstack/react-virtual
-- **流式处理**: Web Streams API + eventsource-parser
-- **图标库**: Heroicons (SVG React 组件)
-
-### 开发工具
-- **代码检查**: TypeScript ESLint
-- **类型检查**: TypeScript 5.9
-- **开发服务器**: Vite Dev Server
-- **SVG 处理**: vite-plugin-svgr
-
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
-- Node.js 18+
-- pnpm 8+
+- Node.js 20+
+- pnpm 10+
 
-### 安装依赖
+### 安装并启动
 
 ```bash
 pnpm install
+pnpm dev
 ```
 
-### 启动开发服务器
+启动脚本会先运行 Server，确认 `http://localhost:3000/api/health` 可用后，再启动 Web 开发服务器。开发环境默认访问：
+
+- Web：<http://localhost:5173>
+- Server：<http://localhost:3000>
+
+首次打开页面时，从 Server 的启动日志复制 `AUTH_TOKEN`，粘贴到页面的认证弹窗中。若没有设置环境变量，Server 会生成 token，并在启动日志中打印；token 会持久化到数据库，重启后保持不变。
+
+### 手动启动单个应用
 
 ```bash
-pnpm run dev
+pnpm --filter server dev
+pnpm --filter web dev
 ```
 
-项目将在 `http://localhost:5173` 启动。
+如果只需要构建：
 
-
-
-## 📁 项目结构
-
-```
-src/
-├── api/                 # API 接口层
-│   ├── mock.ts         # Mock 数据实现
-│   ├── real.ts         # 真实 API 实现
-│   └── types.ts        # API 类型定义
-├── components/          # React 组件
-│   ├── Asider/         # 侧边栏组件
-│   ├── ChatShell.tsx   # 主聊天界面
-│   ├── MarkdownRenderer/ # Markdown 渲染器
-│   └── Sender/         # 消息发送组件
-├── store/              # Zustand 状态管理
-│   ├── chatStore.ts    # 聊天状态
-│   ├── configStore.ts  # 配置状态
-│   └── userStore.ts    # 用户状态
-├── types/              # TypeScript 类型定义
-├── utils/              # 工具函数
-│   ├── llm.ts         # AI API 工具
-│   └── streamUtils.ts # 流式响应处理
-└── assets/            # 静态资源
+```bash
+pnpm build
 ```
 
-## 🔧 配置说明
+## 配置
 
-### API 模式切换
+复制并按需修改 `apps/server/.env.example`。常用配置如下：
 
-项目支持两种运行模式：
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AUTH_TOKEN` | 自动生成 | API Bearer Token；生产环境建议显式设置 |
+| `DATA_DIR` | `./data` | SQLite 数据目录 |
+| `PORT` | `3000` | Server 监听端口 |
+| `CORS_ORIGIN` | `http://localhost:5173` | 允许访问 API 的来源，多个来源用逗号分隔 |
+| `MAX_ATTACHMENT_SIZE_MB` | `10` | 单个附件大小上限 |
+| `SERVER_PUBLIC_DIR` | 空 | 设置后由 Server 同时托管 Web 构建产物 |
+| `SKILLS_DIR` | 空 | 可选的目录 Skills 来源 |
+| `LOG_LEVEL` | `info` | `debug`、`info`、`warn` 或 `error` |
 
-1. **Mock 模式**（默认）：使用本地模拟数据，无需 API Key
-2. **Real 模式**：连接真实 OpenAI API，需要配置 API Key
+Provider 的 `base_url`、API Key 和模型名称在 Web 界面的设置页中配置，而不是写入前端环境变量。
 
-在侧边栏设置中可以切换模式并配置 OpenAI API 参数。
+## Docker 部署
 
-### OpenAI API 配置
+项目提供了单容器部署配置：
 
-在 Real 模式下，需要配置：
-- API Key
-- Base URL
-- Model 名称（如 gpt-4, gpt-3.5-turbo）
+```bash
+pnpm docker:build
+pnpm docker:up
+```
 
-## 💾 数据持久化
+默认会把服务暴露在 `http://localhost:3000`，并将 `docker/data` 挂载到容器的 `/app/data`。部署到其他环境前，请至少设置 `AUTH_TOKEN`，并根据实际域名调整 `CORS_ORIGIN`。
 
-项目采用分层数据持久化策略，根据不同的运行模式提供相应的数据存储方案：
+## 项目结构
 
-### Mock 模式
+```text
+MyCopilot/
+├── apps/
+│   ├── web/                 # React 19 前端、路由、页面和 Zustand 状态
+│   └── server/              # Hono API、SQLite、LLM、Agent、工具和 MCP
+├── packages/
+│   └── shared/              # 前后端共享的 TypeScript 类型与工具
+├── docker/                  # Dockerfile 与 Compose 配置
+├── docs/                    # 架构与设计文档
+└── scripts/                 # 本地开发启动脚本
+```
 
-- **初始数据来源**：从 `mock/` 目录下的 JSON 文件获取预设的对话数据
-- **新增对话存储**：所有新增的对话和消息仅存储在内存中
-- **数据持久性**：页面刷新后，所有新增对话数据将消失，仅保留初始的 Mock 数据
+Server 端按功能组织为 `routes/`、`repo/`、`llm/`、`prompt/`、`streaming/`、`tools/`、`skills/` 和 `mcp/` 等模块；Web 端主要代码位于 `apps/web/src/`，包括聊天组件、设置页、API 客户端和 Zustand stores。
 
+## 常用开发命令
 
-### Real 模式
+```bash
+pnpm dev          # 同时启动 Web 与 Server
+pnpm build        # 构建所有 workspace 包
+pnpm test         # 运行全部 Vitest 测试
+pnpm lint         # 运行 ESLint
+pnpm typecheck    # 执行 TypeScript 类型检查
+```
 
-- **API 配置存储**：OpenAI API 的 Key、Base URL、Model 等配置信息存储在浏览器 localStorage 中
-- **历史对话存储**：所有对话记录、消息内容、附件信息等完整数据持久化到 localStorage
-- **数据同步**：支持跨会话的数据恢复，关闭浏览器后重新打开仍可恢复之前的对话状态
-- **第三方兼容**：支持所有 OpenAI 兼容的 LLM 服务（如 Azure OpenAI、第三方代理等）
-- **隐私说明**：所有数据仅存储在用户本地浏览器，不会上传到任何服务器
+也可以只针对某个 workspace 执行命令，例如：
 
-### 模式切换说明
+```bash
+pnpm --filter web test
+pnpm --filter server lint
+```
 
-- 从 Mock 模式切换到 Real 模式：需要配置 API 参数，新建对话将使用 Real 模式存储
-- 从 Real 模式切换到 Mock 模式：保留 Mock 模式的初始数据，Real 模式的历史数据仍保存在 localStorage 中
-- 数据隔离：两种模式的对话数据相互独立，不会相互影响
+## 数据与安全提示
 
-## 📚 开发说明
+- `apps/server/data/` 和 Docker 的数据卷包含 SQLite 数据，请做好备份；这些运行时数据不应提交到 Git。
+- Provider API Key 保存在服务端数据库中。请限制数据库目录的访问权限，并在生产环境使用强随机的 `AUTH_TOKEN`。
+- MCP 和工具可能访问外部网络或执行本地命令。只连接你信任的服务，并在启用前检查工具的安全等级与参数范围。
+- `GET /api/health` 是公开健康检查接口，其他 `/api/*` 接口默认需要 Bearer Token。
 
-### 代码规范
+## 开发状态
 
-- 使用 TypeScript 进行类型检查
-- 遵循 ESLint 配置的代码规范
-- 使用 TailwindCSS 的原子化 CSS 类名
-- 组件使用函数式组件和 Hooks
+项目仍在持续迭代中。当前主线优先完善 Agent 工具安全、MCP/Skills 管理、后台任务和上下文处理；接口和数据结构可能随版本演进，扩展功能前建议先阅读 `docs/` 中的设计文档。
 
-### 状态管理架构
+## 许可证
 
-项目采用分层状态管理架构：
-- **UI 层**: React 组件
-- **状态层**: Zustand Store
-- **数据层**: localStorage 持久化
-- **API 层**: Mock/Real API 抽象
-
-### 流式响应实现
-
-项目实现了完整的流式响应链路：
-1. 前端发起请求
-2. 接收 SSE 流式数据
-3. 实时更新消息内容（打字机效果）
-4. 支持中断和错误处理
-
-## 📄 许可证
-
-MIT License
-
-## 👨‍💻 作者
-
-**Azuxa616**
-
----
-
+[MIT License](LICENSE)

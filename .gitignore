@@ -48,3 +48,18 @@ apps/server/data/
 
 # Windows artifact from bad redirect
 nul
+
+# opencode-server-launcher script
+opencode-server-launcher.bat
+
+# Debug mode build artifacts
+apps/web/src/build-info.generated.json
+apps/server/src/build-info.generated.json
+
+# OMO artifacts
+.omo/
+.worktrees/
+
+# Demo instance runtime data & secrets
+docker/demo-data/
+docker/.env.demo

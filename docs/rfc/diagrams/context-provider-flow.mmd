@@ -1,0 +1,17 @@
+%% Context Providers Extension Point - 装配流程
+%% 一张 flowchart：每轮 provider 调用与 prompt 装配
+flowchart TD
+    A["用户轮次到达"] --> B["runner.assembleMessages"]
+    B --> C["收集已启用的 provider"]
+    C --> D["Promise.all：provider.provide"]
+    D --> E{"全部在 totalTimeoutMs 内？"}
+    E -- 否 --> F["丢弃迟到结果"]
+    E -- 是 --> G["按 priority 拼接输出"]
+    F --> G
+    G --> H["按 maxCharsPerProvider 截断"]
+    H --> I{"Slot"}
+    I -- after-skills --> J["在 skills 块之后插入 system msg"]
+    I -- before-history --> K["在 history 之前插入 system msg"]
+    J --> L["最终的 ChatMessage 列表"]
+    K --> L
+    L --> M["交给 LLM adapter"]

@@ -1,6 +1,6 @@
 // ProviderFormModal - Create / Edit provider modal
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { Provider, CreateProviderParams } from '@my-copilot/shared'
 import Modal from './common/Modal'
 import { FormField, formControlClassName } from './common/FormField'
@@ -27,7 +27,20 @@ export default function ProviderFormModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Reset form when modal opens
-  useEffect(() => {
+  // 渲染期守卫式状态调整（react.dev "You Might Not Need an Effect"），
+  // 哨兵 null 保证首帧即执行，与原 mount effect 行为一致。
+  const [hydratedFor, setHydratedFor] = useState<{
+    open: boolean
+    mode: 'create' | 'edit'
+    provider: Provider | undefined
+  } | null>(null)
+  if (
+    hydratedFor === null ||
+    hydratedFor.open !== open ||
+    hydratedFor.mode !== mode ||
+    hydratedFor.provider !== provider
+  ) {
+    setHydratedFor({ open, mode, provider })
     if (open) {
       if (mode === 'edit' && provider) {
         setName(provider.name);
@@ -42,7 +55,7 @@ export default function ProviderFormModal({
       }
       setErrors({});
     }
-  }, [open, mode, provider]);
+  }
 
   const validate = (): boolean => {
     const nextErrors: Record<string, string> = {};

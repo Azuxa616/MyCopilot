@@ -23,7 +23,7 @@ describe('health route', () => {
 
   it('returns structured health response with db connected', async () => {
     const mockPrepare = vi.fn(() => ({ get: vi.fn() }));
-    vi.mocked(getDb).mockReturnValue({ prepare: mockPrepare } as any);
+    vi.mocked(getDb).mockReturnValue({ prepare: mockPrepare } as unknown as ReturnType<typeof getDb>);
 
     const app = createTestApp();
     const res = await app.request('/');

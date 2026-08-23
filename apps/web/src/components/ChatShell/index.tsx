@@ -11,11 +11,14 @@ import MessageList from './MessageList'
 import { useMessageVirtualizer } from './hooks/useMessageVirtualizer'
 import { useAutoScroll } from './hooks/useAutoScroll'
 import { useMessageRegenerate } from './hooks/useMessageRegenerate'
+import { useJobStream, TERMINAL_JOB_STATUSES } from './hooks/useJobStream'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
+import { useConfigStore } from '../../store/configStore'
 import { NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 // API
 import { api } from '../../api'
+import { MessageRole } from '@my-copilot/shared'
 import type { Model, Provider } from '@my-copilot/shared'
 import { showMessageAlert } from '../common/Alert/alertUtils'
 
@@ -28,9 +31,20 @@ export default function ChatShell() {
   const updateSession = useSessionStore((state) => state.updateSession)
   const pendingModelId = useSessionStore((state) => state.pendingModelId)
   const setPendingModelId = useSessionStore((state) => state.setPendingModelId)
+  const activeJobId = useSessionStore((state) => state.activeJobId)
+  const setActiveJobId = useSessionStore((state) => state.setActiveJobId)
 
-  // Get messages for current session from cache
-  const messages = selectedSessionId ? (messagesCache[selectedSessionId] || []) : []
+  // Get messages for current session from cache.
+  // Filter out:
+  //  - tool messages (role='tool') — internal tool results, shown via SSE during live chat
+  //  - assistant messages with toolCalls — intermediate tool-call requests, not user-facing.
+  //    The final assistant response is always a separate message without toolCalls.
+  //    Without this filter, refresh shows empty bubbles from intermediate rounds.
+  const messages = selectedSessionId
+    ? (messagesCache[selectedSessionId] || []).filter(
+        m => m.role !== MessageRole.TOOL && !(m.role === MessageRole.ASSISTANT && m.toolCalls)
+      )
+    : []
 
   // Chat content scroll container
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
@@ -52,17 +66,24 @@ export default function ChatShell() {
   // Message regeneration logic
   const { handleRegenerate } = useMessageRegenerate()
 
+  // Background job progress (async send mode) — subscribes via SSE while activeJobId is set.
+  const { job, isConnected, error } = useJobStream(activeJobId)
+
   // Model selector state
   const [allModels, setAllModels] = useState<Model[]>([])
   const [providersMap, setProvidersMap] = useState<Record<string, Provider>>({})
   const [isLoadingModels, setIsLoadingModels] = useState(false)
 
+  const authToken = useConfigStore((state) => state.authToken)
+
   const loadModels = useCallback(async () => {
     setIsLoadingModels(true)
     try {
+      // demo 角色（DEMO_TOKEN）访问 /api/providers 会返回 403；模型列表是聊天的关键路径，
+      // 不能因 providers 拉取失败而整体失败——失败时降级为空列表，下拉框仅显示模型名。
       const [models, providers] = await Promise.all([
         api.fetchAllModels(),
-        api.fetchProviders(),
+        api.fetchProviders().catch(() => [] as Provider[]),
       ])
       setAllModels(models)
       const map: Record<string, Provider> = {}
@@ -77,9 +98,13 @@ export default function ChatShell() {
     }
   }, [])
 
+  // Load models when authToken becomes available (same pattern as Layout session loading).
+  // On first visit, authToken is null on mount → loadModels would fail. After token entry,
+  // this effect re-fires and populates the model dropdown.
   useEffect(() => {
+    if (!authToken) return
     loadModels()
-  }, [loadModels])
+  }, [authToken, loadModels])
 
   // Auto-select first model when models load and no model is selected
   useEffect(() => {
@@ -118,15 +143,56 @@ export default function ChatShell() {
     }
   }, [selectedSessionId, currentSession, loadSessionMessages])
 
+  // When the background job reaches a terminal state, refresh the session's
+  // messages from the server and clear the active job id. The cache is dropped
+  // first because sendMessage added a placeholder assistant message; without
+  // invalidation, loadSessionMessages would short-circuit on the stale cache.
+  useEffect(() => {
+    if (!job || !TERMINAL_JOB_STATUSES.includes(job.status)) return
+    if (selectedSessionId && selectedSessionId !== NEW_SESSION_SENTINEL) {
+      useSessionStore.setState((state) => {
+        const nextCache = { ...state.messagesCache }
+        delete nextCache[selectedSessionId]
+        return { messagesCache: nextCache }
+      })
+      loadSessionMessages(selectedSessionId)
+    }
+    setActiveJobId(null)
+  }, [job, selectedSessionId, loadSessionMessages, setActiveJobId])
+
   const hasNoModel = selectedSessionId === NEW_SESSION_SENTINEL
     ? !pendingModelId
     : !!currentSession && currentSession.modelId === null
+
+  // Status text for the background job progress bar.
+  const jobStatusText = error
+    ? '连接异常，重试中...'
+    : !isConnected
+      ? '连接中...'
+      : !job
+        ? '处理中...'
+        : job.status === 'pending'
+          ? '排队中...'
+          : job.status === 'running'
+            ? '处理中...'
+            : job.status === 'done'
+              ? '已完成'
+              : job.status === 'failed'
+                ? '处理失败'
+                : job.status === 'cancelled'
+                  ? '已取消'
+                  : '处理中...'
 
   return (
     <div className="flex flex-col h-full w-full">
       {/* Model selector bar */}
       <div className="shrink-0 px-4 py-2 border-b border-border-base bg-bg-elevated flex items-center gap-3">
         <span className="text-sm text-text-secondary shrink-0">模型</span>
+        {import.meta.env.DEV && currentSession?.id && (
+          <span className="text-[10px] text-text-tertiary font-mono ml-2">
+            sid:{currentSession.id.slice(0, 8)}
+          </span>
+        )}
         {isLoadingModels ? (
           <span className="text-sm text-text-tertiary">加载中...</span>
         ) : (
@@ -150,6 +216,14 @@ export default function ChatShell() {
           </select>
         )}
       </div>
+
+      {/* Background job progress bar (async send mode) */}
+      {activeJobId && (
+        <div className="shrink-0 px-4 py-2 border-b border-border-base bg-primary-50 flex items-center gap-2 text-sm text-primary-700">
+          <span className="inline-block w-3.5 h-3.5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>{jobStatusText}</span>
+        </div>
+      )}
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden">

@@ -1,0 +1,25 @@
+%% 迁移与既有成果 —— 分阶段迁移路径
+%% 渲染：mmdc -i migration-path.mmd -o out.svg
+%% 单张 flowchart，含一个 subgraph cluster（六个阶段）外加起止标记。
+flowchart TD
+    V1["v1 基线<br/>runner.ts + executor.ts + prompt/assembler.ts<br/>mcp/manager.ts + 11 个 SSE 事件<br/>3 级安全 · 独立 Skill/MCP"]
+    F1["v2 目标<br/>Agent Loop v2 + Context v2<br/>插件系统 · manifest + lifecycle + EPs + security<br/>5 份 RFC 集成"]
+
+    subgraph MP["迁移路径 · 分阶段且可独立回滚"]
+        direction TD
+        X1["Phase X.1 · Agent Loop v2<br/>依赖 · 无<br/>落地 · Run lifecycle + LoopGuard v2 + concurrent tool pool<br/>替换 · 仅 runner.ts 内部"]
+        X2["Phase X.2 · Context Management v2<br/>依赖 · X.1（提供 RunContext）<br/>落地 · five-bucket budget + strategy registry + memory 表<br/>包装 · prompt/assembler.ts，旧签名保留"]
+        X3["Phase X.3 · Plugin Manifest + Lifecycle<br/>依赖 · 运行时无<br/>落地 · plugin.json schema + 7 态机 + plugin_data 存储<br/>新增 · 新 server/plugin 模块，尚未接通能力"]
+        X4["Phase X.4 · MCP Tier 2 兼容<br/>依赖 · X.3 命名空间 + 审计<br/>落地 · 既有 mcps 行按 Tier 2 official 处理<br/>无行为变化 · 共享 manager.ts 路径"]
+        X5["Phase X.5 · Extension Points<br/>依赖 · X.3，按 EP 优先级排序<br/>落地 · Tools EP、Lifecycle Hooks dispatcher、Artifact Renderer host，然后 4 个 MAY EP<br/>桥接 · registry.ts + onEvent + web iframe host"]
+        X6["Phase X.6 · Sandbox + Performance Budget<br/>依赖 · X.3 + X.5 Tools EP<br/>落地 · Tier 3 用 worker_threads + permission ceiling + default-deny network + audit<br/>Tier 2 插件保持进程内"]
+
+        X1 --> X2
+        X2 --> X3
+        X3 --> X4
+        X4 --> X5
+        X5 --> X6
+    end
+
+    V1 -. "叠加式 · 每个阶段可回滚 · 无持久化行被修改" .-> X1
+    X6 -. "所有阶段转绿 · v1 接口保留" .-> F1

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import type { McpTransport, McpConfig, Mcp } from '../mcp.js';
+import type {
+  McpTransport,
+  McpConfig,
+  Mcp,
+  TestMcpConfigParams,
+  TestMcpConfigResult,
+} from '../mcp.js';
 
 describe('MCP types', () => {
   it('McpTransport should be stdio, sse, or http', () => {
@@ -45,5 +51,30 @@ describe('MCP types', () => {
     };
     expect(mcp.name).toBe('Filesystem');
     expect(mcp.config.transport).toBe('stdio');
+  });
+
+  it('TestMcpConfigParams carries a McpConfig', () => {
+    const params: TestMcpConfigParams = {
+      config: { transport: 'stdio', command: 'npx' },
+    };
+    expect(params.config.transport).toBe('stdio');
+  });
+
+  it('TestMcpConfigResult success shape with tool names', () => {
+    const ok: TestMcpConfigResult = {
+      success: true,
+      tools: ['browser_navigate', 'browser_click'],
+    };
+    expect(ok.success).toBe(true);
+    expect(ok.tools).toHaveLength(2);
+  });
+
+  it('TestMcpConfigResult failure shape with error', () => {
+    const fail: TestMcpConfigResult = {
+      success: false,
+      error: 'connection refused',
+    };
+    expect(fail.success).toBe(false);
+    expect(fail.error).toBe('connection refused');
   });
 });

@@ -41,6 +41,12 @@ import { parseAllAttachments } from '../../attachment/index.js';
 import { streamMessageHandler } from '../../streaming/lifecycle.js';
 import { stopStreamHandler } from '../../streaming/stop.js';
 
+type ApiResponse = {
+  code: number;
+  msg: string;
+  data: Record<string, unknown>;
+};
+
 function createTestApp() {
   const app = new Hono();
   app.onError(errorMiddleware());
@@ -51,6 +57,7 @@ function createTestApp() {
 describe('messages route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(parseAllAttachments).mockResolvedValue({ results: [], warnings: [] });
   });
 
   it('POST / returns SSE response', async () => {
@@ -77,6 +84,32 @@ describe('messages route', () => {
     expect(streamMessageHandler).toHaveBeenCalled();
   });
 
+  it('POST / rejects attachment parse failures before starting the model', async () => {
+    const mockSession = { id: 's1', title: 'Test', modelId: 'm1', createdAt: 1, updatedAt: 1 };
+    const mockModel = { id: 'm1', providerId: 'p1', name: 'gpt-4', enabled: true, createdAt: 1, updatedAt: 1 };
+    const mockProvider = { id: 'p1', name: 'OpenAI', type: 'openai' as const, baseUrl: 'https://api.openai.com', apiKey: 'sk-test', enabled: true, createdAt: 1, updatedAt: 1 };
+
+    vi.mocked(getSession).mockReturnValue(mockSession);
+    vi.mocked(getModel).mockReturnValue(mockModel);
+    vi.mocked(getProvider).mockReturnValue(mockProvider);
+    vi.mocked(parseAllAttachments).mockResolvedValue({
+      results: [{ success: false, error: 'Unsupported file type: .doc' }],
+      warnings: ['Failed to parse legacy.doc: Unsupported file type: .doc'],
+    });
+
+    const app = createTestApp();
+    const form = new FormData();
+    form.append('content', 'read this');
+    form.append('files[]', new File(['legacy'], 'legacy.doc', { type: 'application/msword' }));
+
+    const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as { msg: string };
+    expect(body.msg).toContain('legacy.doc');
+    expect(streamMessageHandler).not.toHaveBeenCalled();
+  });
+
   it('POST / returns 404 when session not found', async () => {
     vi.mocked(getSession).mockReturnValue(undefined);
 
@@ -86,7 +119,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 
@@ -99,7 +132,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('No model configured');
   });
@@ -114,7 +147,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Model not found');
   });
@@ -130,7 +163,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Provider not found');
   });
@@ -146,7 +179,7 @@ describe('messages route', () => {
 
     const res = await app.request('/sessions/s1/messages', { method: 'POST', body: form });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(400);
     expect(body.msg).toContain('Provider is disabled');
   });
@@ -169,7 +202,7 @@ describe('messages route', () => {
     const app = createTestApp();
     const res = await app.request('/sessions/s1/messages/msg1', { method: 'DELETE' });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.data.deleted).toBe(true);
   });
 
@@ -179,7 +212,7 @@ describe('messages route', () => {
     const app = createTestApp();
     const res = await app.request('/sessions/s1/messages/msg1', { method: 'DELETE' });
     expect(res.status).toBe(404);
-    const body = await res.json() as any;
+    const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
 });

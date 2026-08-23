@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/plugin.lifecycle-event.schema.json",
+  "title": "Plugin Lifecycle Event",
+  "description": "插件生命周期事件记录的自包含 JSON Schema（draft-07）。建模插件状态机的七个状态（discovered、downloaded、verified、installed、enabled、disabled、uninstalled）以及插件在它们之间移动时发出的转换。内部引用仅使用 $defs；无外部 $ref。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "type",
+    "pluginId",
+    "version",
+    "timestamp",
+    "fromState",
+    "toState",
+    "result"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "description": "事件记录的唯一 id（由宿主生成的 UUIDv4）。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "type": {
+      "$ref": "#/$defs/LifecycleEventType"
+    },
+    "pluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$"
+    },
+    "version": { "$ref": "#/$defs/SemVer" },
+    "timestamp": {
+      "type": "integer",
+      "description": "转换提交时的 Unix 纪元毫秒数。",
+      "minimum": 0
+    },
+    "fromState": {
+      "description": "本事件之前的状态。首次转换（discovered）为 null。",
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/LifecycleState" }
+      ]
+    },
+    "toState": { "$ref": "#/$defs/LifecycleState" },
+    "trigger": {
+      "$ref": "#/$defs/LifecycleTrigger"
+    },
+    "result": { "$ref": "#/$defs/TransitionResult" },
+    "payload": {
+      "type": "object",
+      "description": "可选的结构化 payload（例如 'verified' 时的签名摘要、'failed' 时的错误）。"
+    }
+  },
+  "$defs": {
+    "SemVer": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "LifecycleState": {
+      "type": "string",
+      "description": "插件经历的七个生命周期状态。",
+      "enum": [
+        "discovered",
+        "downloaded",
+        "verified",
+        "installed",
+        "enabled",
+        "disabled",
+        "uninstalled"
+      ]
+    },
+    "LifecycleEventType": {
+      "type": "string",
+      "description": "转换事件类型。每个与一个 'toState' 1:1 映射；registry 为每个发出的事件持久化一行。",
+      "enum": [
+        "discovered",
+        "downloaded",
+        "verified",
+        "installed",
+        "enabled",
+        "disabled",
+        "uninstalled"
+      ]
+    },
+    "LifecycleTrigger": {
+      "type": "string",
+      "description": "导致转换的谁或什么。",
+      "enum": [
+        "user",
+        "system",
+        "dependency",
+        "rollback"
+      ]
+    },
+    "TransitionResult": {
+      "type": "object",
+      "description": "转换尝试的结果。",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["success", "failed"]
+        },
+        "errorCode": {
+          "type": "string",
+          "description": "失败时的稳定错误码（例如 'signature_invalid'、'engine_incompatible'、'namespace_conflict'）。",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "errorMessage": {
+          "type": "string",
+          "maxLength": 1024
+        }
+      }
+    }
+  }
+}

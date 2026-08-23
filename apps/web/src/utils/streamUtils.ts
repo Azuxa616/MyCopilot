@@ -1,13 +1,53 @@
 import { createParser } from 'eventsource-parser';
 
+/** Payload extracted from a `confirmation_required` SSE event. */
+export interface ConfirmationEventData {
+    approvalId: string;
+    messageId: string;
+    toolCallId: string;
+    toolName: string;
+    arguments: string;
+    resourceScope: string;
+    source: string;
+    sourceMcpId: string | null;
+    safetyLevel: string;
+    expiresAt: number;
+}
+
 export interface SSEStreamParams {
     stream: ReadableStream<Uint8Array>;
     signal?: AbortSignal;
     onPlaceholder: (msgId: string) => void;
     onDelta: (content: string) => void;
-    onDone: (title: string) => void;
+    onDone: (title: string, content?: string) => void;
     onError: (message: string) => void;
     onAborted: () => void;
+    // Phase 2 tool-call / job events — optional, no-op if not provided.
+    onToolCallStart?: (msgId: string, index: number) => void;
+    onToolCallDelta?: (
+        msgId: string,
+        index: number,
+        id?: string,
+        name?: string,
+        argumentsDelta?: string,
+    ) => void;
+    onToolCallDone?: (
+        msgId: string,
+        index: number,
+        id: string,
+        name: string,
+        args: string,
+    ) => void;
+    onToolResult?: (
+        msgId: string,
+        toolCallId: string,
+        result: string,
+        isError: boolean,
+    ) => void;
+    onConfirmationRequired?: (data: ConfirmationEventData) => void;
+    onJobStatus?: (jobId: string, status: string, progress?: number, error?: string) => void;
+    // Extended Thinking（RFC agent-loop-v2 §3）：推理文本增量，与 content delta 分开推送。
+    onReasoning?: (text: string) => void;
 }
 
 /**
@@ -36,6 +76,13 @@ export async function parseSSEStream({
     onDone,
     onError,
     onAborted,
+    onToolCallStart,
+    onToolCallDelta,
+    onToolCallDone,
+    onToolResult,
+    onConfirmationRequired,
+    onJobStatus,
+    onReasoning,
 }: SSEStreamParams): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -75,10 +122,21 @@ export async function parseSSEStream({
                 }
                 break;
             }
+            case 'reasoning': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.text) {
+                        onReasoning?.(data.text);
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
             case 'done': {
                 try {
                     const data = JSON.parse(event.data || '{}');
-                    onDone(data.title || '');
+                    onDone(data.title || '', data.content);
                 } catch {
                     onDone('');
                 }
@@ -96,6 +154,118 @@ export async function parseSSEStream({
             }
             case 'aborted': {
                 onAborted();
+                break;
+            }
+            case 'tool_call_start': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.messageId !== undefined && data.index !== undefined) {
+                        onToolCallStart?.(data.messageId, data.index);
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'tool_call_delta': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.messageId !== undefined && data.index !== undefined) {
+                        onToolCallDelta?.(
+                            data.messageId,
+                            data.index,
+                            data.id,
+                            data.name,
+                            data.argumentsDelta,
+                        );
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'tool_call_done': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (
+                        data.messageId !== undefined &&
+                        data.index !== undefined &&
+                        data.id !== undefined &&
+                        data.name !== undefined &&
+                        data.arguments !== undefined
+                    ) {
+                        onToolCallDone?.(
+                            data.messageId,
+                            data.index,
+                            data.id,
+                            data.name,
+                            data.arguments,
+                        );
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'tool_result': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (
+                        data.messageId !== undefined &&
+                        data.toolCallId !== undefined &&
+                        data.result !== undefined &&
+                        data.isError !== undefined
+                    ) {
+                        onToolResult?.(
+                            data.messageId,
+                            data.toolCallId,
+                            data.result,
+                            data.isError,
+                        );
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'confirmation_required': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (
+                        data.approvalId !== undefined &&
+                        data.messageId !== undefined &&
+                        data.toolCallId !== undefined &&
+                        data.toolName !== undefined &&
+                        data.arguments !== undefined &&
+                        data.safetyLevel !== undefined
+                    ) {
+                        onConfirmationRequired?.({
+                            approvalId: data.approvalId,
+                            messageId: data.messageId,
+                            toolCallId: data.toolCallId,
+                            toolName: data.toolName,
+                            arguments: data.arguments,
+                            resourceScope: data.resourceScope ?? '',
+                            source: data.source ?? '',
+                            sourceMcpId: data.sourceMcpId ?? null,
+                            safetyLevel: data.safetyLevel,
+                            expiresAt: data.expiresAt ?? 0,
+                        });
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
+                break;
+            }
+            case 'job_status': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (data.jobId !== undefined && data.status !== undefined) {
+                        onJobStatus?.(data.jobId, data.status, data.progress, data.error);
+                    }
+                } catch {
+                    // Ignore parse errors
+                }
                 break;
             }
             default:

@@ -7,9 +7,11 @@ import {
   deleteSession,
 } from '../repo/session.js';
 import { listMessagesBySession } from '../repo/message.js';
+import { listSummariesBySession } from '../repo/summary.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateSessionParams } from '@my-copilot/shared';
+import { cancelToolApprovalsForSession } from '../tools/confirmation.js';
 
 export const sessionsApp = new Hono();
 
@@ -48,6 +50,7 @@ sessionsApp.patch('/:id', async (c) => {
 
 sessionsApp.delete('/:id', (c) => {
   const id = c.req.param('id');
+  cancelToolApprovalsForSession(id);
   const deleted = deleteSession(id);
   if (!deleted) {
     throw new HttpError(404, 'Session not found');
@@ -58,5 +61,11 @@ sessionsApp.delete('/:id', (c) => {
 sessionsApp.get('/:id/messages', (c) => {
   const id = c.req.param('id');
   const data = listMessagesBySession(id);
+  return successResponse(c, data);
+});
+
+sessionsApp.get('/:id/summaries', (c) => {
+  const id = c.req.param('id');
+  const data = listSummariesBySession(id);
   return successResponse(c, data);
 });

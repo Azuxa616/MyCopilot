@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { parseAttachment } from '../parser.js';
-import type { AttachmentParseResult } from '../parser.js';
 import { parseAllAttachments } from '../index.js';
 
 // ---------------------------------------------------------------------------
@@ -74,7 +73,7 @@ describe('parseAttachment', () => {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       textExcerpt: 'Document content here',
     });
-    expect(mockedExtractRawText).toHaveBeenCalledOnce();
+    expect(mockedExtractRawText).toHaveBeenCalledWith({ buffer: file.data });
   });
 
   // 4. Corrupted docx → success: false, no throw
@@ -108,7 +107,7 @@ describe('parseAttachment', () => {
 
     expect(result.success).toBe(true);
     expect(result.text).toBe(longContent);
-    expect(result.meta!.textExcerpt.length).toBeLessThanOrEqual(200);
+    expect(result.meta!.textExcerpt!.length).toBeLessThanOrEqual(200);
     expect(result.meta!.textExcerpt).toBe(longContent.slice(0, 200));
   });
 });

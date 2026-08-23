@@ -29,7 +29,7 @@ describe('initDatabase', () => {
     initDatabase(testDir);
   }
 
-  it('1. creates all 5 tables', () => {
+  it('1. creates all baseline tables (5 baseline + migration tables)', () => {
     setupDb();
     const db = getDb();
     const tables = db
@@ -38,13 +38,21 @@ describe('initDatabase', () => {
       )
       .all() as { name: string }[];
     const tableNames = tables.map((t) => t.name);
-    expect(tableNames).toEqual([
-      'config',
-      'messages',
-      'models',
-      'providers',
-      'sessions',
-    ]);
+    // 5 baseline tables from schema.sql
+    expect(tableNames).toEqual(
+      expect.arrayContaining(['config', 'messages', 'models', 'providers', 'sessions']),
+    );
+    // migration-created tables
+    expect(tableNames).toEqual(
+      expect.arrayContaining([
+        'applied_migrations',
+        'tools',
+        'skills',
+        'mcps',
+        'jobs',
+        'message_summaries',
+      ]),
+    );
   });
 
   it('2. config table has schema_version=1 after init', () => {

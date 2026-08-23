@@ -1,0 +1,62 @@
+---
+title: "Agent Loop v2 - Run 生命周期"
+---
+stateDiagram-v2
+    [*] --> queued: 创建 Run
+    queued --> in_progress: 启动（第 1 步）
+    in_progress --> requires_action: 工具需要确认
+    requires_action --> in_progress: 用户批准
+    requires_action --> expired: 确认超时
+    in_progress --> in_progress: stop_reason=tool_use（下一步）
+    in_progress --> completed: stop_reason=end_turn
+    in_progress --> incomplete: stop_reason=max_tokens 或 max_steps
+    in_progress --> cancelled: stop_reason=user_interrupt（AbortSignal）
+    in_progress --> failed: stop_reason=error
+    completed --> [*]
+    cancelled --> [*]
+    failed --> [*]
+    incomplete --> [*]
+    expired --> [*]
+
+%% ===========================================================================
+%% 图表 2 - 并发工具调用时序（sequenceDiagram）
+%%
+%% 注意：mermaid CLI 每次文件调用只渲染一张图，因此上面的 Run 生命周期状态图
+%% 是 `mmdc` 的渲染目标。这第二张图作为文件的第二个 mermaid 定义在此记录，
+%% 文档内的活动围栏副本嵌入在 docs/rfc/agent-loop-v2.md（规范第 2 节），
+%% 用于文档内渲染。
+%% ===========================================================================
+%% sequenceDiagram
+%%     autonumber
+%%     participant FE as Frontend
+%%     participant SSE as SSE Stream
+%%     participant RUN as Runner
+%%     participant LLM as LLM Adapter
+%%     participant TC as Tool Concurrency Pool
+%%     participant TA as Tool A
+%%     participant TB as Tool B
+%%     FE->>SSE: POST message + AbortController
+%%     SSE->>RUN: start Run(signal)
+%%     RUN->>LLM: chatCompletionStream(signal)
+%%     LLM-->>RUN: tool_call_done A
+%%     LLM-->>RUN: tool_call_done B
+%%     RUN->>SSE: tool_call_start (A), tool_call_start (B)
+%%     RUN->>TC: dispatch [A, B] under maxConcurrentTools
+%%     par bounded parallel execution
+%%         RUN->>TA: execute(A, childSignal)
+%%     and
+%%         RUN->>TB: execute(B, childSignal)
+%%     end
+%%     TA-->>TC: result A
+%%     TB-->>TC: result B
+%%     TC-->>RUN: aggregated [resultA, resultB]
+%%     RUN->>SSE: tool_result A, tool_result B
+%%     RUN->>LLM: next iteration (assembled)
+%%     LLM-->>RUN: delta content ... end_turn
+%%     RUN->>SSE: delta, done
+%%     Note over FE,SSE: client AbortController.abort()
+%%     SSE-->>RUN: signal aborted
+%%     RUN-->>TA: cancel childSignal A
+%%     RUN-->>TB: cancel childSignal B
+%%     RUN->>SSE: aborted
+%%     SSE-->>FE: stream closed (cancelled)

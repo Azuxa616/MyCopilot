@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Context } from 'hono';
+import type { DoneEvent } from '../sse-protocol.js';
 
 // ---------------------------------------------------------------------------
 // Mock all dependencies BEFORE importing the module under test
@@ -21,6 +22,15 @@ const mockAssembleMessages = vi.fn();
 
 const mockRegisterStream = vi.fn();
 const mockUnregisterStream = vi.fn();
+
+const mockListEnabledTools = vi.fn(() => []);
+
+const mockRunAgentLoop = vi.fn();
+
+// Skills 注入修复：sentinel 数组用于验证 buildSkillInjections() 的返回值
+// 原样传进 runAgentLoop 的 skills 参数。
+const MOCK_SKILL_INJECTIONS = [{ name: 'mock-skill', body: 'mock skill body' }];
+const mockBuildSkillInjections = vi.fn(() => MOCK_SKILL_INJECTIONS);
 
 // Track SSE writes for assertions
 let sseWrites: Array<{ event: string; data: string }> = [];
@@ -47,6 +57,18 @@ vi.mock('../../prompt/assembler.js', () => ({
 vi.mock('../registry.js', () => ({
   registerStream: mockRegisterStream,
   unregisterStream: mockUnregisterStream,
+}));
+vi.mock('../../repo/tool.js', () => ({
+  listEnabledTools: mockListEnabledTools,
+}));
+vi.mock('../../repo/session.js', () => ({
+  updateSession: vi.fn(),
+}));
+vi.mock('../../agent-loop/runner.js', () => ({
+  runAgentLoop: mockRunAgentLoop,
+}));
+vi.mock('../../prompt/skill-injections.js', () => ({
+  buildSkillInjections: mockBuildSkillInjections,
 }));
 vi.mock('hono/streaming', () => ({
   streamSSE: mockStreamSSE,
@@ -105,7 +127,7 @@ function makeParams(overrides: Record<string, unknown> = {}) {
 
 /**
  * Standard setup for a normal (success) completion scenario.
- * After calling this, call streamMessageHandler then await flushMicrotasks().
+ * Mock runAgentLoop emits content events and returns completed.
  */
 function setupNormalCompletion(chunks: string[] = ['Hello', ' ', 'World']) {
   const ac = new AbortController();
@@ -124,6 +146,7 @@ function setupNormalCompletion(chunks: string[] = ['Hello', ' ', 'World']) {
   mockGetAdapter.mockClear();
   mockRegisterStream.mockClear();
   mockUnregisterStream.mockClear();
+  mockRunAgentLoop.mockClear();
   mockAdapter.chatCompletionStream.mockClear();
 
   // Set up mock returns AFTER clearing
@@ -148,22 +171,20 @@ function setupNormalCompletion(chunks: string[] = ['Hello', ' ', 'World']) {
       createdAt: 1001,
     });
 
-  mockAssembleMessages.mockReturnValue([
-    { role: 'system', content: 'test system prompt' },
-    { role: 'user', content: 'Hello' },
-  ]);
-
   mockGetAdapter.mockReturnValue(mockAdapter);
 
-  async function* generator() {
+  // Mock runAgentLoop: emit content deltas via onEvent, then return completed
+  mockRunAgentLoop.mockImplementation(async (params: { onEvent: (e: { type: string; event?: { type: string; text: string } }) => Promise<void> }) => {
     for (const chunk of chunks) {
-      yield chunk;
+      await params.onEvent({
+        type: 'llm_event',
+        event: { type: 'content', text: chunk },
+      });
     }
-  }
-  mockAdapter.chatCompletionStream.mockReturnValue(generator());
+    return { status: 'completed', content: chunks.join('') };
+  });
 
   // streamSSE calls callback, returns Response.
-  // Errors in callback are caught to prevent unhandled rejections.
   mockStreamSSE.mockImplementation(
     (_c: unknown, cb: (stream: typeof mockStream) => Promise<void>) => {
       cb(mockStream).catch(() => {
@@ -193,7 +214,7 @@ describe('Stream Message Lifecycle', () => {
     const params = makeParams();
     streamMessageHandler(c, params);
 
-    // Wait for async generator loop to complete
+    // Wait for async writes to complete
     await flushMicrotasks();
 
     // User message saved
@@ -206,14 +227,18 @@ describe('Stream Message Lifecycle', () => {
       expect.objectContaining({ role: 'assistant', content: '', status: 'sending' }),
     );
 
-    // assembleMessages called
-    expect(mockAssembleMessages).toHaveBeenCalled();
-
     // getAdapter called with provider type
     expect(mockGetAdapter).toHaveBeenCalledWith('openai');
 
     // registerStream called
     expect(mockRegisterStream).toHaveBeenCalledWith('test-session');
+
+    // Skills 注入修复：enabled skills 经 buildSkillInjections() 注入
+    // runAgentLoop（此前的死路径）。
+    expect(mockBuildSkillInjections).toHaveBeenCalledTimes(1);
+    expect(mockRunAgentLoop).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: MOCK_SKILL_INJECTIONS }),
+    );
 
     // Check SSE events
     const deltaEvents = sseWrites.filter((w) => w.event === 'delta');
@@ -224,28 +249,97 @@ describe('Stream Message Lifecycle', () => {
 
     const doneEvents = sseWrites.filter((w) => w.event === 'done');
     expect(doneEvents).toHaveLength(1);
-    expect(JSON.parse(doneEvents[0].data)).toEqual({ messageId: 'assistant-msg-1' });
-
-    // Final persist
-    expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
+    expect(JSON.parse(doneEvents[0].data)).toMatchObject({
+      messageId: 'assistant-msg-1',
+      title: 'Hello',
+      // The done event now carries the authoritative final content so the
+      // client can override locally-accumulated SSE deltas (fix for the
+      // multi-iteration concatenation symptom).
       content: 'Hello World',
-      status: 'sent',
     });
 
     // unregisterStream called
     expect(mockUnregisterStream).toHaveBeenCalledWith('test-session');
   });
 
-  // --- Test 2: Adapter throws error ---
+  // --- Test 1b: Reasoning events (Extended Thinking, agent-loop-v2 §3) ---
+  it('reasoning: llm_event reasoning → SSE reasoning event, no delta side-effect', async () => {
+    setupNormalCompletion([]);
+
+    mockRunAgentLoop.mockImplementation(
+      async (
+        params: {
+          onEvent: (e: { type: string; event?: { type: string; text: string } }) => Promise<void>;
+        },
+      ) => {
+        await params.onEvent({
+          type: 'llm_event',
+          event: { type: 'reasoning', text: '思考中' },
+        });
+        return { status: 'completed', content: '' };
+      },
+    );
+
+    const c = makeContext();
+    const params = makeParams();
+    streamMessageHandler(c, params);
+
+    await flushMicrotasks();
+
+    const reasoningEvents = sseWrites.filter((w) => w.event === 'reasoning');
+    expect(reasoningEvents).toHaveLength(1);
+    expect(JSON.parse(reasoningEvents[0].data)).toEqual({ text: '思考中' });
+
+    // Reasoning text is separate from content — must not emit delta events.
+    expect(sseWrites.filter((w) => w.event === 'delta')).toHaveLength(0);
+
+    // Stream still completes normally.
+    expect(sseWrites.filter((w) => w.event === 'done')).toHaveLength(1);
+  });
+
+  // --- Test 1c: DoneEvent.content contract (compile-time declaration) ---
+  it('DoneEvent declares optional content field (compile-time + runtime)', () => {
+    const withContent: DoneEvent = { messageId: 'm1', title: 't', content: 'final' };
+    expect(withContent.content).toBe('final');
+
+    const withoutContent: DoneEvent = { messageId: 'm2' };
+    expect(withoutContent.content).toBeUndefined();
+  });
+
+  it('persists attachment metadata and forwards extracted text to the agent loop', async () => {
+    setupNormalCompletion([]);
+    const attachmentMeta = {
+      name: 'report.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 1024,
+      textExcerpt: 'Quarterly report',
+    };
+    const attachmentText = [{ name: 'report.docx', content: 'Quarterly report full text' }];
+    const baseParams = makeParams();
+
+    streamMessageHandler(makeContext(), makeParams({
+      userMessage: { ...baseParams.userMessage, attachments: [attachmentMeta] },
+      attachments: attachmentText,
+    }));
+    await flushMicrotasks();
+
+    expect(mockRepo.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'user',
+      attachments: [attachmentMeta],
+    }));
+    expect(mockRunAgentLoop).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: attachmentText,
+    }));
+  });
+
+  // --- Test 2: Agent loop throws error ---
   it('adapter error: status=failed, SSE error event', async () => {
     setupNormalCompletion([]);
 
-    // Override: make generator throw after yielding partial content
-    async function* errorGenerator() {
-      yield 'partial';
+    // Override: make runAgentLoop throw
+    mockRunAgentLoop.mockImplementation(async () => {
       throw new Error('API connection failed');
-    }
-    mockAdapter.chatCompletionStream.mockReturnValue(errorGenerator());
+    });
 
     const c = makeContext();
     const params = makeParams();
@@ -260,9 +354,9 @@ describe('Stream Message Lifecycle', () => {
     expect(errData.code).toBe('stream_error');
     expect(errData.message).toContain('API connection failed');
 
-    // Status should be 'failed' with partial content
+    // Status should be 'failed'
     expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
-      content: 'partial',
+      content: '',
       status: 'failed',
       error: 'API connection failed',
     });
@@ -281,15 +375,17 @@ describe('Stream Message Lifecycle', () => {
     const ac = new AbortController();
     mockRegisterStream.mockReturnValue(ac);
 
-    // Generator yields one chunk, then aborts and throws AbortError
-    async function* abortableGenerator() {
-      yield 'partial-content';
-      ac.abort(); // sets ac.signal.aborted = true
-      throw Object.assign(new Error('The operation was aborted.'), {
-        name: 'AbortError',
+    // Mirror the real runner's abort contract: it emits the partial content
+    // delta, observes the abort, persists status='aborted' itself, and
+    // RETURNS { status: 'aborted' } — it no longer throws AbortError.
+    mockRunAgentLoop.mockImplementation(async (params: { onEvent: (e: { type: string; event?: { type: string; text: string } }) => Promise<void> }) => {
+      await params.onEvent({
+        type: 'llm_event',
+        event: { type: 'content', text: 'partial-content' },
       });
-    }
-    mockAdapter.chatCompletionStream.mockReturnValue(abortableGenerator());
+      ac.abort(); // sets ac.signal.aborted = true
+      return { status: 'aborted', content: 'partial-content', messages: [] };
+    });
 
     const c = makeContext();
     const params = makeParams();
@@ -308,11 +404,9 @@ describe('Stream Message Lifecycle', () => {
     expect(abortedData.messageId).toBe('assistant-msg-1');
     expect(abortedData.partialContent).toBe('partial-content');
 
-    // Status should be 'aborted' with partial content
-    expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
-      content: 'partial-content',
-      status: 'aborted',
-    });
+    // The runner owns persisting the aborted status; lifecycle must not
+    // overwrite the message state on the return-aborted path.
+    expect(mockRepo.updateMessage).not.toHaveBeenCalled();
 
     // No done/error events
     expect(sseWrites.filter((w) => w.event === 'done')).toHaveLength(0);
@@ -334,12 +428,6 @@ describe('Stream Message Lifecycle', () => {
 
     // updateMessageContent should NOT be called — all chunks complete in <1s
     expect(mockRepo.updateMessageContent).not.toHaveBeenCalled();
-
-    // Final updateMessage should have the full content
-    expect(mockRepo.updateMessage).toHaveBeenCalledWith('assistant-msg-1', {
-      content: 'abcde',
-      status: 'sent',
-    });
 
     // All 5 deltas + 1 done
     expect(sseWrites.filter((w) => w.event === 'delta')).toHaveLength(5);
@@ -365,8 +453,8 @@ describe('Stream Message Lifecycle', () => {
   it('unregisterStream called in finally even on error', async () => {
     setupNormalCompletion([]);
 
-    // Make updateMessage throw to simulate DB error during success path
-    mockRepo.updateMessage.mockImplementation(() => {
+    // Make runAgentLoop throw to simulate error
+    mockRunAgentLoop.mockImplementation(async () => {
       throw new Error('DB write failed');
     });
 

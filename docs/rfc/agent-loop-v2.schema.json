@@ -1,0 +1,204 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/agent-loop-v2.schema.json",
+  "title": "Agent Loop v2",
+  "description": "MyCopilot Agent Loop v2 协议实体的规范 JSON Schema：Run、RunStep、ToolCall、StopReason、LoopGuardConfig 和 stop_reason 路由表。自包含：所有内部引用都解析到 $defs。",
+  "type": "object",
+  "properties": {
+    "run": { "$ref": "#/$defs/Run" },
+    "runStep": { "$ref": "#/$defs/RunStep" },
+    "toolCallRecord": { "$ref": "#/$defs/ToolCallRecord" },
+    "loopGuardConfig": { "$ref": "#/$defs/LoopGuardConfig" },
+    "stopReasonRouting": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/StopReasonRouting" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "RunStatus": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "in_progress",
+        "requires_action",
+        "completed",
+        "cancelled",
+        "failed",
+        "incomplete",
+        "expired"
+      ],
+      "description": "Run 的生命周期状态。"
+    },
+    "StopReason": {
+      "type": "string",
+      "enum": [
+        "end_turn",
+        "tool_use",
+        "max_tokens",
+        "error",
+        "user_interrupt",
+        "max_steps"
+      ],
+      "description": "Run 或迭代停止的原因。"
+    },
+    "RunStepType": {
+      "type": "string",
+      "enum": ["llm_call", "tool_execution"]
+    },
+    "RunStepStatus": {
+      "type": "string",
+      "enum": ["in_progress", "completed", "failed", "cancelled"]
+    },
+    "DeltaKind": {
+      "type": "string",
+      "enum": ["content", "reasoning"],
+      "description": "delta 数据块的判别符。为了向后兼容，默认值为 content。"
+    },
+    "ToolCallSpec": {
+      "type": "object",
+      "description": "由 LLM 发出的工具调用。",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "arguments": { "type": "string", "description": "原始 JSON 参数字符串。" }
+      },
+      "required": ["id", "name", "arguments"],
+      "additionalProperties": false
+    },
+    "ToolCallOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "success" },
+            "result": { "type": "string" }
+          },
+          "required": ["status", "result"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": { "const": "error" },
+            "error": { "type": "string" }
+          },
+          "required": ["status", "error"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "status": { "const": "cancelled" } },
+          "required": ["status"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "status": { "const": "rejected" } },
+          "required": ["status"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ToolCallRecord": {
+      "type": "object",
+      "description": "一个工具调用及其执行结果。",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "runStepId": { "type": "string", "minLength": 1 },
+        "toolCall": { "$ref": "#/$defs/ToolCallSpec" },
+        "outcome": { "$ref": "#/$defs/ToolCallOutcome" },
+        "argumentsDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "稳定序列化参数的 SHA-256 十六进制摘要。"
+        },
+        "startedAt": { "type": "integer", "minimum": 0 },
+        "finishedAt": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["id", "runStepId", "toolCall", "outcome", "argumentsDigest", "startedAt"],
+      "additionalProperties": false
+    },
+    "RunStep": {
+      "type": "object",
+      "description": "agent 循环的单次迭代。",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "runId": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/RunStepType" },
+        "status": { "$ref": "#/$defs/RunStepStatus" },
+        "stepIndex": { "type": "integer", "minimum": 1 },
+        "createdAt": { "type": "integer", "minimum": 0 },
+        "completedAt": { "type": "integer", "minimum": 0 },
+        "error": { "type": "string" },
+        "toolCallIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["id", "runId", "type", "status", "stepIndex", "createdAt"],
+      "additionalProperties": false
+    },
+    "LoopGuardConfig": {
+      "type": "object",
+      "description": "LoopGuard v2 防护层的配置。",
+      "properties": {
+        "maxSteps": { "type": "integer", "minimum": 1 },
+        "maxRepeatCalls": { "type": "integer", "minimum": 1 },
+        "tokenBudget": { "type": "integer", "minimum": 0 },
+        "minMessagesToCompress": { "type": "integer", "minimum": 1 },
+        "maxConcurrentTools": { "type": "integer", "minimum": 1 },
+        "repeatSimilarityThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "maxSteps",
+        "maxRepeatCalls",
+        "tokenBudget",
+        "minMessagesToCompress",
+        "maxConcurrentTools",
+        "repeatSimilarityThreshold"
+      ],
+      "additionalProperties": false
+    },
+    "StopReasonRouting": {
+      "type": "object",
+      "description": "显式 stop_reason 路由表的一行。",
+      "properties": {
+        "stopReason": { "$ref": "#/$defs/StopReason" },
+        "nextAction": {
+          "type": "string",
+          "enum": ["continue", "terminate", "compress_context", "retry_once", "error"]
+        },
+        "resultingStatus": { "$ref": "#/$defs/RunStatus" }
+      },
+      "required": ["stopReason", "nextAction", "resultingStatus"],
+      "additionalProperties": false
+    },
+    "Run": {
+      "type": "object",
+      "description": "顶层 Run 实体。",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "agentId": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/RunStatus" },
+        "stopReason": { "$ref": "#/$defs/StopReason" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RunStep" }
+        },
+        "createdAt": { "type": "integer", "minimum": 0 },
+        "startedAt": { "type": "integer", "minimum": 0 },
+        "completedAt": { "type": "integer", "minimum": 0 },
+        "partialContent": { "type": "string" },
+        "error": { "type": "string" }
+      },
+      "required": ["id", "sessionId", "agentId", "status", "steps", "createdAt", "partialContent"],
+      "additionalProperties": false
+    }
+  }
+}

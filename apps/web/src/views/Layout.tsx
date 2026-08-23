@@ -2,7 +2,7 @@
 // Contains Asider (shared sidebar) + Outlet for route content
 // Also handles app initialization and global overlays (AlertContainer, TokenModal)
 
-import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import { useState, useEffect, Suspense, lazy } from 'react'
 import { Outlet } from 'react-router-dom'
 
 // Store
@@ -13,6 +13,18 @@ import { useConfigStore } from '../store/configStore'
 const Asider = lazy(() => import('../components/Asider/index'))
 const AlertContainer = lazy(() => import('../components/common/Alert'))
 const TokenModal = lazy(() => import('../components/TokenModal'))
+
+// Debug overlay — the lazy import itself is gated on DEV so the dynamic
+// import is dead code in prod and rollup never emits a chunk for it.
+// (Gating layer 2; layer 1 is the early-return inside each component.)
+// In prod, `import.meta.env.DEV` is literally replaced with `false`, making
+// the lazy() call unreachable and fully tree-shakeable.
+const DebugBadge = import.meta.env.DEV
+  ? lazy(() => import('../components/debug/DebugBadge'))
+  : null
+const DebugModal = import.meta.env.DEV
+  ? lazy(() => import('../components/debug/DebugModal'))
+  : null
 
 export function Layout() {
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -27,21 +39,21 @@ export function Layout() {
   const loadSessionSummaries = useSessionStore((state) => state.loadSessionSummaries)
   const setSelectedSessionId = useSessionStore((state) => state.setSelectedSessionId)
 
-  const hasInitialized = useRef(false)
-
+  // Load sessions whenever authToken becomes available.
+  // Re-runs when authToken transitions (null → valid), fixing the
+  // "first login doesn't auto-load sessions until manual refresh" bug.
   useEffect(() => {
-    if (hasInitialized.current) {
-      return
-    }
-    hasInitialized.current = true
+    if (!authToken) return
+
+    let cancelled = false
 
     const initApp = async () => {
       try {
-        // Load session summaries from server
         await loadSessionSummaries()
+        if (cancelled) return
 
         const store = useSessionStore.getState()
-        if (store.sessionSummaries.length > 0) {
+        if (store.sessionSummaries.length > 0 && !store.selectedSessionId) {
           // sessionStore is not persisted, so selectedSessionId is always '' on load — select first.
           setSelectedSessionId(store.sessionSummaries[0].id)
         }
@@ -52,7 +64,8 @@ export function Layout() {
     }
 
     initApp()
-  }, [loadSessionSummaries, setSelectedSessionId])
+    return () => { cancelled = true }
+  }, [authToken, loadSessionSummaries, setSelectedSessionId])
 
   return (
     <div className="flex h-screen w-screen bg-bg-primary overflow-hidden">
@@ -82,6 +95,14 @@ export function Layout() {
           />
         )}
       </Suspense>
+
+      {/* Debug overlay — dev only, double-gated (conditional import + early return) */}
+      {import.meta.env.DEV && DebugBadge && DebugModal && (
+        <Suspense fallback={null}>
+          <DebugBadge />
+          <DebugModal />
+        </Suspense>
+      )}
     </div>
   )
 }

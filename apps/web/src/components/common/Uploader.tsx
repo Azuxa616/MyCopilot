@@ -5,9 +5,10 @@ import { useRef } from 'react'
 
 interface UploaderProps {
   onFileSelect?: (file: File) => void
+  accept?: string
 }
 
-export default function Uploader({ onFileSelect }: UploaderProps) {
+export default function Uploader({ onFileSelect, accept }: UploaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -28,6 +29,7 @@ export default function Uploader({ onFileSelect }: UploaderProps) {
       <input
         ref={fileInputRef}
         type="file"
+        accept={accept}
         className="hidden"
         id="fileInput"
         onChange={handleFileChange}

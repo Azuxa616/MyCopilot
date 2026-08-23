@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { successResponse } from '../utils/response.js';
 import { abortStream } from './registry.js';
+import { cancelToolApprovalsForSession } from '../tools/confirmation.js';
 
 /** Parameters for the stop stream handler. */
 export interface StopStreamParams {
@@ -13,5 +14,6 @@ export interface StopStreamParams {
  */
 export function stopStreamHandler(c: Context, params: StopStreamParams): Response {
   const stopped = abortStream(params.sessionId);
+  cancelToolApprovalsForSession(params.sessionId);
   return successResponse(c, { stopped });
 }

@@ -1,7 +1,7 @@
 // Sender - Message input component
 // Contains input box, file upload, send button
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState } from 'react'
 // Components
 import AttachmentCard from './AttachmentCard'
 import FileUploadModal from './FileUploadModal'
@@ -10,8 +10,10 @@ import { useTextareaAutoHeight } from './hooks/useTextareaAutoHeight'
 import { useAttachments } from './hooks/useAttachments'
 // Store
 import { useSessionStore, NEW_SESSION_SENTINEL } from '../../store/sessionStore'
+import { useDraftStore } from '../../store/draftStore'
 // Utils
 import { showMessageAlert } from '../common/Alert/alertUtils'
+import { getErrorMessage } from '../../api'
 // Assets
 import IconAttachement from '../../assets/icon/attachment.svg?react'
 import IconSender from '../../assets/icon/sender.svg?react'
@@ -19,41 +21,41 @@ import IconGenerating from '../../assets/icon/generating.svg?react'
 
 export default function Sender() {
     const [content, setContent] = useState('');
-    const { selectedSessionId, sendMessage, isSending, cancelStream, messagesCache } = useSessionStore();
+    const { selectedSessionId, sendMessage, isSending, cancelStream, messagesCache, activeJobId } = useSessionStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const textareaRef = useTextareaAutoHeight(content);
     const { attachments, addAttachment, removeAttachment, clearAttachments } = useAttachments();
-    const prevSessionIdRef = useRef<string>('');
+    const [prevSessionId, setPrevSessionId] = useState<string>('');
 
     // Get messages for current session
     const messages = selectedSessionId ? (messagesCache[selectedSessionId] || []) : [];
 
     // Reset sender state
-    const resetSender = useCallback(() => {
+    // textarea is controlled (value={content}) and useTextareaAutoHeight recomputes
+    // height on content change, so resetting state alone fully resets the input.
+    const resetSender = () => {
         setContent('');
         clearAttachments();
-        if (textareaRef.current) {
-            textareaRef.current.value = '';
-            textareaRef.current.style.height = 'auto';
-        }
-    }, [clearAttachments]);
+    };
 
-    // Reset sender when switching to a new session
-    useEffect(() => {
-        if (selectedSessionId && selectedSessionId !== prevSessionIdRef.current) {
-            // Check if it's a new session (no messages)
-            const isNewSession = messages.length === 0;
-
-            if (isNewSession) {
-                resetSender();
-            }
-
-            prevSessionIdRef.current = selectedSessionId;
-        } else if (!selectedSessionId) {
+    // Reset sender when switching to a new session.
+    // Guarded render-time adjustment (react.dev "You Might Not Need an Effect").
+    if (selectedSessionId !== prevSessionId) {
+        setPrevSessionId(selectedSessionId);
+        const isNewSession = !selectedSessionId || messages.length === 0;
+        if (isNewSession) {
             resetSender();
-            prevSessionIdRef.current = '';
         }
-    }, [selectedSessionId, messages.length, resetSender]);
+    }
+
+    // 消费一次性草稿（设置页"让 AI 生成"入口写入）。仅当输入框为空时注入，避免覆盖用户输入。
+    const pendingDraft = useDraftStore((s: { pendingDraft: string | null }) => s.pendingDraft);
+    const [draftApplied, setDraftApplied] = useState(false);
+    if (pendingDraft !== null && !draftApplied) {
+        setDraftApplied(true);
+        if (!content) setContent(pendingDraft);
+        useDraftStore.getState().consumePendingDraft();
+    }
 
     const currentSession = useSessionStore((state) => state.currentSession);
     const pendingModelId = useSessionStore((state) => state.pendingModelId);
@@ -62,9 +64,12 @@ export default function Sender() {
         ? !!pendingModelId
         : !!currentSession?.modelId;
 
+    // A background job is in flight (async send mode) — block sending until it settles.
+    const isJobActive = !!activeJobId;
+
     const handleSend = async () => {
         const trimmedContent = content.trim();
-        if (!trimmedContent || isSending) {
+        if (!trimmedContent || isSending || isJobActive) {
             return;
         }
 
@@ -93,7 +98,7 @@ export default function Sender() {
             });
         } catch (error) {
             console.error('Failed to send message:', error);
-            showMessageAlert.error('Failed to send message');
+            showMessageAlert.error(getErrorMessage(error));
         }
     };
 
@@ -166,7 +171,7 @@ export default function Sender() {
                     <button
                         title="Send"
                         onClick={handleSend}
-                        disabled={!content.trim() || !selectedSessionId}
+                        disabled={!content.trim() || !selectedSessionId || isJobActive}
                         className="px-4 py-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors font-medium shrink-0 ml-2 mb-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <IconSender className="w-5 h-5 text-white transition-colors" />

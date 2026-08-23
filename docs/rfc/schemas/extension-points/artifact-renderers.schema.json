@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mycopilot.local/rfc/extension-points/artifact-renderers.schema.json",
+  "title": "Artifact Renderers Extension Point",
+  "description": "自包含 JSON Schema (draft-07)。内部引用仅使用 $defs。镜像 docs/rfc/types/extension-points/artifact-renderers.d.ts。决策 B7 要求完整的 iframe+CSP 沙箱规范。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pluginId", "id", "kind", "bundleUrl", "sandbox"],
+  "properties": {
+    "pluginId": { "$ref": "#/$defs/PluginId" },
+    "id": { "$ref": "#/$defs/RendererLocalId" },
+    "kind": { "$ref": "#/$defs/ArtifactKind" },
+    "bundleUrl": { "$ref": "#/$defs/HttpsUrl" },
+    "csp": {
+      "type": "string",
+      "description": "应用于 iframe 文档的 Content-Security-Policy 头。默认值禁止 same-origin 和 eval。",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "sandbox": { "$ref": "#/$defs/SandboxPolicy" }
+  },
+  "$defs": {
+    "PluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "RendererLocalId": {
+      "type": "string",
+      "description": "按插件的 renderer id；小写 kebab-case。",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "ArtifactKind": {
+      "type": "string",
+      "description": "renderer 声明的逻辑 kind。开放 enum；调用方将未知 kind 视为不透明。",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "HttpsUrl": {
+      "type": "string",
+      "pattern": "^https://[\\w.-]+(?:\\.[a-zA-Z]{2,})(?:/[^\\s]*)?$",
+      "maxLength": 2048
+    },
+    "SandboxPolicy": {
+      "type": "object",
+      "description": "host 强制执行的 iframe sandbox token。allow-scripts + allow-same-origin 组合会被拒绝，以防 iframe 逃逸出其 origin。",
+      "additionalProperties": false,
+      "required": ["sandboxTokens", "allowedOrigins"],
+      "properties": {
+        "sandboxTokens": {
+          "type": "array",
+          "description": "iframe sandbox 属性 token。",
+          "items": {
+            "type": "string",
+            "enum": [
+              "allow-downloads",
+              "allow-forms",
+              "allow-modals",
+              "allow-pointer-lock",
+              "allow-popups",
+              "allow-scripts"
+            ]
+          },
+          "uniqueItems": true,
+          "default": ["allow-scripts"]
+        },
+        "allowedOrigins": {
+          "type": "array",
+          "description": "host 接受其 postMessage 的 origin。通配符 '*' 被拒绝。",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]+://[\\w.-]+(:\\d+)?$"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "maxPayloadBytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 10485760,
+          "default": 1048576
+        }
+      },
+      "not": {
+        "description": "禁止 allow-scripts + allow-same-origin 这一危险组合。",
+        "properties": {
+          "sandboxTokens": {
+            "type": "array",
+            "contains": { "const": "allow-same-origin" }
+          }
+        },
+        "required": ["sandboxTokens"]
+      }
+    }
+  }
+}

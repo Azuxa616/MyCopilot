@@ -1,3 +1,5 @@
+import type { SafetyLevel } from './tool.js';
+
 export interface AgentConfig {
   temperature?: number;
   maxTokens?: number;
@@ -17,4 +19,12 @@ export interface Agent {
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export type AgentToolSafetyOverride = SafetyLevel | 'inherit';
+
+export interface AgentToolBinding {
+  agentId: string;
+  toolId: string;
+  safetyLevel: AgentToolSafetyOverride;
 }

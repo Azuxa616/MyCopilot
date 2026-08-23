@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { OllamaAdapter } from '../ollama.js';
 import { ProviderError } from '../base.js';
 import type { ChatMessage, AdapterConfig } from '../base.js';
+import type { StreamEvent } from '@my-copilot/shared';
 
 const originalFetch = globalThis.fetch;
 
@@ -34,12 +35,18 @@ function createNDJSONResponse(lines: string[], status = 200): Response {
   return new Response(stream, { status, headers: { 'content-type': 'application/x-ndjson' } });
 }
 
-async function collectGenerator(gen: AsyncGenerator<string, void, unknown>): Promise<string[]> {
-  const chunks: string[] = [];
-  for await (const chunk of gen) {
-    chunks.push(chunk);
+/** Collect all StreamEvents from the generator. */
+async function collectEvents(gen: AsyncGenerator<StreamEvent, void, unknown>): Promise<StreamEvent[]> {
+  const events: StreamEvent[] = [];
+  for await (const event of gen) {
+    events.push(event);
   }
-  return chunks;
+  return events;
+}
+
+/** Extract content text chunks from a StreamEvent list (preserves order). */
+function contentTexts(events: StreamEvent[]): string[] {
+  return events.filter((e) => e.type === 'content').map((e) => (e as { text: string }).text);
 }
 
 describe('OllamaAdapter', () => {
@@ -54,7 +61,7 @@ describe('OllamaAdapter', () => {
 
     const adapter = new OllamaAdapter();
     const gen = adapter.chatCompletionStream(messages, createConfig());
-    const chunks = await collectGenerator(gen);
+    const chunks = contentTexts(await collectEvents(gen));
 
     expect(chunks).toEqual(['Hello', ' world']);
   });
@@ -70,7 +77,7 @@ describe('OllamaAdapter', () => {
 
     const adapter = new OllamaAdapter();
     const gen = adapter.chatCompletionStream(messages, createConfig());
-    const chunks = await collectGenerator(gen);
+    const chunks = contentTexts(await collectEvents(gen));
 
     expect(chunks).toEqual(['Hi']);
   });
@@ -86,8 +93,10 @@ describe('OllamaAdapter', () => {
     const adapter = new OllamaAdapter();
 
     try {
-      for await (const _ of adapter.chatCompletionStream(messages, createConfig())) {
+      for await (const _chunk of adapter.chatCompletionStream(messages, createConfig())) {
+        void _chunk;
         // should throw before yielding
+        throw new Error('Should not reach here');
       }
       expect.fail('Should have thrown');
     } catch (err) {
@@ -109,9 +118,9 @@ describe('OllamaAdapter', () => {
       signal: controller.signal,
     });
 
-    const chunks: string[] = [];
-    for await (const chunk of gen) {
-      chunks.push(chunk);
+    const chunks: StreamEvent[] = [];
+    for await (const event of gen) {
+      chunks.push(event);
     }
 
     expect(chunks).toEqual([]);
@@ -129,7 +138,7 @@ describe('OllamaAdapter', () => {
 
     const adapter = new OllamaAdapter();
     const gen = adapter.chatCompletionStream(messages, createConfig());
-    const chunks = await collectGenerator(gen);
+    const chunks = contentTexts(await collectEvents(gen));
 
     expect(chunks).toEqual(['Hi']);
   });

@@ -7,6 +7,8 @@ import { MessageRole, MessageStatus } from '@my-copilot/shared'
 import type { Virtualizer } from '@tanstack/react-virtual'
 // Components
 import MessageCard from '../common/MessageCard'
+import ToolCallProgress from '../common/ToolCallProgress'
+import ThinkingIndicator from '../common/ThinkingIndicator'
 // Assets
 import aiAvatar from '../../assets/img/avatar-ai.svg'
 
@@ -68,6 +70,9 @@ export default function MessageList({
         // 助手消息：如果失败，显示重试按钮
         const showRetry = isAssistantMessage && isFailed
 
+        // 最新一条消息：挂 agent 实时状态指示（思考中 / 工具调用进度）
+        const isLastMessage = virtualItem.index === messages.length - 1
+
         return (
           <div
             key={message.id}
@@ -89,6 +94,12 @@ export default function MessageList({
               onRegenerate={showRegenerate ? () => onRegenerate(message) : undefined}
               onRetry={showRetry ? () => onRegenerate(message) : undefined}
             />
+            {isLastMessage && (
+              <>
+                <ThinkingIndicator alignRight={isUserMessage} />
+                <ToolCallProgress />
+              </>
+            )}
           </div>
         )
       })}

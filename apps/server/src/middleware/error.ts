@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 export class HttpError extends Error {
   status: number;
@@ -21,7 +22,7 @@ export function errorMiddleware() {
     if (err instanceof HttpError) {
       return c.json(
         { code: err.status, msg: err.message, data: null },
-        err.status as any,
+        err.status as ContentfulStatusCode,
       );
     }
 

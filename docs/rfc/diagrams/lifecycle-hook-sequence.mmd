@@ -1,0 +1,22 @@
+%% Lifecycle Hooks Extension Point - 时序
+%% 一张 flowchart，含两个 subgraph：BOOT = 插件加载，RUN = 运行内 hook 派发
+flowchart TD
+    subgraph BOOT["插件启用时"]
+        C1["插件状态 -> enabled"] --> C2["触发 on_plugin_loaded"]
+        C2 --> C3["在 registry 中注册 handler"]
+    end
+
+    subgraph RUN["来自 runner.onEvent 的运行内 hook 派发"]
+        D1["agent loop 事件触发"] --> D2["查找该事件的 handler"]
+        D2 --> D3{"有 handler？"}
+        D3 -- 否 --> D4["继续运行"]
+        D3 -- 是 --> D5["在 timeoutMs 下运行 handler"]
+        D5 --> D6{"结果"}
+        D6 -- continue --> D7["继续运行"]
+        D6 -- abort --> D8["停止运行：status aborted"]
+        D6 -- 出错或超时 --> D9{"failMode"}
+        D9 -- fail-fast --> D8
+        D9 -- continue --> D7
+    end
+
+    C3 -.-> D1
