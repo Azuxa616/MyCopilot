@@ -153,7 +153,25 @@ export default function Asider({
             {!isCollapsed && <span>能力对比</span>}
           </button>
         </div>
-        {role !== 'demo' && (
+        {/* 评估仪表盘入口 —— 无条件渲染：demo 访客可见（与「能力」入口并列同款） */}
+      <div className="flex flex-col">
+        <span className={`px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-text-tertiary ${isCollapsed ? 'hidden' : ''}`}>
+          评估
+        </span>
+        <button
+          onClick={() => navigate('/evaluations')}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-2'} ${isCollapsed ? 'px-2' : 'px-4'} py-2 text-sm transition-colors ${
+            location.pathname === '/evaluations'
+              ? 'text-primary-500 bg-primary-50'
+              : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+          }`}
+          title={isCollapsed ? '评估仪表盘' : undefined}
+        >
+          <span>📊</span>
+          {!isCollapsed && <span>评估仪表盘</span>}
+        </button>
+      </div>
+      {role !== 'demo' && (
           <div className="flex flex-col">
             <span className={`px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-text-tertiary ${isCollapsed ? 'hidden' : ''}`}>
               设置

@@ -1,5 +1,5 @@
 // Asider/index.test.tsx — Navigation entry visibility tests.
-// 「能力」 entry renders unconditionally (demo visitors must see it);
+// 「能力」/「评估」 entries render unconditionally (demo visitors must see them);
 // 「设置」 section stays hidden for the demo role (role !== 'demo' gate).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -48,33 +48,36 @@ describe('Asider navigation entries', () => {
     useConfigStore.setState({ role: null })
   })
 
-  it('demo role: 能力 entry visible, 设置 entry hidden', () => {
+  it('demo role: 能力/评估 entries visible, 设置 entry hidden', () => {
     useConfigStore.setState({ role: 'demo' })
     const { unmount } = renderAsider()
 
     expect(screen.getByText('能力对比')).not.toBeNull()
+    expect(screen.getByText('评估仪表盘')).not.toBeNull()
     expect(screen.queryByText('设置')).toBeNull()
     expect(screen.queryByText('Providers')).toBeNull()
 
     unmount()
   })
 
-  it('admin role: both 能力 and 设置 entries visible', () => {
+  it('admin role: 能力/评估 and 设置 entries all visible', () => {
     useConfigStore.setState({ role: 'admin' })
     const { unmount } = renderAsider()
 
     expect(screen.getByText('能力对比')).not.toBeNull()
+    expect(screen.getByText('评估仪表盘')).not.toBeNull()
     expect(screen.getByText('设置')).not.toBeNull()
     expect(screen.getByText('Providers')).not.toBeNull()
 
     unmount()
   })
 
-  it('unknown role (null, not yet authenticated): 能力 entry still renders unconditionally', () => {
+  it('unknown role (null, not yet authenticated): 能力/评估 entries still render unconditionally', () => {
     const { unmount } = renderAsider()
 
-    // 能力 is not gated on role at all
+    // 能力/评估 are not gated on role at all
     expect(screen.getByText('能力对比')).not.toBeNull()
+    expect(screen.getByText('评估仪表盘')).not.toBeNull()
 
     unmount()
   })

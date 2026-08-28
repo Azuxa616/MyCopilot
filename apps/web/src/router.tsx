@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router-dom';
 import { Layout } from './views/Layout';
 import { MainView } from './views/MainView';
 import { CapabilitiesPage } from './views/capabilities/CapabilitiesPage';
+import { EvaluationsPage } from './views/evaluations/EvaluationsPage';
 import { SettingsLayout } from './views/settings/SettingsLayout';
 import { ProvidersPage } from './views/settings/ProvidersPage';
 import { ProviderDetailPage } from './views/settings/ProviderDetailPage';
@@ -16,6 +17,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <MainView /> },
       { path: 'capabilities', element: <CapabilitiesPage /> },
+      { path: 'evaluations', element: <EvaluationsPage /> },
       {
         path: 'settings',
         element: <SettingsLayout />,
