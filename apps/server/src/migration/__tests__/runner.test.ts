@@ -50,12 +50,14 @@ describe('runMigrations', () => {
     // Run traces (0008)
     expect(tableNames).toContain('runs');
     expect(tableNames).toContain('run_steps');
+    // Eval runs (0009)
+    expect(tableNames).toContain('eval_runs');
 
-    // applied_migrations has exactly 8 rows (0001..0008)
+    // applied_migrations has exactly 9 rows (0001..0009)
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(8);
+    expect(row.count).toBe(9);
 
     db.close();
   });
@@ -114,7 +116,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(8);
+    expect(row.count).toBe(9);
 
     db.close();
   });
