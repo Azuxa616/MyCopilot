@@ -12,3 +12,5 @@ export * from './debug.js';
 export * from './run.js';
 export * from './plugin.js';
 export * from './auth.js';
+export * from './trace.js';
+export * from './eval.js';
