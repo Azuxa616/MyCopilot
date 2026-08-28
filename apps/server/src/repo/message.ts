@@ -12,6 +12,7 @@ interface MessageRow {
   tool_call_id: string | null;
   status: string;
   error: string | null;
+  reasoning: string | null;
   created_at: number;
 }
 
@@ -26,6 +27,7 @@ function rowToMessage(row: MessageRow): Message {
     toolCallId: row.tool_call_id ?? undefined,
     status: row.status as MessageStatus,
     error: row.error ?? undefined,
+    reasoning: row.reasoning ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -52,6 +54,7 @@ export function createMessage(params: {
   toolCalls?: ToolCall[];
   toolCallId?: string;
   status: MessageStatus;
+  reasoning?: string | null;
 }): Message {
   const db = getDb();
   const id = generateId();
@@ -59,10 +62,11 @@ export function createMessage(params: {
   const attachments = params.attachments ?? [];
   const attachmentsJson = JSON.stringify(attachments);
   const toolCallsJson = params.toolCalls ? JSON.stringify(params.toolCalls) : null;
+  const reasoning = params.reasoning ?? null;
 
   db.prepare(
-    `INSERT INTO messages (id, session_id, role, content, attachments, tool_calls, tool_call_id, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO messages (id, session_id, role, content, attachments, tool_calls, tool_call_id, status, reasoning, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     params.sessionId,
@@ -72,6 +76,7 @@ export function createMessage(params: {
     toolCallsJson,
     params.toolCallId ?? null,
     params.status,
+    reasoning,
     ts,
   );
 
@@ -84,6 +89,7 @@ export function createMessage(params: {
     ...(params.toolCalls ? { toolCalls: params.toolCalls } : {}),
     ...(params.toolCallId ? { toolCallId: params.toolCallId } : {}),
     status: params.status,
+    reasoning: reasoning ?? undefined,
     createdAt: ts,
   };
 }
@@ -95,6 +101,7 @@ export function updateMessage(
     status?: MessageStatus;
     error?: string | null;
     toolCalls?: ToolCall[];
+    reasoning?: string | null;
   },
 ): Message | undefined {
   const db = getDb();
@@ -106,10 +113,11 @@ export function updateMessage(
   const error = params.error !== undefined ? params.error : existing.error;
   const toolCalls =
     params.toolCalls !== undefined ? JSON.stringify(params.toolCalls) : existing.tool_calls;
+  const reasoning = params.reasoning !== undefined ? params.reasoning : existing.reasoning;
 
   db.prepare(
-    'UPDATE messages SET content = ?, status = ?, error = ?, tool_calls = ? WHERE id = ?',
-  ).run(content, status, error, toolCalls, id);
+    'UPDATE messages SET content = ?, status = ?, error = ?, tool_calls = ?, reasoning = ? WHERE id = ?',
+  ).run(content, status, error, toolCalls, reasoning, id);
 
   return {
     id,
@@ -121,6 +129,7 @@ export function updateMessage(
     toolCallId: existing.tool_call_id ?? undefined,
     status: status as MessageStatus,
     error: error ?? undefined,
+    reasoning: reasoning ?? undefined,
     createdAt: existing.created_at,
   };
 }

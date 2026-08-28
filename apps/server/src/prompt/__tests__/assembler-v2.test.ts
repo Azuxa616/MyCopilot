@@ -406,4 +406,29 @@ describe('assembleMessagesV2', () => {
     expect(v2.messages).toEqual(v1);
     expect(v2.degraded).toBe(false);
   });
+
+  it('history 带持久化 reasoning 时：发给 LLM 的消息对象不含 reasoning 字段', async () => {
+    const history: Message[] = [
+      createMessage({ id: 'h1', role: 'user', content: '问' }),
+      createMessage({
+        id: 'h2',
+        role: 'assistant',
+        content: '答',
+        reasoning: '很长很长的历史推理文本'.repeat(50),
+      }),
+      createMessage({ id: 'h3', role: 'user', content: '追问' }),
+    ];
+
+    const ctx = await assembleMessagesV2({
+      history,
+      userContent: '继续',
+    });
+
+    // 硬约束（计划 todo 13 / Metis 修正）：reasoning 仅供前端渲染，
+    // 装配输出（含每条 history 映射）不得携带 reasoning，防吃六桶预算。
+    expect(ctx.messages.length).toBeGreaterThanOrEqual(4);
+    for (const m of ctx.messages) {
+      expect('reasoning' in m).toBe(false);
+    }
+  });
 });

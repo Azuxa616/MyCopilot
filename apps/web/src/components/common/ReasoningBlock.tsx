@@ -6,18 +6,21 @@ import { useState } from 'react'
 import type { MessageWithReasoning } from '../../store/sessionStore'
 
 interface ReasoningBlockProps {
-  /** 关联的 assistant 消息（含前端本地累积的 reasoningText，可能尚未到达）。 */
+  /** 关联的 assistant 消息：live 态用前端本地累积的 reasoningText（优先），
+   * 历史回显回退到服务端持久化的 reasoning（计划 todo 13）。 */
   message: MessageWithReasoning
 }
 
 /**
  * "思考过程"折叠区块。
- * - message.reasoningText 为空时完全不渲染
+ * - 优先渲染 message.reasoningText（live 态 SSE 增量累积），
+   * 无时回退 message.reasoning（服务端持久化，历史加载自 DB）
+ * - 两者皆空（旧消息 reasoning NULL）时完全不渲染
  * - 默认收起；点击 header 切换展开（aria-expanded 上报状态）
  */
 export default function ReasoningBlock({ message }: ReasoningBlockProps) {
   const [expanded, setExpanded] = useState(false)
-  const reasoning = message.reasoningText
+  const reasoning = message.reasoningText || message.reasoning
 
   if (!reasoning) return null
 

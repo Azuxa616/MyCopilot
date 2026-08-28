@@ -53,11 +53,11 @@ describe('runMigrations', () => {
     // Eval runs (0009)
     expect(tableNames).toContain('eval_runs');
 
-    // applied_migrations has exactly 9 rows (0001..0009)
+    // applied_migrations has exactly 10 rows (0001..0010)
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(9);
+    expect(row.count).toBe(10);
 
     db.close();
   });
@@ -82,16 +82,19 @@ describe('runMigrations', () => {
     expect(count.count).toBe(1);
 
     const msg = db
-      .prepare('SELECT id, role, content FROM messages WHERE id = ?')
-      .get('m1') as { id: string; role: string; content: string };
+      .prepare('SELECT id, role, content, reasoning FROM messages WHERE id = ?')
+      .get('m1') as { id: string; role: string; content: string; reasoning: string | null };
     expect(msg.role).toBe('user');
     expect(msg.content).toBe('Hello');
+    // 迁移前已存在的行（旧数据）reasoning 为 NULL。
+    expect(msg.reasoning).toBeNull();
 
     // New columns exist
     const columns = db.prepare('PRAGMA table_info(messages)').all() as { name: string }[];
     const colNames = columns.map((c) => c.name);
     expect(colNames).toContain('tool_calls');
     expect(colNames).toContain('tool_call_id');
+    expect(colNames).toContain('reasoning');
 
     // role='tool' is now insertable
     db.prepare(
@@ -116,7 +119,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(9);
+    expect(row.count).toBe(10);
 
     db.close();
   });

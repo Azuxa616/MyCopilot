@@ -372,6 +372,7 @@ describe('agent loop v2 + context v2 集成（runner 真实编排）', () => {
     // 占位 assistant 消息收到最终内容 + sent 状态
     expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-int-1', {
       content: '结果',
+      reasoning: null,
       status: 'sent',
     });
   });
@@ -499,6 +500,7 @@ describe('agent loop v2 + context v2 集成（runner 真实编排）', () => {
     // job 模式下持久化照常发生（占位消息终态 + assistant/tool 消息）
     expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-job-1', {
       content: 'job-done',
+      reasoning: null,
       status: 'sent',
     });
     const jobRoles = mockCreateMessage.mock.calls.map(
@@ -537,6 +539,7 @@ describe('agent loop v2 + context v2 集成（runner 真实编排）', () => {
     // catch 路径：中断发生在迭代完成前，lastIterationContent 仍为空串。
     expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-int-1', {
       content: '',
+      reasoning: null,
       status: 'aborted',
     });
     // 终态事件发出（safeEmit 吞掉回调异常，但事件本身必须到达 onEvent）

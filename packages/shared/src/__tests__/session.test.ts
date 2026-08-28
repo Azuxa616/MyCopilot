@@ -49,6 +49,29 @@ describe('Session types', () => {
     expect(msg.attachments).toEqual([]);
   });
 
+  it('Message.reasoning is optional and nullable (持久化字段)', () => {
+    const base = {
+      id: 'msg-r',
+      sessionId: 'session-1',
+      role: 'assistant' as const,
+      content: '答',
+      attachments: [],
+      status: 'sent' as const,
+      createdAt: 1000,
+    };
+
+    // 旧消息形状：不带 reasoning 仍合法（非破坏扩展）。
+    const legacy: Message = { ...base };
+    expect(legacy.reasoning).toBeUndefined();
+
+    const persisted: Message = { ...base, reasoning: '推理全文' };
+    expect(persisted.reasoning).toBe('推理全文');
+
+    // 迁移前的旧行读出为 NULL（SQLite ADD COLUMN 无默认）。
+    const nullReasoning: Message = { ...base, reasoning: null };
+    expect(nullReasoning.reasoning).toBeNull();
+  });
+
   it('should create a valid Session object', () => {
     const session: Session = {
       id: 'session-1',

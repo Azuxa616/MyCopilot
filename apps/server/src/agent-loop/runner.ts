@@ -400,6 +400,9 @@ export async function runAgentLoop(
   });
 
   let lastIterationContent = '';
+  // 上一轮的持久化 reasoning（null = 无推理文本）。与 lastIterationContent
+  // 同生命周期：循环顶 guard 终止与 catch 兜底路径以「上一轮值」落占位消息。
+  let lastIterationReasoning: string | null = null;
   const addedMessages: Message[] = [];
   const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
 
@@ -427,6 +430,9 @@ export async function runAgentLoop(
       // "好的，我来调用一下…好的，我再调用一次…" 5x repetitions on every
       // tool-call round because each round's full text was appended.)
       let iterationContent = '';
+      // 同 iterationContent 的每轮重置语义：reasoning 增量按轮累积，
+      // 随该轮 assistant 消息持久化（不跨轮拼接）。
+      let iterationReasoning = '';
 
       // 1. LoopGuard v2 步前检查（RFC §5 → §6）：优先级
       //    user_interrupt > max_steps > max_tokens。user_interrupt 同时承担了
@@ -446,6 +452,7 @@ export async function runAgentLoop(
           // user_interrupt（RFC §6）：Run → cancelled，外部 status 'aborted'。
           updateMessage(userMessageId, {
             content: lastIterationContent,
+            reasoning: lastIterationReasoning,
             status: 'aborted',
           });
           runState.transition('abort');
@@ -463,6 +470,7 @@ export async function runAgentLoop(
         // 'max_iterations'（Run → incomplete）。
         updateMessage(userMessageId, {
           content: lastIterationContent,
+          reasoning: lastIterationReasoning,
           status: 'sent',
         });
         runState.transition('max_steps');
@@ -533,10 +541,12 @@ export async function runAgentLoop(
 
       for await (const event of generator) {
         // Extended Thinking（RFC §3）：reasoning 增量经 extractReasoning 识别
-        // 后照常以 llm_event 透传（SSE wire 映射由 lifecycle/T14 完成），
-        // 但不计入 iterationContent —— 推理文本不是用户可见的回复内容。
+        // 后照常以 llm_event 透传（wire 映射由 lifecycle/T14 完成），
+        // 不计入 iterationContent —— 推理文本不是用户可见的回复内容；
+        // 同时按轮累积到 iterationReasoning，随该轮 assistant 消息持久化。
         const reasoningText = extractReasoning(event);
         if (reasoningText !== null) {
+          iterationReasoning += reasoningText;
           await onEvent({ type: 'llm_event', event });
           continue;
         }
@@ -571,10 +581,15 @@ export async function runAgentLoop(
       // Remember this iteration's content for terminal / fallback paths
       // outside the loop (max_iterations, exception handler).
       lastIterationContent = iterationContent;
+      lastIterationReasoning = iterationReasoning || null;
 
       // 5. Check abort after LLM stream consumed.
       if (abortSignal.aborted) {
-        updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
+        updateMessage(userMessageId, {
+          content: iterationContent,
+          reasoning: iterationReasoning || null,
+          status: 'aborted',
+        });
         runState.transition('abort');
         endTrace('aborted');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
@@ -587,7 +602,11 @@ export async function runAgentLoop(
       //    - 'length'→max_tokens→compress_context：Context v2 装配内部已完成
       //      压缩降级链，此处直接终止并保持 v1 外部行为 'length_limited'
       if (finishReason === 'stop' || finishReason === 'length') {
-        updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
+        updateMessage(userMessageId, {
+          content: iterationContent,
+          reasoning: iterationReasoning || null,
+          status: 'sent',
+        });
         const action = routeStopReason(STOP_REASON_BY_FINISH[finishReason]);
         let status: AgentLoopStatus;
         if (action === 'terminate_completed') {
@@ -606,7 +625,11 @@ export async function runAgentLoop(
       //    looping forever on a degenerate adapter response.
       //    （finish 缺失时无从查询路由表，按 end_turn 语义收尾。）
       if (toolCalls.length === 0) {
-        updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
+        updateMessage(userMessageId, {
+          content: iterationContent,
+          reasoning: iterationReasoning || null,
+          status: 'sent',
+        });
         runState.transition('stop');
         endTrace('completed');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'completed' });
@@ -624,6 +647,7 @@ export async function runAgentLoop(
         content: iterationContent,
         toolCalls,
         status: 'sent',
+        reasoning: iterationReasoning || null,
       });
 
       const assistantMsg: Message = {
@@ -798,7 +822,11 @@ export async function runAgentLoop(
 
       // 13. Re-check abort after (potentially slow) tool execution.
       if (abortSignal.aborted) {
-        updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
+        updateMessage(userMessageId, {
+          content: iterationContent,
+          reasoning: iterationReasoning || null,
+          status: 'aborted',
+        });
         runState.transition('abort');
         endTrace('aborted');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
@@ -809,7 +837,11 @@ export async function runAgentLoop(
     // 14. 步数上限耗尽（guard.config.maxSteps）：对应 LoopGuard 的 max_steps
     //     语义（RFC §5/§6 terminate_incomplete），映射旧外部状态
     //     'max_iterations'（Run → incomplete）。
-    updateMessage(userMessageId, { content: lastIterationContent, status: 'sent' });
+    updateMessage(userMessageId, {
+      content: lastIterationContent,
+      reasoning: lastIterationReasoning,
+      status: 'sent',
+    });
     runState.transition('max_steps');
     endTrace('max_iterations');
     await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'max_iterations' });
@@ -820,7 +852,11 @@ export async function runAgentLoop(
     // Distinguish abort-driven exceptions from real errors.
     if (abortSignal.aborted) {
       runState.transition('abort');
-      updateMessage(userMessageId, { content: lastIterationContent, status: 'aborted' });
+      updateMessage(userMessageId, {
+        content: lastIterationContent,
+        reasoning: lastIterationReasoning,
+        status: 'aborted',
+      });
       endTrace('aborted');
       await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
       return { status: 'aborted', content: lastIterationContent, messages: addedMessages };
@@ -829,6 +865,7 @@ export async function runAgentLoop(
     runState.transition('fail');
     updateMessage(userMessageId, {
       content: lastIterationContent,
+      reasoning: lastIterationReasoning,
       status: 'failed',
       error: message,
     });

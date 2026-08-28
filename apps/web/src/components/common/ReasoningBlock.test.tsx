@@ -82,4 +82,50 @@ describe('ReasoningBlock', () => {
 
     unmount()
   })
+
+  // 计划 todo 13：reasoning 随消息持久化后，历史消息只有 message.reasoning
+  // （无 live 态 reasoningText）——ReasoningBlock 以后者为回退渲染。
+  it('renders from the persisted message.reasoning when reasoningText is absent', () => {
+    const { container, unmount } = renderReasoningBlock({
+      ...makeMessage(),
+      reasoning: '历史持久化的推理全文',
+    })
+
+    const header = screen.getByText('思考过程').closest('button') as HTMLButtonElement
+    expect(header).not.toBeNull()
+
+    act(() => {
+      header.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(container.textContent).toContain('历史持久化的推理全文')
+
+    unmount()
+  })
+
+  it('prefers live reasoningText over the persisted reasoning', () => {
+    const { container, unmount } = renderReasoningBlock({
+      ...makeMessage(),
+      reasoningText: 'live 增量',
+      reasoning: 'persisted 全文',
+    })
+
+    act(() => {
+      ;(screen.getByText('思考过程').closest('button') as HTMLButtonElement)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(container.textContent).toContain('live 增量')
+    expect(container.textContent).not.toContain('persisted 全文')
+
+    unmount()
+  })
+
+  it('renders nothing when both reasoningText and reasoning are absent or null (旧消息回归)', () => {
+    expect(renderReasoningBlock(makeMessage()).container.innerHTML).toBe('')
+    expect(
+      renderReasoningBlock({ ...makeMessage(), reasoning: null }).container.innerHTML,
+    ).toBe('')
+    expect(
+      renderReasoningBlock({ ...makeMessage(), reasoning: '' }).container.innerHTML,
+    ).toBe('')
+  })
 })

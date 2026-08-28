@@ -225,6 +225,7 @@ describe('runAgentLoop', () => {
     // updateMessage called once with the final content + status sent
     expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-msg-1', {
       content: 'Hello world',
+      reasoning: null,
       status: 'sent',
     });
 
@@ -367,6 +368,7 @@ describe('runAgentLoop', () => {
     // LLM never invoked.
     expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-msg-1', {
       content: '',
+      reasoning: null,
       status: 'aborted',
     });
   });
@@ -793,6 +795,74 @@ describe('runAgentLoop', () => {
     expect(reasoningEvents[0]).toMatchObject({
       type: 'llm_event',
       event: { type: 'reasoning', text: '内心推理' },
+    });
+  });
+
+  // --- 18b. reasoning 持久化（计划 todo 13） ---------------------------
+  it('persists the accumulated reasoning with the terminal assistant message', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([
+        { type: 'reasoning', text: '用户问的是加法，' },
+        { type: 'reasoning', text: '结果是 5' },
+        events.content('答案是 5'),
+        events.finish('stop'),
+      ]),
+    ]);
+
+    await runAgentLoop(makeParams({ adapter }));
+
+    // 终轮占位 assistant 消息带拼接全文的 reasoning（空串归一为 null 除外）。
+    expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-msg-1', {
+      content: '答案是 5',
+      status: 'sent',
+      reasoning: '用户问的是加法，结果是 5',
+    });
+  });
+
+  it('persists no reasoning (null) when the round emits none', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([events.content('直答'), events.finish('stop')]),
+    ]);
+
+    await runAgentLoop(makeParams({ adapter }));
+
+    expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-msg-1', {
+      content: '直答',
+      status: 'sent',
+      reasoning: null,
+    });
+  });
+
+  it('persists per-round reasoning on tool-call round messages', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([
+        { type: 'reasoning', text: '第一轮：需要工具' },
+        events.toolCallStart(0),
+        events.toolCallDone(0, 'call-1', 'echo'),
+        events.finish('tool_calls'),
+      ]),
+      generatorFrom([
+        { type: 'reasoning', text: '第二轮：' },
+        { type: 'reasoning', text: '汇总结果' },
+        events.content('done'),
+        events.finish('stop'),
+      ]),
+    ]);
+    mockExecuteToolCall.mockResolvedValue(toolResult('echoed'));
+
+    await runAgentLoop(makeParams({ adapter, tools: [makeTool('echo')] }));
+
+    // 工具轮的 assistant 消息（带 toolCalls）持久化该轮 reasoning。
+    const assistantCreate = mockCreateMessage.mock.calls
+      .map(([p]: [CreateMessageParams]) => p)
+      .find((p) => p.role === 'assistant' && p.toolCalls !== undefined);
+    expect(assistantCreate).toMatchObject({ reasoning: '第一轮：需要工具' });
+
+    // 终轮占位消息只带最后一轮的 reasoning（与 content 的每轮重置语义一致）。
+    expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-msg-1', {
+      content: 'done',
+      status: 'sent',
+      reasoning: '第二轮：汇总结果',
     });
   });
 

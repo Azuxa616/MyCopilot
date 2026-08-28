@@ -143,4 +143,68 @@ describe('MessageRepo', () => {
     expect(deleted).toBe(true);
     expect(getMessage(message.id)).toBeUndefined();
   });
+
+  it('createMessage with reasoning roundtrips through getMessage (纯文本直存)', () => {
+    const session = createSession({ title: 'Reasoning' });
+    const message = createMessage({
+      sessionId: session.id,
+      role: 'assistant',
+      content: '答案是 5',
+      reasoning: '先分析问题，再拆解步骤',
+      status: 'sent',
+    });
+
+    expect(message.reasoning).toBe('先分析问题，再拆解步骤');
+
+    const fetched = getMessage(message.id);
+    expect(fetched).toBeDefined();
+    expect(fetched!.reasoning).toBe('先分析问题，再拆解步骤');
+    expect(fetched!.content).toBe('答案是 5');
+  });
+
+  it('createMessage without reasoning stores NULL (旧消息形状)', () => {
+    const session = createSession({ title: 'NoReasoning' });
+    const message = createMessage({
+      sessionId: session.id,
+      role: 'assistant',
+      content: 'hi',
+      status: 'sent',
+    });
+
+    expect(message.reasoning).toBeUndefined();
+
+    const row = getDb()
+      .prepare('SELECT reasoning FROM messages WHERE id = ?')
+      .get(message.id) as { reasoning: string | null };
+    expect(row.reasoning).toBeNull();
+  });
+
+  it('updateMessage writes reasoning and unrelated updates do not clobber it', () => {
+    const session = createSession({ title: 'UpdateReasoning' });
+    const message = createMessage({
+      sessionId: session.id,
+      role: 'assistant',
+      content: '',
+      reasoning: '初始推理',
+      status: 'sending',
+    });
+
+    const updated = updateMessage(message.id, {
+      content: '答案',
+      status: 'sent',
+      reasoning: '初始推理继续深入',
+    });
+    expect(updated!.reasoning).toBe('初始推理继续深入');
+    expect(getMessage(message.id)!.reasoning).toBe('初始推理继续深入');
+
+    updateMessage(message.id, { status: 'sent' });
+    expect(getMessage(message.id)!.reasoning).toBe('初始推理继续深入');
+
+    const cleared = updateMessage(message.id, { reasoning: null });
+    expect(cleared!.reasoning).toBeUndefined();
+    const row = getDb()
+      .prepare('SELECT reasoning FROM messages WHERE id = ?')
+      .get(message.id) as { reasoning: string | null };
+    expect(row.reasoning).toBeNull();
+  });
 });

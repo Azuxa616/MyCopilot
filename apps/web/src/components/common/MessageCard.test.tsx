@@ -143,3 +143,25 @@ describe('MessageCard 多附件全量渲染（修补 f）', () => {
     unmount()
   })
 })
+
+describe('MessageCard 历史消息思考过程回显（reasoning 持久化）', () => {
+  it('renders the ReasoningBlock for a history assistant message with persisted reasoning', () => {
+    const { unmount } = renderMessageCard(
+      makeMessage({ reasoning: '服务端持久化的推理全文' }),
+    )
+
+    expect(screen.getByText('思考过程')).not.toBeNull()
+
+    unmount()
+  })
+
+  it('renders no reasoning block for legacy messages with reasoning null/absent (回归保护)', () => {
+    const withoutField = renderMessageCard(makeMessage())
+    expect(screen.queryByText('思考过程')).toBeNull()
+    withoutField.unmount()
+
+    const nullReasoning = renderMessageCard(makeMessage({ reasoning: null }))
+    expect(screen.queryByText('思考过程')).toBeNull()
+    nullReasoning.unmount()
+  })
+})

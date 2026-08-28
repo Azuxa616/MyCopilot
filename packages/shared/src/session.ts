@@ -54,6 +54,12 @@ export interface Message {
   toolCalls?: ToolCall[];
   /** Tool-role messages reference the parent tool call id. */
   toolCallId?: string;
+  /**
+   * Extended Thinking 推理全文（服务端持久化列 messages.reasoning，纯文本直存）。
+   * 仅供前端历史渲染；assembleMessagesV2 装配 LLM 输入时显式忽略该字段。
+   * 迁移前的旧消息为 NULL。
+   */
+  reasoning?: string | null;
   createdAt: number;
 }
 

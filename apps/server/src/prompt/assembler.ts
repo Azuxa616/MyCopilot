@@ -214,6 +214,11 @@ export interface AssembleV2Params {
 /**
  * 将 DB Message[] 转换为 ChatMessage[]。与原 assembleMessages 的 history
  * 转换逻辑保持一致：tool 消息必须携带 toolCallId，其余角色透传 toolCalls。
+ *
+ * 硬约束（计划 todo 13 / Metis 修正）：下方映射按字段白名单构造新对象，
+ * 显式不复制 Message.reasoning（Extended Thinking 持久化列）——该列仅供
+ * 前端历史渲染，历史推理文本不得进入 LLM 输入吃六桶预算
+ * （回归保护见 __tests__/assembler-v2.test.ts 的剔除断言）。
  */
 function historyToChatMessages(messages: Message[]): ChatMessage[] {
   const out: ChatMessage[] = [];
