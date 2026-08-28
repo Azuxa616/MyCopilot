@@ -7,10 +7,12 @@ import type {
   Tool,
   ToolApproval,
 } from '@my-copilot/shared';
-import type {
-  ProviderAdapter,
-  AdapterConfig,
-} from '../../llm/base.js';
+import type { ProviderAdapter } from '../../llm/base.js';
+import {
+  createFakeAdapter,
+  recordFromEvents,
+  TEST_ADAPTER_CONFIG,
+} from '../../llm/testing/fake-adapter.js';
 import type { ToolExecutionResult } from '../../tools/registry.js';
 import type {
   createMessage,
@@ -135,30 +137,6 @@ function makeTool(name = 'calc'): Tool {
   };
 }
 
-function makeAdapter(streams: AsyncGenerator<StreamEvent>[]): ProviderAdapter {
-  let call = 0;
-  return {
-    type: 'openai',
-    chatCompletionStream: () => {
-      const gen = streams[call];
-      call += 1;
-      if (!gen) {
-        // Default to an empty stop if the test under-specified.
-        return (async function* () {
-          yield { type: 'finish' as const, reason: 'stop' as const };
-        })();
-      }
-      return gen;
-    },
-  };
-}
-
-const adapterConfig: AdapterConfig = {
-  baseUrl: 'http://localhost',
-  apiKey: 'key',
-  model: 'test-model',
-};
-
 function toolResult(text: string, isError = false): ToolExecutionResult {
   return { content: [{ type: 'text', text }], isError };
 }
@@ -172,21 +150,12 @@ function makeParams(
     history: [],
     userContent: 'hello',
     tools: [],
-    adapter: makeAdapter([]),
-    adapterConfig,
+    adapter: createFakeAdapter([]),
+    adapterConfig: TEST_ADAPTER_CONFIG,
     abortSignal: new AbortController().signal,
     onEvent: vi.fn(),
     ...overrides,
   };
-}
-
-/** Build an async generator from a fixed list of events. */
-function generatorFrom(
-  events: StreamEvent[],
-): AsyncGenerator<StreamEvent, void, unknown> {
-  return (async function* () {
-    for (const e of events) yield e;
-  })();
 }
 
 const events = {
@@ -251,7 +220,7 @@ function hangingStream(signal: AbortSignal, eventsToYield: StreamEvent[]) {
     parked = resolve;
   });
   const gen = (async function* () {
-    for (const e of eventsToYield) yield e;
+    yield* recordFromEvents(eventsToYield);
     // 消费方已收到全部事件，下一次 pull 即挂起。
     parked();
     await new Promise<never>((_, reject) => {
@@ -322,17 +291,17 @@ describe('agent loop v2 + context v2 集成（runner 真实编排）', () => {
   // 场景 A：同步模式全链路（happy path）
   // ---------------------------------------------------------------------
   it('场景 A：sync 模式下 content → tool_call → tool_result → content → completed 的完整链路', async () => {
-    const adapter = makeAdapter([
+    const adapter = createFakeAdapter([
       // 第一轮：先说话，再请求工具
-      generatorFrom([
+      [
         events.content('你好'),
         events.toolCallStart(0),
         events.toolCallDelta(0, 'call-1', 'calc', '{"x"'),
         events.toolCallDone(0, 'call-1', 'calc', { x: 1 }),
         events.finish('tool_calls'),
-      ]),
+      ],
       // 第二轮：消费工具结果后给出最终回复
-      generatorFrom([events.content('结果'), events.finish('stop')]),
+      [events.content('结果'), events.finish('stop')],
     ]);
     mockExecuteToolCall.mockResolvedValue(toolResult('42'));
     const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
@@ -411,12 +380,12 @@ describe('agent loop v2 + context v2 集成（runner 真实编排）', () => {
   // 场景 B：异步 job 模式 + 确认流联动
   // ---------------------------------------------------------------------
   it('场景 B：runAgentLoopAsJob 收集事件数组并联动确认流（waiting ↔ resume）', async () => {
-    const adapter = makeAdapter([
-      generatorFrom([
+    const adapter = createFakeAdapter([
+      [
         events.toolCallDone(0, 'call-c', 'calc', { x: 1 }),
         events.finish('tool_calls'),
-      ]),
-      generatorFrom([events.content('job-done'), events.finish('stop')]),
+      ],
+      [events.content('job-done'), events.finish('stop')],
     ]);
 
     // mock 工具执行：触发「需要确认 → 已批准」回调，然后返回结果。
@@ -464,7 +433,7 @@ describe('agent loop v2 + context v2 集成（runner 真实编排）', () => {
       userContent: 'hello job',
       tools: [makeTool('calc')],
       adapter,
-      adapterConfig,
+      adapterConfig: TEST_ADAPTER_CONFIG,
     };
 
     const result = await runAgentLoopAsJob(
@@ -619,7 +588,7 @@ describe('agent loop v2 + context v2 集成（runner 真实编排）', () => {
       type: 'openai',
       chatCompletionStream: (messages) => {
         streamCalls.push(messages);
-        return generatorFrom([events.content('ok'), events.finish('stop')]);
+        return recordFromEvents([events.content('ok'), events.finish('stop')]);
       },
     };
 

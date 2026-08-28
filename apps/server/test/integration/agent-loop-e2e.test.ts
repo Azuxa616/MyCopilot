@@ -76,9 +76,13 @@ import type {
 } from '../../src/agent-loop/runner.js';
 import type {
   ProviderAdapter,
-  AdapterConfig,
   ChatMessage,
 } from '../../src/llm/base.js';
+import {
+  createFakeAdapter,
+  recordFromEvents,
+  TEST_ADAPTER_CONFIG,
+} from '../../src/llm/testing/fake-adapter.js';
 import {
   registerTool,
   clearRegisteredTools,
@@ -92,12 +96,6 @@ import { requestToolApproval } from '../../src/tools/confirmation.js';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const ADAPTER_CONFIG: AdapterConfig = {
-  baseUrl: 'http://localhost',
-  apiKey: 'test-key',
-  model: 'test-model',
-};
 
 function makeUserMessage(content = 'Hello'): Message {
   return {
@@ -125,15 +123,6 @@ function makeTool(name = 'echo'): Tool {
     createdAt: 0,
     updatedAt: 0,
   };
-}
-
-/** Build an async generator from a fixed list of StreamEvent. */
-function generatorFrom(
-  events: StreamEvent[],
-): AsyncGenerator<StreamEvent, void, unknown> {
-  return (async function* () {
-    for (const e of events) yield e;
-  })();
 }
 
 /** Event factories — keep StreamEvent literal types narrow. */
@@ -173,30 +162,6 @@ const ev = {
   }),
 };
 
-/**
- * Build a mock adapter that returns the given event sequences in order.
- * Optionally captures the chatMessages handed to it for inspection.
- */
-function makeAdapter(
-  streams: StreamEvent[][],
-  capture?: { messages: ChatMessage[][] },
-): ProviderAdapter {
-  let call = 0;
-  return {
-    type: 'openai',
-    chatCompletionStream: (messages: ChatMessage[]) => {
-      if (capture) capture.messages.push(messages);
-      const events = streams[call];
-      call += 1;
-      if (!events) {
-        // Default to an empty stop if the test under-specified — avoids hangs.
-        return generatorFrom([ev.finish('stop')]);
-      }
-      return generatorFrom(events);
-    },
-  };
-}
-
 function makeParams(
   overrides: Partial<RunAgentLoopParams> = {},
 ): RunAgentLoopParams {
@@ -206,8 +171,8 @@ function makeParams(
     history: [makeUserMessage()],
     userContent: 'Hello',
     tools: [],
-    adapter: makeAdapter([]),
-    adapterConfig: ADAPTER_CONFIG,
+    adapter: createFakeAdapter([]),
+    adapterConfig: TEST_ADAPTER_CONFIG,
     abortSignal: new AbortController().signal,
     onEvent: vi.fn(),
     ...overrides,
@@ -239,7 +204,7 @@ describe('Agent Loop E2E', () => {
 
   // --- 1. Simple conversation (no tools) → Phase 1 regression -------------
   it('1. completes a tool-free conversation end-to-end (Phase 1 regression)', async () => {
-    const adapter = makeAdapter([
+    const adapter = createFakeAdapter([
       [ev.content('Hello!'), ev.content(' How are you?'), ev.finish('stop')],
     ]);
     const onEvent = vi.fn();
@@ -276,7 +241,7 @@ describe('Agent Loop E2E', () => {
     };
     registerTool('web_search', webSearch);
 
-    const adapter = makeAdapter([
+    const adapter = createFakeAdapter([
       // Iteration 1: model emits a tool call.
       [
         ev.content('Let me search for that.'),
@@ -325,7 +290,7 @@ describe('Agent Loop E2E', () => {
     };
     registerTool('crashy', crashy);
 
-    const adapter = makeAdapter([
+    const adapter = createFakeAdapter([
       // Iteration 1: tool fails.
       [
         ev.toolCallDone(0, 'call-err', 'crashy', { x: 1 }),
@@ -366,7 +331,7 @@ describe('Agent Loop E2E', () => {
     };
     registerTool('slow', slowTool);
 
-    const adapter = makeAdapter([
+    const adapter = createFakeAdapter([
       [
         ev.toolCallDone(0, 'call-abort', 'slow'),
         ev.finish('tool_calls'),
@@ -403,7 +368,7 @@ describe('Agent Loop E2E', () => {
       ev.toolCallDone(0, `call-${i}`, 'loopy', { n: i }),
       ev.finish('tool_calls'),
     ]);
-    const adapter = makeAdapter(streams);
+    const adapter = createFakeAdapter(streams);
 
     const result = await runAgentLoop(
       makeParams({
@@ -439,7 +404,7 @@ describe('Agent Loop E2E', () => {
     registerTool('a', makeOverlappingExecutor('a'));
     registerTool('b', makeOverlappingExecutor('b'));
 
-    const adapter = makeAdapter([
+    const adapter = createFakeAdapter([
       // Iteration 1: two parallel tool calls.
       // 两个工具的 arguments 必须不同：runner 的去重摘要只覆盖参数
       // （不含工具名），相同参数会被误判为重复调用而跳过第二个。
@@ -508,7 +473,7 @@ describe('Agent Loop E2E', () => {
       },
     ]);
 
-    const adapter = makeAdapter([
+    const adapter = createFakeAdapter([
       [
         ev.toolCallDone(0, 'call-nuke-99', 'nuke', { target: 'x' }),
         ev.finish('tool_calls'),
@@ -551,7 +516,7 @@ describe('Agent Loop E2E', () => {
       type: 'openai',
       chatCompletionStream: (messages: ChatMessage[]) => {
         captured.messages.push(messages);
-        return generatorFrom([ev.finish('stop')]);
+        return recordFromEvents([ev.finish('stop')]);
       },
     };
 
