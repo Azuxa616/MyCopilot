@@ -106,3 +106,51 @@ describe('parseSSEStream onReasoning', () => {
     expect(handlers.onError).not.toHaveBeenCalled()
   })
 })
+
+describe('parseSSEStream 终态事件载荷透传（done/error/aborted）', () => {
+  // 载荷形状以 apps/server/src/streaming/sse-protocol.ts 为准：
+  // DoneEvent{messageId,title?,content?} / ErrorEvent{code,message} / AbortedEvent{messageId,partialContent}
+  it('passes title/content/messageId through on done', async () => {
+    const handlers = makeRequiredHandlers()
+
+    await parseSSEStream({
+      ...handlers,
+      stream: sseStream('event: done\ndata: {"messageId":"m1","title":"标题","content":"final"}\n\n'),
+    })
+
+    expect(handlers.onDone).toHaveBeenCalledWith('标题', 'final', 'm1')
+  })
+
+  it('passes the error code through on error', async () => {
+    const handlers = makeRequiredHandlers()
+
+    await expect(parseSSEStream({
+      ...handlers,
+      stream: sseStream('event: error\ndata: {"code":"stream_error","message":"API error"}\n\n'),
+    })).rejects.toThrow('SSE error event received')
+
+    expect(handlers.onError).toHaveBeenCalledWith('API error', 'stream_error')
+  })
+
+  it('passes partialContent and messageId through on aborted', async () => {
+    const handlers = makeRequiredHandlers()
+
+    await parseSSEStream({
+      ...handlers,
+      stream: sseStream('event: aborted\ndata: {"messageId":"m1","partialContent":"部分内容"}\n\n'),
+    })
+
+    expect(handlers.onAborted).toHaveBeenCalledWith('部分内容', 'm1')
+  })
+
+  it('calls onAborted with undefined fields when the payload carries neither', async () => {
+    const handlers = makeRequiredHandlers()
+
+    await parseSSEStream({
+      ...handlers,
+      stream: sseStream('event: aborted\ndata: {}\n\n'),
+    })
+
+    expect(handlers.onAborted).toHaveBeenCalledWith(undefined, undefined)
+  })
+})

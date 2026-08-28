@@ -103,6 +103,35 @@ export function computeBackoff(current: number): number {
 }
 
 /**
+ * Status text for the background job progress bar. Pure so it can be unit
+ * tested without a React renderer. `failed` surfaces the job's specific
+ * error text (job.error) instead of a generic label.
+ */
+export function getJobStatusText(
+    job: Job | null,
+    isConnected: boolean,
+    error: string | null,
+): string {
+    if (error) return '连接异常，重试中...';
+    if (!isConnected) return '连接中...';
+    if (!job) return '处理中...';
+    switch (job.status) {
+        case 'pending':
+            return '排队中...';
+        case 'running':
+            return '处理中...';
+        case 'done':
+            return '已完成';
+        case 'failed':
+            return job.error ? `处理失败：${job.error}` : '处理失败';
+        case 'cancelled':
+            return '已取消';
+        default:
+            return '处理中...';
+    }
+}
+
+/**
  * Subscribe to job progress over SSE. Pass a jobId to track, or null to remain
  * idle. Reconnects automatically with exponential backoff; stops on terminal
  * status or unmount.

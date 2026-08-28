@@ -3,6 +3,7 @@ import type { Job } from '@my-copilot/shared';
 import {
     parseJobEvents,
     computeBackoff,
+    getJobStatusText,
     TERMINAL_JOB_STATUSES,
     MAX_BACKOFF_MS,
     INITIAL_BACKOFF_MS,
@@ -122,5 +123,27 @@ describe('computeBackoff', () => {
     it('caps the backoff at MAX_BACKOFF_MS', () => {
         expect(computeBackoff(MAX_BACKOFF_MS)).toBe(MAX_BACKOFF_MS);
         expect(computeBackoff(MAX_BACKOFF_MS * 4)).toBe(MAX_BACKOFF_MS);
+    });
+});
+
+describe('getJobStatusText', () => {
+    it('surfaces the specific job.error text for a failed job', () => {
+        const job = makeJob({ status: 'failed', error: 'provider 请求超时' });
+        expect(getJobStatusText(job, true, null)).toBe('处理失败：provider 请求超时');
+    });
+
+    it('falls back to the generic failed label when job.error is null', () => {
+        expect(getJobStatusText(makeJob({ status: 'failed', error: null }), true, null)).toBe('处理失败');
+    });
+
+    it('keeps the connection/queue/terminal labels for other states', () => {
+        expect(getJobStatusText(null, false, 'boom')).toBe('连接异常，重试中...');
+        expect(getJobStatusText(null, false, null)).toBe('连接中...');
+        expect(getJobStatusText(null, true, null)).toBe('处理中...');
+        expect(getJobStatusText(makeJob({ status: 'pending' }), true, null)).toBe('排队中...');
+        expect(getJobStatusText(makeJob({ status: 'running' }), true, null)).toBe('处理中...');
+        expect(getJobStatusText(makeJob({ status: 'waiting_confirmation' }), true, null)).toBe('处理中...');
+        expect(getJobStatusText(makeJob({ status: 'done' }), true, null)).toBe('已完成');
+        expect(getJobStatusText(makeJob({ status: 'cancelled' }), true, null)).toBe('已取消');
     });
 });

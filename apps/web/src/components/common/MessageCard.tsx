@@ -16,6 +16,7 @@ import ReasoningBlock from './ReasoningBlock'
 // Utils
 import { getRelativeTime } from '../../utils/time'
 import { showMessageAlert } from './Alert/alertUtils'
+import type { MessageWithToolError } from '../../store/sessionStore'
 // Assets
 import IconRetry from '../../assets/icon/retry.svg?react'
 import userAvatar from '../../assets/img/avatar-user.png'
@@ -32,6 +33,28 @@ function RenderStreamingCursor({ isStreaming, isAssistant }: RenderStreamingCurs
   return (
     <span className="inline-block w-[6px] h-4 align-baseline bg-text-primary/60 animate-pulse ml-0.5" />
   )
+}
+
+/**
+ * 提取 tool 消息 content 的可读预览。
+ * 服务端把工具结果存为 JSON 字符串（[{type:'text',text:'…'},…] 形状，见
+ * runner 工具结果持久化）；解析成功时拼接各 text 段，失败时原样返回。
+ */
+function toolResultPreview(content: string): string {
+  try {
+    const parsed: unknown = JSON.parse(content)
+    if (Array.isArray(parsed)) {
+      const texts = parsed
+        .map((item) => (typeof item === 'object' && item !== null && 'text' in item
+          ? String((item as { text: unknown }).text)
+          : ''))
+        .filter(text => text.length > 0)
+      if (texts.length > 0) return texts.join('\n')
+    }
+  } catch {
+    // 非 JSON content，按原始字符串展示
+  }
+  return content
 }
 
 interface RenderContentProps {
@@ -51,6 +74,17 @@ function RenderContent({ message, isSystem, isUser, isAssistant, isFailed, isStr
     return (
       <div className="max-w-none whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left">
         {message.content}
+      </div>
+    )
+  }
+
+  // tool 角色消息：结果预览（等宽小字号，超长滚动），不做 Markdown 渲染
+  if (message.role === MessageRole.TOOL) {
+    return (
+      <div className="max-w-none px-4 py-2 text-left font-normal">
+        <pre className="m-0 max-h-[200px] overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-[11px] leading-relaxed text-text-secondary">
+          {toolResultPreview(message.content)}
+        </pre>
       </div>
     )
   }
@@ -139,9 +173,10 @@ interface RenderMetaProps {
   isTool: boolean
   toolCallId?: string
   messageId?: string
+  toolIsError?: boolean
 }
 
-function RenderMeta({ isSystem, isUser, isTool, toolCallId, messageId }: RenderMetaProps) {
+function RenderMeta({ isSystem, isUser, isTool, toolCallId, messageId, toolIsError }: RenderMetaProps) {
   if (isSystem) return null
   if (isTool) {
     // tool 角色消息：显示工具响应标识（toolCallId 取短形式）
@@ -150,6 +185,11 @@ function RenderMeta({ isSystem, isUser, isTool, toolCallId, messageId }: RenderM
       <div className="mb-1 flex items-center gap-1.5 text-[11px] text-text-tertiary px-1">
         <span aria-hidden>🔧</span>
         <span>工具响应{shortId ? ` · ${shortId}` : ''}</span>
+        {toolIsError && (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-error-light/40 text-error-dark">
+            执行出错
+          </span>
+        )}
       </div>
     )
   }
@@ -166,8 +206,8 @@ function RenderMeta({ isSystem, isUser, isTool, toolCallId, messageId }: RenderM
   )
 }
 interface MessageCardProps {
-  /** 消息数据 */
-  message: Message
+  /** 消息数据（含前端本地 toolIsError 扩展字段） */
+  message: MessageWithToolError
   /** 是否处于流式响应阶段（SSE 中） */
   isStreaming?: boolean
   /** 自定义外层类名（用于列表中微调间距等） */
@@ -203,8 +243,11 @@ export default function MessageCard({
   const isUser = message.role === MessageRole.USER
   const isAssistant = message.role === MessageRole.ASSISTANT
   const isSystem = message.role === MessageRole.SYSTEM
+  const isTool = message.role === MessageRole.TOOL
+  const isToolError = isTool && message.toolIsError === true
   const isSending = message.status === MessageStatus.SENDING
   const isFailed = message.status === MessageStatus.FAILED
+  const isAborted = message.status === MessageStatus.ABORTED
 
   const timeLabel = getRelativeTime(message.createdAt)
 
@@ -222,6 +265,9 @@ export default function MessageCard({
 
   if (isFailed) {
     bubbleClass += ' border-error/80 bg-error-light/10'
+  } else if (isToolError) {
+    // 工具执行出错的结果消息：红边弱化样式，与失败消息同语义但更轻
+    bubbleClass += ' border-error/60 bg-error-light/10'
   }
 
   // 状态栏
@@ -310,9 +356,10 @@ export default function MessageCard({
         <RenderMeta
           isSystem={isSystem}
           isUser={isUser}
-          isTool={message.role === MessageRole.TOOL}
+          isTool={isTool}
           toolCallId={message.toolCallId}
           messageId={message.id}
+          toolIsError={message.toolIsError}
         />
 
         <div className={bubbleClass}>
@@ -327,14 +374,26 @@ export default function MessageCard({
             isFailed={isFailed}
             isStreaming={isStreaming ?? false}
           />
+          {/* aborted：保留已生成的部分内容，并标记「已停止」 */}
+          {isAborted && (
+            <div className="flex items-center gap-1.5 px-4 pb-2 text-[11px] text-text-tertiary">
+              <span aria-hidden>⏹</span>
+              <span>已停止</span>
+            </div>
+          )}
         </div>
 
         {/* NEW: Render tool calls block if present */}
         <ToolCallsBlock message={message} debugMode={import.meta.env.DEV} />
 
         {message.attachments.length > 0 && (
-          <div className="ml-2 shrink-0">
-            <AttachmentCard attachment={message.attachments[0]} />
+          <div className="ml-2 shrink-0 flex flex-col gap-1.5">
+            {message.attachments.map(attachment => (
+              <AttachmentCard
+                key={attachment.id ?? attachment.name}
+                attachment={attachment}
+              />
+            ))}
           </div>
         )}
         <RenderActions

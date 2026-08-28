@@ -11,16 +11,16 @@ import MessageList from './MessageList'
 import { useMessageVirtualizer } from './hooks/useMessageVirtualizer'
 import { useAutoScroll } from './hooks/useAutoScroll'
 import { useMessageRegenerate } from './hooks/useMessageRegenerate'
-import { useJobStream, TERMINAL_JOB_STATUSES } from './hooks/useJobStream'
+import { useJobStream, TERMINAL_JOB_STATUSES, getJobStatusText } from './hooks/useJobStream'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
 import { useConfigStore } from '../../store/configStore'
 import { NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 // API
 import { api } from '../../api'
-import { MessageRole } from '@my-copilot/shared'
 import type { Model, Provider } from '@my-copilot/shared'
 import { showMessageAlert } from '../common/Alert/alertUtils'
+import { selectSessionMessages } from './selectSessionMessages'
 
 export default function ChatShell() {
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId)
@@ -35,16 +35,7 @@ export default function ChatShell() {
   const setActiveJobId = useSessionStore((state) => state.setActiveJobId)
 
   // Get messages for current session from cache.
-  // Filter out:
-  //  - tool messages (role='tool') — internal tool results, shown via SSE during live chat
-  //  - assistant messages with toolCalls — intermediate tool-call requests, not user-facing.
-  //    The final assistant response is always a separate message without toolCalls.
-  //    Without this filter, refresh shows empty bubbles from intermediate rounds.
-  const messages = selectedSessionId
-    ? (messagesCache[selectedSessionId] || []).filter(
-        m => m.role !== MessageRole.TOOL && !(m.role === MessageRole.ASSISTANT && m.toolCalls)
-      )
-    : []
+  const messages = selectSessionMessages(messagesCache, selectedSessionId)
 
   // Chat content scroll container
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
@@ -165,23 +156,7 @@ export default function ChatShell() {
     : !!currentSession && currentSession.modelId === null
 
   // Status text for the background job progress bar.
-  const jobStatusText = error
-    ? '连接异常，重试中...'
-    : !isConnected
-      ? '连接中...'
-      : !job
-        ? '处理中...'
-        : job.status === 'pending'
-          ? '排队中...'
-          : job.status === 'running'
-            ? '处理中...'
-            : job.status === 'done'
-              ? '已完成'
-              : job.status === 'failed'
-                ? '处理失败'
-                : job.status === 'cancelled'
-                  ? '已取消'
-                  : '处理中...'
+  const jobStatusText = getJobStatusText(job, isConnected, error)
 
   return (
     <div className="flex flex-col h-full w-full">

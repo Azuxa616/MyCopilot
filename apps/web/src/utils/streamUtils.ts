@@ -19,9 +19,9 @@ export interface SSEStreamParams {
     signal?: AbortSignal;
     onPlaceholder: (msgId: string) => void;
     onDelta: (content: string) => void;
-    onDone: (title: string, content?: string) => void;
-    onError: (message: string) => void;
-    onAborted: () => void;
+    onDone: (title: string, content?: string, messageId?: string) => void;
+    onError: (message: string, code?: string) => void;
+    onAborted: (partialContent?: string, messageId?: string) => void;
     // Phase 2 tool-call / job events — optional, no-op if not provided.
     onToolCallStart?: (msgId: string, index: number) => void;
     onToolCallDelta?: (
@@ -136,7 +136,7 @@ export async function parseSSEStream({
             case 'done': {
                 try {
                     const data = JSON.parse(event.data || '{}');
-                    onDone(data.title || '', data.content);
+                    onDone(data.title || '', data.content, data.messageId);
                 } catch {
                     onDone('');
                 }
@@ -145,7 +145,7 @@ export async function parseSSEStream({
             case 'error': {
                 try {
                     const data = JSON.parse(event.data || '{}');
-                    onError(data.message || 'Stream error');
+                    onError(data.message || 'Stream error', data.code);
                 } catch {
                     onError(event.data || 'Stream error');
                 }
@@ -153,7 +153,18 @@ export async function parseSSEStream({
                 break;
             }
             case 'aborted': {
-                onAborted();
+                // AbortedEvent（sse-protocol）：{ messageId, partialContent }。
+                // 载荷缺失字段按 undefined 透传，由消费方保留本地已累积内容。
+                let partialContent: string | undefined;
+                let messageId: string | undefined;
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    partialContent = data.partialContent;
+                    messageId = data.messageId;
+                } catch {
+                    // Ignore parse errors
+                }
+                onAborted(partialContent, messageId);
                 break;
             }
             case 'tool_call_start': {

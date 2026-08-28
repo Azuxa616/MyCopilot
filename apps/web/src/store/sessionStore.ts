@@ -50,6 +50,13 @@ export interface ActiveToolCall {
 export type MessageWithReasoning = Message & { reasoningText?: string };
 
 /**
+ * 前端本地的 tool 消息扩展：工具结果是否为错误（SSE tool_result 的 isError）。
+ * 历史加载的 tool 消息不携带该字段（服务端消息表未存 isError），仅实时流写入；
+ * 不持久化、不上行 server，故不进 shared Message 类型。
+ */
+export type MessageWithToolError = Message & { toolIsError?: boolean };
+
+/**
  * 状态机转移表（RFC agent-loop-v2 §7）。非法前置状态保持不变：
  *
  * | trigger          | 转移                                        |
@@ -502,21 +509,42 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                             agentState: transitionAgentState(state.agentState, 'tool_call_done'),
                         }));
                     },
-                    onToolResult: (_msgId, toolCallId) => {
+                    onToolResult: (_msgId, toolCallId, result, isError) => {
                         // 工具结果到达时保持 done 状态（幂等）
                         set((state) => ({
                             activeToolCalls: state.activeToolCalls.map(call =>
                                 call.id === toolCallId ? { ...call, status: 'done' } : call
                             ),
                         }));
-                    },
-                    onDone: (title, content) => {
-                        transition('stream_done');
-                        // Mark the last assistant message as sent
+                        // 工具结果落为 tool 消息进入列表（与历史加载后的 tool 消息同形），
+                        // result/isError 供 MessageCard「工具响应」卡渲染结果预览与错误标。
                         const messages = get().messagesCache[realSessionId] || [];
-                        const sendingId = findSendingAssistantId(messages);
-                        if (sendingId) {
-                            updateMessage(realSessionId, sendingId, {
+                        const toolMessageId = `tool-${toolCallId}`;
+                        if (!messages.some(m => m.id === toolMessageId)) {
+                            const toolMessage: MessageWithToolError = {
+                                id: toolMessageId,
+                                sessionId: realSessionId,
+                                role: 'tool',
+                                content: result,
+                                toolCallId,
+                                status: 'sent',
+                                createdAt: Date.now(),
+                                attachments: [],
+                                toolIsError: isError,
+                            };
+                            addMessage(realSessionId, toolMessage);
+                        }
+                    },
+                    onDone: (title, content, messageId) => {
+                        transition('stream_done');
+                        // done 载荷带权威 messageId（sse-protocol DoneEvent）；
+                        // 命中 assistant 消息时优先定位它，否则回退到最后一条 sending。
+                        const messages = get().messagesCache[realSessionId] || [];
+                        const targetId = messageId && messages.some(m => m.id === messageId && m.role === 'assistant')
+                            ? messageId
+                            : findSendingAssistantId(messages);
+                        if (targetId) {
+                            updateMessage(realSessionId, targetId, {
                                 status: 'sent',
                                 // Override locally-accumulated SSE deltas with the
                                 // authoritative final content from the runner. Without
@@ -531,7 +559,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                             updateSessionSummary(realSessionId, { title });
                         }
                     },
-                    onError: (errorMsg) => {
+                    onError: (errorMsg, code) => {
                         if (abortController.signal.aborted) return;
                         transition('stream_error');
                         const messages = get().messagesCache[realSessionId] || [];
@@ -539,16 +567,49 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                         if (sendingId) {
                             updateMessage(realSessionId, sendingId, {
                                 status: 'failed',
-                                error: errorMsg,
+                                // 错误码（sse-protocol ErrorEvent.code）并入 error 展示字段
+                                error: code ? `${code}: ${errorMsg}` : errorMsg,
                             });
                         }
                     },
-                    onAborted: () => {
+                    onAborted: (partialContent, messageId) => {
                         transition('stream_aborted');
                         const messages = get().messagesCache[realSessionId] || [];
+                        const targetId = messageId && messages.some(m => m.id === messageId)
+                            ? messageId
+                            : findSendingAssistantId(messages);
+                        if (targetId) {
+                            updateMessage(realSessionId, targetId, {
+                                status: 'aborted',
+                                // 服务端 aborted 载荷带已持久化的部分内容，到达时覆盖
+                                // 本地累积 delta；未携带时保留本地已渲染内容。
+                                ...(partialContent !== undefined ? { content: partialContent } : {}),
+                            });
+                        }
+                    },
+                    // chat 流内 job_status（JobStatusEvent）：终态把占位 assistant 消息
+                    // 收敛到对应状态；非终态仅维持现有进度显示，不额外动作。
+                    onJobStatus: (_jobId, status, _progress, error) => {
+                        const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
-                        if (sendingId) {
-                            updateMessage(realSessionId, sendingId, { status: 'aborted' });
+                        if (status === 'failed') {
+                            transition('stream_error');
+                            if (sendingId) {
+                                updateMessage(realSessionId, sendingId, {
+                                    status: 'failed',
+                                    error: error ?? '后台任务失败',
+                                });
+                            }
+                        } else if (status === 'cancelled') {
+                            transition('stream_aborted');
+                            if (sendingId) {
+                                updateMessage(realSessionId, sendingId, { status: 'aborted' });
+                            }
+                        } else if (status === 'done') {
+                            transition('stream_done');
+                            if (sendingId) {
+                                updateMessage(realSessionId, sendingId, { status: 'sent' });
+                            }
                         }
                     },
                     onConfirmationRequired: (data) => {
