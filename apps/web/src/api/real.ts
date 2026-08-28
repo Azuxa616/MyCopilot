@@ -12,6 +12,8 @@ import type {
   Tool, UpdateToolParams,
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
   Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
+  RunTraceRecord, RunStepRecord,
+  EvalSnapshot, EvalRunResult, EvalCategory, EvalMode,
 } from '@my-copilot/shared';
 import { enhancedFetch, fetchWithAuth } from './request';
 import { StreamError } from './errors';
@@ -619,5 +621,102 @@ export async function cancelJob(id: string): Promise<unknown> {
         method: 'POST',
         timeout: 30000,
     });
+    return response.data;
+}
+
+// ─── Run Trace APIs ───
+
+/** 列表项：Run 轨迹记录 + 该 Run 的步骤计数（GET /api/sessions/:id/runs）。 */
+export type RunTraceWithStepCount = RunTraceRecord & { stepCount: number };
+
+/** 单条 Run 详情：Run 记录 + 全部步骤（GET /api/runs/:runId）。 */
+export interface RunTraceDetail {
+    run: RunTraceRecord;
+    steps: RunStepRecord[];
+}
+
+/**
+ * Fetch the run traces of a session (started_at desc, each with stepCount)
+ * GET /api/sessions/:id/runs
+ */
+export async function fetchSessionRuns(sessionId: string): Promise<RunTraceWithStepCount[]> {
+    const response = await enhancedFetch<{ data: RunTraceWithStepCount[] }>(
+        `/api/sessions/${sessionId}/runs`,
+        {
+            method: 'GET',
+            timeout: 30000,
+        }
+    );
+    return response.data;
+}
+
+/**
+ * Fetch a single run with all of its steps
+ * GET /api/runs/:runId
+ */
+export async function fetchRunDetail(runId: string): Promise<RunTraceDetail> {
+    const response = await enhancedFetch<{ data: RunTraceDetail }>(`/api/runs/${runId}`, {
+        method: 'GET',
+        timeout: 30000,
+    });
+    return response.data;
+}
+
+// ─── Eval APIs ───
+
+/** 场景元数据列表项：不含 script 全文与断言细节（GET /api/eval/scenarios）。 */
+export interface EvalScenarioMeta {
+    id: string;
+    name: string;
+    description: string;
+    category: EvalCategory;
+    mode: EvalMode;
+    replayable: boolean;
+}
+
+/** 现场确定性回放结果（GET /api/eval/scenarios/:id/replay）。 */
+export interface EvalReplayResult {
+    runTrace: RunTraceRecord;
+    steps: RunStepRecord[];
+    evalRun: EvalRunResult;
+}
+
+/**
+ * Fetch the frozen eval report snapshot
+ * GET /api/eval/snapshot
+ */
+export async function fetchEvalSnapshot(): Promise<EvalSnapshot> {
+    const response = await enhancedFetch<{ data: EvalSnapshot }>('/api/eval/snapshot', {
+        method: 'GET',
+        timeout: 30000,
+    });
+    return response.data;
+}
+
+/**
+ * Fetch eval scenario metadata (no script bodies, no assertion details)
+ * GET /api/eval/scenarios
+ */
+export async function fetchEvalScenarios(): Promise<EvalScenarioMeta[]> {
+    const response = await enhancedFetch<{ data: EvalScenarioMeta[] }>('/api/eval/scenarios', {
+        method: 'GET',
+        timeout: 30000,
+    });
+    return response.data;
+}
+
+/**
+ * Replay a deterministic eval scenario on demand (server-side subprocess)
+ * GET /api/eval/scenarios/:id/replay
+ */
+export async function replayEvalScenario(id: string): Promise<EvalReplayResult> {
+    const response = await enhancedFetch<{ data: EvalReplayResult }>(
+        `/api/eval/scenarios/${encodeURIComponent(id)}/replay`,
+        {
+            method: 'GET',
+            // 服务端回放子进程最长 60s，客户端超时须留出余量
+            timeout: 90000,
+        }
+    );
     return response.data;
 }

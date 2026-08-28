@@ -13,6 +13,15 @@ export const api = real;
 export type { RequestOptions } from './request';
 export { enhancedFetch, fetchWithAuth, createTimeoutSignal } from './request';
 
+// Trace / Eval API result types
+export type {
+    SendMessageResult,
+    RunTraceWithStepCount,
+    RunTraceDetail,
+    EvalScenarioMeta,
+    EvalReplayResult,
+} from './real';
+
 // Error types
 export {
     ApiError,
