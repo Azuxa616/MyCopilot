@@ -4,6 +4,7 @@ import type { Message, Provider, Model, AttachmentMeta } from '@my-copilot/share
 import { createMessage, updateMessage, updateMessageContent } from '../repo/message.js';
 import { updateSession } from '../repo/session.js';
 import { createJob } from '../repo/job.js';
+import { createSqliteTraceCollector } from '../repo/runTrace.js';
 import { getAdapter } from '../llm/index.js';
 import { listEnabledTools } from '../repo/tool.js';
 import { listRegisteredTools } from '../tools/registry.js';
@@ -35,8 +36,9 @@ export interface StreamMessageParams {
 export function streamMessageHandler(c: Context, params: StreamMessageParams): Response {
   const { sessionId, userMessage, provider, model, attachments, history } = params;
 
-  // 1. Save user message
-  createMessage({
+  // 1. Save user message — 捕获返回值：真实用户消息 id 是 trace 采集的
+  //    runs.user_message_id 唯一合法来源（assistant 占位 id 不得回退）。
+  const savedUserMsg = createMessage({
     sessionId,
     role: 'user',
     content: userMessage.content,
@@ -87,6 +89,9 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         sessionId,
         // Placeholder assistant message created above; the worker fills it.
         userMessageId: assistantMsg.id,
+        // 真实用户消息 id：worker 据此构造 TraceCollector（旧存量 payload
+        // 缺此字段时 worker 跳过该 Run 的 trace 采集）。
+        realUserMessageId: savedUserMsg.id,
         userContent: userMessage.content,
         // History is JSON-serialised by createJob; plain message objects.
         history,
@@ -148,6 +153,11 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         adapter,
         adapterConfig,
         abortSignal: ac.signal,
+        // 执行轨迹采集（旁路观察者）：真实用户消息 id 经采集器构造注入。
+        trace: createSqliteTraceCollector({
+          sessionId,
+          userMessageId: savedUserMsg.id,
+        }),
         onEvent: async (event: AgentLoopEvent) => {
           await handleAgentEvent(event, {
             stream,

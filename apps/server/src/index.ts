@@ -24,6 +24,7 @@ import { jobsApp } from './routes/jobs.js';
 import { authApp } from './routes/auth.js';
 import { debugRoutes } from './routes/debug.js';
 import { listAllEnabledModels } from './repo/model.js';
+import { markStaleRunsOnBoot } from './repo/runTrace.js';
 import { registerTool } from './tools/registry.js';
 import { builtinExecutors } from './tools/builtins/index.js';
 import { syncDirectorySkills } from './skills/index.js';
@@ -38,6 +39,19 @@ if (!existsSync(dataDir)) {
 }
 
 const db = initDatabase(dataDir);
+
+// 僵尸 Run 清理：上次进程退出时未到终态的 runs（queued / in_progress /
+// requires_action）批量置为 failed，避免轨迹列表残留永久挂起的 Run。
+// demo 每日重置会清空数据卷，无孤儿累积问题。
+try {
+  const staleRuns = markStaleRunsOnBoot();
+  if (staleRuns > 0) {
+    console.log(`[trace] markStaleRunsOnBoot: ${staleRuns} 个非终态 Run 置为 failed（服务重启中断）`);
+  }
+} catch (err) {
+  console.error('[trace] markStaleRunsOnBoot failed:', err);
+}
+
 const config = loadConfig(db);
 
 // Demo seeding — create the demo provider/model when DEMO_MODE=1 and the

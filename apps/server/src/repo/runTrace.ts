@@ -5,6 +5,7 @@ import type {
   RunTraceRecord,
   RunTraceStepType,
   StopReason,
+  TraceCollector,
 } from '@my-copilot/shared';
 import { getDb } from '../db/index.js';
 import { generateId } from './base.js';
@@ -313,4 +314,92 @@ export function markStaleRunsOnBoot(): number {
     )
     .run(...NON_TERMINAL_STATUSES);
   return info.changes;
+}
+
+// ---------------------------------------------------------------------------
+// SQLite TraceCollector
+// ---------------------------------------------------------------------------
+
+/** createSqliteTraceCollector 的构造参数。 */
+export interface SqliteTraceCollectorParams {
+  sessionId: string;
+  /** 触发本轮 Run 的真实用户消息 id（非 assistant 占位 id，NOT NULL）。 */
+  userMessageId: string;
+  assistantMessageId?: string | null;
+  agentId?: string | null;
+  jobId?: string | null;
+}
+
+/**
+ * 构造落库到 runs / run_steps 的 TraceCollector。
+ *
+ * - 真实 userMessageId 只能经构造参数注入（同步链路 lifecycle 捕获
+ *   createMessage 返回值、异步链路 worker 读 payload.realUserMessageId）；
+ *   runner 上报的部分字段仅补充 sessionId 之外的标识与状态；
+ * - 所有写库异常吞掉并 console.warn——trace 失败绝不影响 agent loop；
+ * - onRunStart 重复调用只保留首行；run 未创建时 onStep / onRunEnd 跳过。
+ */
+export function createSqliteTraceCollector(
+  params: SqliteTraceCollectorParams,
+): TraceCollector {
+  let runId: string | null = null;
+
+  const safe = (label: string, write: () => void): void => {
+    try {
+      write();
+    } catch (err) {
+      console.warn(
+        `[trace] ${label} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  };
+
+  return {
+    onRunStart(run) {
+      safe('onRunStart', () => {
+        if (runId !== null) return;
+        const created = createRun({
+          sessionId: params.sessionId,
+          userMessageId: params.userMessageId,
+          assistantMessageId:
+            run.assistantMessageId ?? params.assistantMessageId ?? null,
+          agentId: run.agentId ?? params.agentId ?? null,
+          jobId: run.jobId ?? params.jobId ?? null,
+          status: run.status ?? 'in_progress',
+        });
+        runId = created.id;
+      });
+    },
+    onStep(step) {
+      safe('onStep', () => {
+        if (runId === null) return;
+        appendStep({
+          runId,
+          seq: step.seq,
+          type: step.type,
+          toolName: step.toolName,
+          argsPreview: step.argsPreview,
+          resultPreview: step.resultPreview,
+          isError: step.isError,
+          durationMs: step.durationMs,
+        });
+      });
+    },
+    onRunEnd(run) {
+      safe('onRunEnd', () => {
+        if (runId === null) return;
+        updateRun(runId, {
+          status: run.status,
+          stopReason: run.stopReason ?? null,
+          iterations: run.iterations,
+          budgetSnapshot: run.budgetSnapshot ?? null,
+          degraded: run.degraded,
+          totalTokens: run.totalTokens,
+          endedAt: run.endedAt ?? new Date().toISOString(),
+          error: run.error ?? null,
+        });
+      });
+    },
+  };
 }

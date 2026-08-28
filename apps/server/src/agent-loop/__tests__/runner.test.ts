@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type {
   RunContext,
+  RunStepRecord,
+  RunTraceRecord,
   StreamEvent,
   Tool,
   ToolCall,
+  TraceCollector,
 } from '@my-copilot/shared';
 import type {
   ProviderAdapter,
@@ -827,5 +830,245 @@ describe('runAgentLoop', () => {
     } finally {
       debugSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TraceCollector 采集（旁路观察者）
+// ---------------------------------------------------------------------------
+
+/** fake collector 记录到的一次调用。 */
+type TraceCall =
+  | { kind: 'run_start'; run: Partial<RunTraceRecord> }
+  | { kind: 'step'; step: RunStepRecord }
+  | { kind: 'run_end'; run: Partial<RunTraceRecord> };
+
+function expectRunStart(call: TraceCall | undefined): Partial<RunTraceRecord> {
+  if (call === undefined || call.kind !== 'run_start') {
+    throw new Error(`expected run_start call, got ${call?.kind ?? 'none'}`);
+  }
+  return call.run;
+}
+
+function expectRunEnd(call: TraceCall | undefined): Partial<RunTraceRecord> {
+  if (call === undefined || call.kind !== 'run_end') {
+    throw new Error(`expected run_end call, got ${call?.kind ?? 'none'}`);
+  }
+  return call.run;
+}
+
+function makeTraceCollector(
+  overrides: Partial<TraceCollector> = {},
+): { collector: TraceCollector; calls: TraceCall[] } {
+  const calls: TraceCall[] = [];
+  return {
+    calls,
+    collector: {
+      onRunStart: (run) => {
+        calls.push({ kind: 'run_start', run });
+      },
+      onStep: (step) => {
+        calls.push({ kind: 'step', step });
+      },
+      onRunEnd: (run) => {
+        calls.push({ kind: 'run_end', run });
+      },
+      ...overrides,
+    },
+  };
+}
+
+describe('runAgentLoop · TraceCollector 采集', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockAssembleMessagesV2.mockReset();
+    const actualAssembler = await vi.importActual<
+      typeof import('../../prompt/assembler.js')
+    >('../../prompt/assembler.js');
+    mockAssembleMessagesV2.mockImplementation((params) =>
+      actualAssembler.assembleMessagesV2(params),
+    );
+    mockCreateMessage.mockImplementation((p: { role: string }) => ({
+      id: `db-${p.role}-${Date.now()}`,
+      ...p,
+    }));
+    mockUpdateMessage.mockReturnValue(undefined);
+    mockExecuteToolCall.mockReset();
+  });
+
+  // --- T1. 事件顺序与字段：run_start → llm_call/tool_exec 步骤 → run_end --
+  it('emits run_start → llm_call → tool_exec → llm_call → run_end in order with fields', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([
+        events.toolCallDone(0, 'call-1', 'echo', { x: 1 }),
+        events.finish('tool_calls'),
+      ]),
+      generatorFrom([events.content('done'), events.finish('stop')]),
+    ]);
+    // 延迟 10ms 的工具执行：tool_exec step 的 durationMs 可确定性断言 > 0。
+    mockExecuteToolCall.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(toolResult('echoed')), 10);
+        }),
+    );
+    const { collector, calls } = makeTraceCollector();
+
+    const result = await runAgentLoop(
+      makeParams({ adapter, tools: [makeTool('echo')], trace: collector }),
+    );
+
+    expect(result.status).toBe('completed');
+
+    // 事件顺序：run_start → 3 steps → run_end。
+    expect(calls.map((c) => c.kind)).toEqual([
+      'run_start',
+      'step',
+      'step',
+      'step',
+      'run_end',
+    ]);
+    // 步骤类型与 seq：llm_call(1) → tool_exec(2) → llm_call(3)。
+    const steps = calls.flatMap((c) => (c.kind === 'step' ? [c.step] : []));
+    expect(steps.map((s) => s.type)).toEqual(['llm_call', 'tool_exec', 'llm_call']);
+    expect(steps.map((s) => s.seq)).toEqual([1, 2, 3]);
+
+    // run_start 字段：runner 语境的标识 + in_progress；
+    // userMessageId（真实用户消息 id）不由 runner 提供（采集器构造方注入）。
+    const runStart = expectRunStart(calls[0]);
+    expect(runStart).toMatchObject({
+      sessionId: 'sess-1',
+      assistantMessageId: 'assistant-msg-1',
+      agentId: 'default',
+      status: 'in_progress',
+    });
+    expect(runStart.userMessageId).toBeUndefined();
+
+    // tool_exec step 字段：工具名 / 参数预览 / 结果预览 / 非错误 / 计时。
+    const toolStep = steps[1]!;
+    expect(toolStep.toolName).toBe('echo');
+    expect(toolStep.argsPreview).toBe('{"x":1}');
+    expect(toolStep.resultPreview).toContain('echoed');
+    expect(toolStep.isError).toBe(false);
+    expect(toolStep.durationMs).toBeGreaterThan(0);
+
+    // llm_call step 字段：非工具步骤 + 该轮 token 估算进 resultPreview。
+    for (const llmStep of [steps[0]!, steps[2]!]) {
+      expect(llmStep.toolName).toBeNull();
+      expect(llmStep.isError).toBe(false);
+      expect(llmStep.resultPreview).toMatch(/tokens$/);
+      expect(llmStep.durationMs).toBeGreaterThanOrEqual(0);
+    }
+
+    // run_end 字段：终态 / 迭代数 / 最后一轮预算 / token 估算。
+    const runEnd = expectRunEnd(calls[calls.length - 1]);
+    expect(runEnd).toMatchObject({
+      status: 'completed',
+      stopReason: 'end_turn',
+      iterations: 2,
+      degraded: false,
+    });
+    expect(runEnd.totalTokens).toBeGreaterThan(0);
+    expect(runEnd.budgetSnapshot).not.toBeNull();
+    expect(runEnd.endedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  // --- T2. maxSteps 终止：run_end 记 incomplete / max_steps ---------------
+  it('records status="incomplete" and stopReason="max_steps" when maxSteps terminates', async () => {
+    const foreverTools: AsyncGenerator<StreamEvent>[] = [];
+    for (let i = 0; i < 3; i++) {
+      foreverTools.push(
+        generatorFrom([
+          events.toolCallDone(i, `call-${i}`, 'echo', { round: i }),
+          events.finish('tool_calls'),
+        ]),
+      );
+    }
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+    const { collector, calls } = makeTraceCollector();
+
+    const result = await runAgentLoop(
+      makeParams({
+        adapter: makeAdapter(foreverTools),
+        tools: [makeTool('echo')],
+        maxIterations: 3,
+        trace: collector,
+      }),
+    );
+
+    expect(result.status).toBe('max_iterations');
+    const runEnd = expectRunEnd(calls[calls.length - 1]);
+    expect(runEnd).toMatchObject({
+      status: 'incomplete',
+      stopReason: 'max_steps',
+      iterations: 3,
+    });
+    // 3 轮 llm_call + 3 次 tool_exec。
+    const steps = calls.flatMap((c) => (c.kind === 'step' ? [c.step] : []));
+    expect(steps.filter((s) => s.type === 'llm_call')).toHaveLength(3);
+    expect(steps.filter((s) => s.type === 'tool_exec')).toHaveLength(3);
+  });
+
+  // --- T3. collector 抛错不中断 loop --------------------------------------
+  it('completes the loop and console.warns when the collector throws on onStep', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([
+        events.toolCallDone(0, 'call-1', 'echo'),
+        events.finish('tool_calls'),
+      ]),
+      generatorFrom([events.content('done'), events.finish('stop')]),
+    ]);
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { collector, calls } = makeTraceCollector({
+      onStep: () => {
+        throw new Error('collector exploded');
+      },
+    });
+
+    try {
+      const result = await runAgentLoop(
+        makeParams({ adapter, tools: [makeTool('echo')], trace: collector }),
+      );
+
+      // loop 照常完成，不受采集器故障影响。
+      expect(result.status).toBe('completed');
+      expect(result.content).toBe('done');
+      expect(mockExecuteToolCall).toHaveBeenCalledTimes(1);
+      // 采集器异常被吞掉并 console.warn。
+      expect(warnSpy).toHaveBeenCalled();
+      expect(
+        warnSpy.mock.calls.some(([msg]) => String(msg).includes('trace')),
+      ).toBe(true);
+      // run_start / run_end 仍被记录（仅 onStep 抛错）。
+      expect(calls.map((c) => c.kind)).toEqual(['run_start', 'run_end']);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  // --- T4. abort 终态：run_end 记 cancelled / user_interrupt --------------
+  it('records status="cancelled" and stopReason="user_interrupt" when aborted before any iteration', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const { collector, calls } = makeTraceCollector();
+
+    const result = await runAgentLoop(
+      makeParams({
+        adapter: makeAdapter([generatorFrom([events.finish('stop')])]),
+        abortSignal: ac.signal,
+        trace: collector,
+      }),
+    );
+
+    expect(result.status).toBe('aborted');
+    // 无迭代 → 无步骤事件。
+    expect(calls.map((c) => c.kind)).toEqual(['run_start', 'run_end']);
+    const runEnd = expectRunEnd(calls[calls.length - 1]);
+    expect(runEnd).toMatchObject({
+      status: 'cancelled',
+      stopReason: 'user_interrupt',
+      iterations: 0,
+    });
   });
 });

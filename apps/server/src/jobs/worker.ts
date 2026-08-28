@@ -1,4 +1,4 @@
-import type { Job, Message } from '@my-copilot/shared';
+import type { Job, Message, TraceCollector } from '@my-copilot/shared';
 import {
   claimJob,
   completeJob,
@@ -17,6 +17,12 @@ import { expirePendingToolApprovals } from '../repo/tool-approval.js';
 interface AgentLoopJobPayload {
   sessionId: string;
   userMessageId: string;
+  /**
+   * 真实用户消息 id（lifecycle 创建用户消息处捕获，供 TraceCollector 落
+   * runs.user_message_id 用）。旧存量 payload 缺此字段——此时跳过该 Run
+   * 的 trace 采集（user_message_id NOT NULL，禁止回退 assistant 占位 id）。
+   */
+  realUserMessageId?: string;
   userContent: string;
   history: Message[];
   attachments?: Array<{ name: string; content: string }>;
@@ -255,6 +261,7 @@ export function registerAgentLoopHandler(): void {
       { listRegisteredTools },
       { filterDemoTools },
       { buildSkillInjections },
+      { createSqliteTraceCollector },
     ] =
       await Promise.all([
         import('../agent-loop/runner.js'),
@@ -263,6 +270,7 @@ export function registerAgentLoopHandler(): void {
         import('../tools/registry.js'),
         import('../demo/tools.js'),
         import('../prompt/skill-injections.js'),
+        import('../repo/runTrace.js'),
       ]);
 
     const payload = job.payload as unknown as AgentLoopJobPayload;
@@ -271,6 +279,21 @@ export function registerAgentLoopHandler(): void {
       ...listRegisteredTools(),
       ...listEnabledTools().filter((tool) => tool.type === 'mcp-provided'),
     ]);
+
+    // 真实用户消息 id 缺失（旧存量 payload）时跳过该 Run 的 trace 采集：
+    // runs.user_message_id NOT NULL，回退 assistant 占位 id 会污染语义。
+    let trace: TraceCollector | undefined;
+    if (payload.realUserMessageId) {
+      trace = createSqliteTraceCollector({
+        sessionId: payload.sessionId,
+        userMessageId: payload.realUserMessageId,
+        jobId: job.id,
+      });
+    } else {
+      console.warn(
+        `[jobs] agent-loop job ${job.id} payload 缺少 realUserMessageId，跳过该 Run 的 trace 采集`,
+      );
+    }
 
     return runAgentLoopAsJob(
       job,
@@ -286,6 +309,7 @@ export function registerAgentLoopHandler(): void {
         tools,
         adapter,
         adapterConfig: payload.adapterConfig,
+        trace,
       },
       signal,
     );

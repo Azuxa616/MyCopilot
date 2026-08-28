@@ -21,14 +21,19 @@
  * This makes it usable from a request-bound SSE handler today and from a
  * background job in Step B without changes.
  */
+import { randomUUID } from 'node:crypto';
 import type {
+  BudgetBreakdown,
   Job,
   Message,
+  RunStatus,
+  RunStepRecord,
   StopReason,
   StreamEvent,
   Tool,
   ToolApproval,
   ToolCall,
+  TraceCollector,
 } from '@my-copilot/shared';
 import type {
   ChatMessage,
@@ -122,6 +127,11 @@ export interface RunAgentLoopParams {
    * Defaults to AGENT_MAX_ITERATIONS env var or 10.
    */
   maxIterations?: number;
+  /**
+   * 可选轨迹采集器（旁路观察者，DECOUPLED 同 onEvent）：runner 只上报
+   * run 开始 / 每步 / 终态，不感知落库；采集异常被吞掉，绝不影响循环。
+   */
+  trace?: TraceCollector;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +171,35 @@ function resolveMaxIterations(override?: number): number {
   if (override !== undefined) return override;
   const env = Number.parseInt(process.env.AGENT_MAX_ITERATIONS ?? '', 10);
   return Number.isFinite(env) && env > 0 ? env : DEFAULT_MAX_ITERATIONS;
+}
+
+/**
+ * AgentLoopStatus → runs 终态（RunStatus CHECK 域）+ StopReason 的映射表，
+ * 供 trace 采集旁路使用（RFC §1 状态机映射的观察者视角）。
+ */
+const TRACE_TERMINAL_BY_STATUS: Readonly<
+  Record<AgentLoopStatus, { status: RunStatus; stopReason: StopReason }>
+> = {
+  completed: { status: 'completed', stopReason: 'end_turn' },
+  length_limited: { status: 'incomplete', stopReason: 'max_tokens' },
+  max_iterations: { status: 'incomplete', stopReason: 'max_steps' },
+  aborted: { status: 'cancelled', stopReason: 'user_interrupt' },
+  error: { status: 'failed', stopReason: 'error' },
+};
+
+/**
+ * 执行一次采集回调并吞掉异常：trace 是旁路观察者，采集器故障只允许
+ * 降级为 console.warn，绝不中断 agent loop 主流程。
+ */
+function emitTrace(call: () => void): void {
+  try {
+    call();
+  } catch (err) {
+    console.warn(
+      '[runner] trace collector error:',
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 /**
@@ -287,12 +326,71 @@ export async function runAgentLoop(
     adapterConfig,
     abortSignal,
     onEvent,
+    trace,
   } = params;
 
   // Run 生命周期状态机（RFC §1）：内存态跟踪，SSE 事件映射由 lifecycle（T14）
   // 完成，这里只负责在终止/确认路径上驱动合法转移。
   const runState = new RunStateMachine(runId);
   runState.transition('start'); // queued → in_progress
+
+  // Trace 采集（旁路观察者）：真实 userMessageId 由采集器构造方注入
+  // （RunAgentLoopParams.userMessageId 是 assistant 占位 id，语义澄清见
+  // todo 3 计划——不得落入 runs.user_message_id）；此处只上报 runner
+  // 语境的标识字段与生命周期。
+  if (trace) {
+    emitTrace(() => {
+      trace.onRunStart({
+        sessionId,
+        assistantMessageId: userMessageId,
+        agentId,
+        jobId,
+        status: 'in_progress',
+      });
+    });
+  }
+
+  // Trace 终态/步骤的累积上下文（无 trace 时零开销地保持未用）。
+  let iterations = 0;
+  let lastBudget: BudgetBreakdown | null = null;
+  let lastDegraded = false;
+  let lastTokenEstimate = 0;
+  let traceSeq = 0;
+
+  const recordStep = (
+    step: Omit<RunStepRecord, 'id' | 'runId' | 'seq' | 'createdAt'>,
+  ): void => {
+    if (!trace) return;
+    traceSeq += 1;
+    const record: RunStepRecord = {
+      id: randomUUID(),
+      runId,
+      seq: traceSeq,
+      createdAt: new Date().toISOString(),
+      ...step,
+    };
+    emitTrace(() => trace.onStep(record));
+  };
+
+  const endTrace = (
+    status: AgentLoopStatus,
+    overrides?: { stopReason?: StopReason; error?: string },
+  ): void => {
+    if (!trace) return;
+    const terminal = TRACE_TERMINAL_BY_STATUS[status];
+    emitTrace(() => {
+      trace.onRunEnd({
+        status: terminal.status,
+        stopReason: overrides?.stopReason ?? terminal.stopReason,
+        iterations,
+        budgetSnapshot: lastBudget,
+        degraded: lastDegraded,
+        totalTokens: lastTokenEstimate,
+        endedAt: new Date().toISOString(),
+        error: overrides?.error ?? null,
+      });
+    });
+  };
 
   // LoopGuard v2（RFC §5）：maxSteps 由 resolveMaxIterations 解析
   // （params.maxIterations → AGENT_MAX_ITERATIONS env → 默认 10，
@@ -321,8 +419,6 @@ export async function runAgentLoop(
   }));
 
   try {
-    let iterations = 0;
-
     while (iterations < guard.config.maxSteps) {
       // Per-iteration content accumulator. Reset every iteration so the
       // placeholder message and persisted assistant messages contain only
@@ -336,12 +432,14 @@ export async function runAgentLoop(
       //    user_interrupt > max_steps > max_tokens。user_interrupt 同时承担了
       //    v1 的循环顶 abortSignal.aborted 检查；max_steps 因 while 条件已用
       //    guard.config.maxSteps 封顶而由循环底部常规路径兜底。
+      const historyTokens = estimateMessagesTokens(history);
       const guardDecision = guard.check({
         iterations,
-        historyTokens: estimateMessagesTokens(history),
+        historyTokens,
         abortSignal,
         attemptedDigests,
       });
+      lastTokenEstimate = historyTokens;
       if (guardDecision.stop && guardDecision.reason !== undefined) {
         const action = routeStopReason(guardDecision.reason);
         if (action === 'terminate_cancelled') {
@@ -351,6 +449,7 @@ export async function runAgentLoop(
             status: 'aborted',
           });
           runState.transition('abort');
+          endTrace('aborted');
           await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
           return {
             status: 'aborted',
@@ -367,6 +466,7 @@ export async function runAgentLoop(
           status: 'sent',
         });
         runState.transition('max_steps');
+        endTrace('max_iterations', { stopReason: guardDecision.reason });
         await safeEmit(onEvent, {
           type: 'agent_loop_end',
           endReason: 'max_iterations',
@@ -398,6 +498,8 @@ export async function runAgentLoop(
         adapterConfig,
         strategy: 'sliding_window',
       });
+      lastBudget = runContext.budget;
+      lastDegraded = runContext.degraded;
       if (runContext.degraded) {
         // 仅在降级时输出一条中文 debug（预算与降级状态），正常路径零噪音。
         console.debug(
@@ -417,6 +519,7 @@ export async function runAgentLoop(
       }));
 
       // 3. Open the LLM stream.
+      const llmCallStartedAt = Date.now();
       const generator = adapter.chatCompletionStream(chatMessages, adapterConfig, {
         tools: jsonTools.length > 0 ? jsonTools : undefined,
         toolChoice: 'auto',
@@ -454,6 +557,17 @@ export async function runAgentLoop(
         }
       }
 
+      // llm_call 轨迹步骤：耗时 + 该轮 history token 估算（guard.check 的
+      // 输入值；budget 维度的分配快照由 run 级 budgetSnapshot 承担）。
+      recordStep({
+        type: 'llm_call',
+        toolName: null,
+        argsPreview: null,
+        resultPreview: `~${historyTokens} tokens`,
+        isError: false,
+        durationMs: Date.now() - llmCallStartedAt,
+      });
+
       // Remember this iteration's content for terminal / fallback paths
       // outside the loop (max_iterations, exception handler).
       lastIterationContent = iterationContent;
@@ -462,6 +576,7 @@ export async function runAgentLoop(
       if (abortSignal.aborted) {
         updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
         runState.transition('abort');
+        endTrace('aborted');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
         return { status: 'aborted', content: iterationContent, messages: addedMessages };
       }
@@ -482,6 +597,7 @@ export async function runAgentLoop(
           runState.transition('max_steps'); // in_progress → incomplete
           status = 'length_limited';
         }
+        endTrace(status);
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: status });
         return { status, content: iterationContent, messages: addedMessages };
       }
@@ -492,6 +608,7 @@ export async function runAgentLoop(
       if (toolCalls.length === 0) {
         updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
         runState.transition('stop');
+        endTrace('completed');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'completed' });
         return { status: 'completed', content: iterationContent, messages: addedMessages };
       }
@@ -542,29 +659,53 @@ export async function runAgentLoop(
       // 10. Execute non-skipped tool calls in parallel. 确认流回调内同步驱动
       //     Run 状态机（RFC §1：in_progress ↔ requires_action）；并行工具可能
       //     连续触发确认，已处于目标状态时跳过重复转移以免非法转移抛错。
+      //     tool_exec 轨迹步骤在 per-tool 包装内独立计时（并行执行下各自
+      //     的 durationMs 才是真实耗时，串行累加会虚增）。
       const toolResults = await Promise.all(
-        pendingToolCalls.map((tc) =>
-          executeToolCall(tc, {
-            sessionId,
-            agentId,
-            jobId,
-            runId,
-            signal: abortSignal,
-            advertisedTool: toolsByName.get(tc.name),
-            onConfirmationRequired: (approval) => {
-              if (runState.getStatus() === 'in_progress') {
-                runState.transition('await_confirmation');
-              }
-              onEvent({ type: 'tool_confirmation_required', approval });
-            },
-            onConfirmationSettled: (approval) => {
-              if (runState.getStatus() === 'requires_action') {
-                runState.transition('confirmation_granted');
-              }
-              onEvent({ type: 'tool_confirmation_settled', approval });
-            },
-          }),
-        ),
+        pendingToolCalls.map(async (tc) => {
+          const toolStartedAt = Date.now();
+          try {
+            const result = await executeToolCall(tc, {
+              sessionId,
+              agentId,
+              jobId,
+              runId,
+              signal: abortSignal,
+              advertisedTool: toolsByName.get(tc.name),
+              onConfirmationRequired: (approval) => {
+                if (runState.getStatus() === 'in_progress') {
+                  runState.transition('await_confirmation');
+                }
+                onEvent({ type: 'tool_confirmation_required', approval });
+              },
+              onConfirmationSettled: (approval) => {
+                if (runState.getStatus() === 'requires_action') {
+                  runState.transition('confirmation_granted');
+                }
+                onEvent({ type: 'tool_confirmation_settled', approval });
+              },
+            });
+            recordStep({
+              type: 'tool_exec',
+              toolName: tc.name,
+              argsPreview: tc.arguments,
+              resultPreview: JSON.stringify(result.content),
+              isError: result.isError ?? false,
+              durationMs: Date.now() - toolStartedAt,
+            });
+            return result;
+          } catch (err) {
+            recordStep({
+              type: 'tool_exec',
+              toolName: tc.name,
+              argsPreview: tc.arguments,
+              resultPreview: err instanceof Error ? err.message : String(err),
+              isError: true,
+              durationMs: Date.now() - toolStartedAt,
+            });
+            throw err;
+          }
+        }),
       );
 
       // 11. Persist each executed tool result, push to history, notify caller.
@@ -615,6 +756,15 @@ export async function runAgentLoop(
         ];
         const resultJson = JSON.stringify(skippedContent);
 
+        recordStep({
+          type: 'tool_exec',
+          toolName: tc.name,
+          argsPreview: tc.arguments,
+          resultPreview: resultJson,
+          isError: true,
+          durationMs: 0,
+        });
+
         createMessage({
           sessionId,
           role: 'tool',
@@ -650,6 +800,7 @@ export async function runAgentLoop(
       if (abortSignal.aborted) {
         updateMessage(userMessageId, { content: iterationContent, status: 'aborted' });
         runState.transition('abort');
+        endTrace('aborted');
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
         return { status: 'aborted', content: iterationContent, messages: addedMessages };
       }
@@ -660,6 +811,7 @@ export async function runAgentLoop(
     //     'max_iterations'（Run → incomplete）。
     updateMessage(userMessageId, { content: lastIterationContent, status: 'sent' });
     runState.transition('max_steps');
+    endTrace('max_iterations');
     await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'max_iterations' });
     return { status: 'max_iterations', content: lastIterationContent, messages: addedMessages };
   } catch (err) {
@@ -669,6 +821,7 @@ export async function runAgentLoop(
     if (abortSignal.aborted) {
       runState.transition('abort');
       updateMessage(userMessageId, { content: lastIterationContent, status: 'aborted' });
+      endTrace('aborted');
       await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'aborted' });
       return { status: 'aborted', content: lastIterationContent, messages: addedMessages };
     }
@@ -679,6 +832,7 @@ export async function runAgentLoop(
       status: 'failed',
       error: message,
     });
+    endTrace('error', { error: message });
     await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'error' });
     return {
       status: 'error',
@@ -729,6 +883,8 @@ export interface AgentLoopJobContext {
   tools: Tool[];
   adapter: ProviderAdapter;
   adapterConfig: AdapterConfig;
+  /** 可选轨迹采集器（由 worker 构造注入，透传给 runAgentLoop）。 */
+  trace?: TraceCollector;
 }
 
 /**
