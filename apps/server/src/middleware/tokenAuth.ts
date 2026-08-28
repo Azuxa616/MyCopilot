@@ -27,6 +27,10 @@ const DEMO_ROUTE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   // 只读执行轨迹查询（run id 为 randomUUID，不可枚举）
   { method: 'GET', pattern: /^\/api\/sessions\/[^/]+\/runs$/ },
   { method: 'GET', pattern: /^\/api\/runs\/[^/]+$/ },
+  // 只读评估端点（快照/场景列表/确定性回放，todo 9）
+  { method: 'GET', pattern: /^\/api\/eval\/snapshot$/ },
+  { method: 'GET', pattern: /^\/api\/eval\/scenarios$/ },
+  { method: 'GET', pattern: /^\/api\/eval\/scenarios\/[^/]+\/replay$/ },
 ];
 
 function isDemoRouteAllowed(method: string, path: string): boolean {

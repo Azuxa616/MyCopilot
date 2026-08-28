@@ -1,0 +1,256 @@
+{
+  "generatedAt": "2026-08-28T07:12:08.682Z",
+  "gitCommit": "9eeedb921e36a62455a2784ae4e72de03c17ee32",
+  "scenarios": [
+    {
+      "scenarioId": "multi-step-tool-chain",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 2,
+        "llm_calls": 2,
+        "duration_ms": 21,
+        "tokens_estimated": 52
+      },
+      "faultType": null,
+      "runTraceId": "ce6b66d6-9056-4030-a3c7-71ba37bc7764",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 completed，实际 completed"
+        },
+        {
+          "kind": "tool_sequence",
+          "pass": true,
+          "detail": "期望 [calculator,json_format]，实际 [calculator,json_format]（精确模式）"
+        },
+        {
+          "kind": "final_contains",
+          "pass": true,
+          "detail": "最终内容包含 \"5\""
+        }
+      ]
+    },
+    {
+      "scenarioId": "repeat-call-guard",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 4,
+        "llm_calls": 4,
+        "duration_ms": 4,
+        "tokens_estimated": 151
+      },
+      "faultType": null,
+      "runTraceId": "fa39de58-a7b1-43d4-9576-8251b6a41b9b",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 completed，实际 completed"
+        },
+        {
+          "kind": "tool_sequence",
+          "pass": true,
+          "detail": "期望 [calculator,calculator,calculator]，实际 [calculator,calculator,calculator]（精确模式）"
+        }
+      ]
+    },
+    {
+      "scenarioId": "tool-error-recovery",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 3,
+        "llm_calls": 3,
+        "duration_ms": 4,
+        "tokens_estimated": 51
+      },
+      "faultType": null,
+      "runTraceId": "25568324-253a-42c1-86c9-f0e432352884",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 completed，实际 completed"
+        },
+        {
+          "kind": "tool_sequence",
+          "pass": true,
+          "detail": "期望 [calculator,calculator]，实际 [calculator,calculator]（精确模式）"
+        },
+        {
+          "kind": "final_contains",
+          "pass": true,
+          "detail": "最终内容包含 \"5\""
+        }
+      ]
+    },
+    {
+      "scenarioId": "context-degradation",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 2,
+        "llm_calls": 2,
+        "duration_ms": 15,
+        "tokens_estimated": 36689
+      },
+      "faultType": null,
+      "runTraceId": "6b38f3d1-933e-4e57-9c1b-afc0ad9b5a57",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 completed，实际 completed"
+        },
+        {
+          "kind": "degraded",
+          "pass": true,
+          "detail": "最终装配消息含 1 条截断 tool 消息（≤2000+后缀）"
+        },
+        {
+          "kind": "tool_sequence",
+          "pass": true,
+          "detail": "期望 [base64_encode]，实际 [base64_encode]（精确模式）"
+        }
+      ]
+    },
+    {
+      "scenarioId": "summarization-trigger",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 6,
+        "llm_calls": 6,
+        "duration_ms": 6,
+        "tokens_estimated": 2248
+      },
+      "faultType": null,
+      "runTraceId": "44641330-dfc0-4951-a772-4a5a62966bc3",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 completed，实际 completed"
+        },
+        {
+          "kind": "summary_created",
+          "pass": true,
+          "detail": "期望 summary_created=true，实际 message_summaries 有 新增"
+        }
+      ]
+    },
+    {
+      "scenarioId": "approval-approve-flow",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 2,
+        "llm_calls": 2,
+        "duration_ms": 3,
+        "tokens_estimated": 35
+      },
+      "faultType": null,
+      "runTraceId": "9de92947-ad9e-4e30-9976-daa56a3174f3",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 completed，实际 completed"
+        },
+        {
+          "kind": "approval_flow",
+          "pass": true,
+          "detail": "期望 tool_approvals 终态 approved，实际 [approved]（1 条审批）"
+        },
+        {
+          "kind": "tool_sequence",
+          "pass": true,
+          "detail": "期望 [e2e_danger_tool]，实际 [e2e_danger_tool]（精确模式）"
+        }
+      ]
+    },
+    {
+      "scenarioId": "approval-reject-flow",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 2,
+        "llm_calls": 2,
+        "duration_ms": 3,
+        "tokens_estimated": 29
+      },
+      "faultType": null,
+      "runTraceId": "5d048dbc-84c6-4143-b0f6-a6392faf3c89",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 completed，实际 completed"
+        },
+        {
+          "kind": "approval_flow",
+          "pass": true,
+          "detail": "期望 tool_approvals 终态 rejected，实际 [rejected]（1 条审批）"
+        },
+        {
+          "kind": "tool_sequence",
+          "pass": true,
+          "detail": "期望 []，实际 []（精确模式）"
+        }
+      ]
+    },
+    {
+      "scenarioId": "max-steps-termination",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 2,
+        "llm_calls": 2,
+        "duration_ms": 3,
+        "tokens_estimated": 26
+      },
+      "faultType": null,
+      "runTraceId": "b515cbb8-2623-4445-bc92-34f7a1ac4094",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 incomplete，实际 incomplete"
+        },
+        {
+          "kind": "max_steps_hit",
+          "pass": true,
+          "detail": "期望 max_steps_hit=true，实际 stopReason=max_steps"
+        }
+      ]
+    },
+    {
+      "scenarioId": "user-abort-partial",
+      "mode": "deterministic",
+      "status": "pass",
+      "metrics": {
+        "steps_used": 1,
+        "llm_calls": 1,
+        "duration_ms": 3,
+        "tokens_estimated": 0
+      },
+      "faultType": null,
+      "runTraceId": "2eda192b-8b27-4b13-84b6-84b45bacde3b",
+      "assertionResults": [
+        {
+          "kind": "status",
+          "pass": true,
+          "detail": "期望 cancelled，实际 cancelled"
+        }
+      ]
+    }
+  ],
+  "aggregate": {
+    "passRate": 1,
+    "avgSteps": 2.6667,
+    "recoveryRate": 1
+  }
+}

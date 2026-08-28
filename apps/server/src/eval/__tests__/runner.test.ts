@@ -111,6 +111,28 @@ describe('runScenario（deterministic 端到端）', () => {
     }
   });
 
+  it('--replay-json 载荷序列化：{runTrace, steps, evalRun} JSON 往返无损（todo 9 回放契约）', async () => {
+    const dir = freshDir();
+    try {
+      const run = await runScenario(byId('multi-step-tool-chain'), { dataDir: dir });
+      // cli.ts --replay-json 写盘、回放端点读回的都是这个载荷的 JSON 序列化。
+      const roundTripped = JSON.parse(
+        JSON.stringify({ runTrace: run.runTrace, steps: run.steps, evalRun: run.evalRun }),
+      ) as typeof run;
+
+      expect(roundTripped.evalRun.scenarioId).toBe('multi-step-tool-chain');
+      expect(roundTripped.evalRun.status).toBe('pass');
+      expect(roundTripped.runTrace?.status).toBe('completed');
+      const toolSteps = roundTripped.steps.filter((s) => s.type === 'tool_exec');
+      expect(toolSteps.map((s) => s.toolName)).toEqual(['calculator', 'json_format']);
+      // 注：不断言 durationMs > 0 —— 计时粒度在满负荷套件下可为 0，
+      // 序列化契约只保证字段经 JSON 往返不丢失（typeof number）。
+      expect(toolSteps.every((s) => typeof s.durationMs === 'number')).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
   it('approval-approve-flow：自动批准确认请求，tool_approvals 终态 approved', async () => {
     const dir = freshDir();
     try {
