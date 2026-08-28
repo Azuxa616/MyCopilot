@@ -9,6 +9,7 @@ import type { Virtualizer } from '@tanstack/react-virtual'
 import MessageCard from '../common/MessageCard'
 import ToolCallProgress from '../common/ToolCallProgress'
 import ThinkingIndicator from '../common/ThinkingIndicator'
+import RunTraceSection from './RunTraceSection'
 // Assets
 import aiAvatar from '../../assets/img/avatar-ai.svg'
 
@@ -94,6 +95,8 @@ export default function MessageList({
               onRegenerate={showRegenerate ? () => onRegenerate(message) : undefined}
               onRetry={showRetry ? () => onRegenerate(message) : undefined}
             />
+            {/* 执行轨迹折叠区：仅用户消息下方、且存在匹配 Run 时渲染（内部自判） */}
+            {isUserMessage && <RunTraceSection message={message} />}
             {isLastMessage && (
               <>
                 <ThinkingIndicator alignRight={isUserMessage} />

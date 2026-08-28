@@ -16,6 +16,7 @@ import { useJobStream, TERMINAL_JOB_STATUSES, getJobStatusText } from './hooks/u
 import { useSessionStore } from '../../store/sessionStore'
 import { useConfigStore } from '../../store/configStore'
 import { NEW_SESSION_SENTINEL } from '../../store/sessionStore'
+import { useTraceStore } from '../../store/traceStore'
 // API
 import { api } from '../../api'
 import type { Model, Provider } from '@my-copilot/shared'
@@ -133,6 +134,15 @@ export default function ChatShell() {
       loadSessionMessages(selectedSessionId)
     }
   }, [selectedSessionId, currentSession, loadSessionMessages])
+
+  // 执行轨迹：会话打开时拉取一次 Run 列表（已完成 Run 的历史回放数据源）。
+  // 不做进行中 Run 的轮询刷新——实时态由 ToolCallProgress/ThinkingIndicator 呈现。
+  useEffect(() => {
+    if (!authToken) return
+    if (selectedSessionId && selectedSessionId !== NEW_SESSION_SENTINEL) {
+      useTraceStore.getState().fetchRuns(selectedSessionId)
+    }
+  }, [authToken, selectedSessionId])
 
   // When the background job reaches a terminal state, refresh the session's
   // messages from the server and clear the active job id. The cache is dropped
