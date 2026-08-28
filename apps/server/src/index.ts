@@ -21,6 +21,7 @@ import { createSkillsApp } from './routes/skills.js';
 import { mcpsApp } from './routes/mcps.js';
 import { pluginsApp } from './routes/plugins.js';
 import { jobsApp } from './routes/jobs.js';
+import { tracesApp } from './routes/traces.js';
 import { authApp } from './routes/auth.js';
 import { debugRoutes } from './routes/debug.js';
 import { listAllEnabledModels } from './repo/model.js';
@@ -95,6 +96,8 @@ app.route('/api/mcps', mcpsApp);
 app.route('/api/plugins', pluginsApp);
 app.route('/api/jobs', jobsApp);
 app.route('/api/auth', authApp);
+// 只读执行轨迹查询（挂到 /api 前缀下，覆盖 /api/sessions/:id/runs 与 /api/runs/:runId）
+app.route('/api', tracesApp);
 
 // Debug route — mounted ONLY when MYCOPILOT_DEBUG === '1' (explicit opt-in).
 // Docker/prod never sets this flag, so the endpoint is fully absent (404),

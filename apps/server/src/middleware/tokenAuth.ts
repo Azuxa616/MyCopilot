@@ -24,6 +24,9 @@ const DEMO_ROUTE_RULES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
   { method: 'GET', pattern: /^\/api\/jobs\/[^/]+$/ },
   { method: 'POST', pattern: /^\/api\/jobs\/[^/]+\/cancel$/ },
   { method: 'GET', pattern: /^\/api\/auth\/me$/ },
+  // 只读执行轨迹查询（run id 为 randomUUID，不可枚举）
+  { method: 'GET', pattern: /^\/api\/sessions\/[^/]+\/runs$/ },
+  { method: 'GET', pattern: /^\/api\/runs\/[^/]+$/ },
 ];
 
 function isDemoRouteAllowed(method: string, path: string): boolean {

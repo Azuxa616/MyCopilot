@@ -111,6 +111,8 @@ describe('tokenAuthMiddleware demo token', () => {
     app.get('/api/jobs/abc', (c) => c.json({ data: {} }));
     app.post('/api/jobs/abc/cancel', (c) => c.json({ data: {} }));
     app.get('/api/auth/me', (c) => c.json({ data: { role: 'demo' } }));
+    app.get('/api/sessions/:id/runs', (c) => c.json({ data: [] }));
+    app.get('/api/runs/:runId', (c) => c.json({ data: { run: {}, steps: [] } }));
     return app;
   }
 
@@ -148,6 +150,30 @@ describe('tokenAuthMiddleware demo token', () => {
       headers: { Authorization: 'Bearer demo-token-456' },
     });
     expect(res.status).toBe(403);
+  });
+
+  it('demo token can GET /api/sessions/:id/runs and /api/runs/:runId (trace whitelist)', async () => {
+    const res1 = await demoApp.request('/api/sessions/s1/runs', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res1.status).toBe(200);
+    const res2 = await demoApp.request('/api/runs/r1', {
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res2.status).toBe(200);
+  });
+
+  it('demo token gets 403 on non-GET methods for trace endpoints (GET-only whitelist)', async () => {
+    const res1 = await demoApp.request('/api/runs/r1', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res1.status).toBe(403);
+    const res2 = await demoApp.request('/api/sessions/s1/runs', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer demo-token-456' },
+    });
+    expect(res2.status).toBe(403);
   });
 
   it('admin token (config table) bypasses whitelist on /api/providers', async () => {
