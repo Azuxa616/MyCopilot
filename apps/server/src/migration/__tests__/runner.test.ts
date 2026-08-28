@@ -47,12 +47,15 @@ describe('runMigrations', () => {
     expect(tableNames).toContain('plugin_lifecycle_events');
     // Skill pack model (0006)
     expect(tableNames).toContain('skill_files');
+    // Run traces (0008)
+    expect(tableNames).toContain('runs');
+    expect(tableNames).toContain('run_steps');
 
-    // applied_migrations has exactly 7 rows (0001..0007)
+    // applied_migrations has exactly 8 rows (0001..0008)
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(7);
+    expect(row.count).toBe(8);
 
     db.close();
   });
@@ -111,7 +114,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(7);
+    expect(row.count).toBe(8);
 
     db.close();
   });
