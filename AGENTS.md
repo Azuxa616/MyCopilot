@@ -17,8 +17,7 @@ MyCopilot/
 │   └── shared/    # Shared types and utilities (@my-copilot/shared)
 ├── docker/        # Multi-stage Dockerfile + docker-compose
 ├── docs/          # Project documentation
-├── .agents/       # AI agent skills (opencode)
-└── .sisyphus/     # Sisyphus planning artifacts
+└── .agents/       # AI agent skills (opencode)
 ```
 
 ## WHERE TO LOOK
@@ -27,7 +26,7 @@ MyCopilot/
 | Frontend app | `apps/web/src/` | React SPA, Zustand stores |
 | Backend API | `apps/server/src/` | Hono REST + SSE streaming |
 | Shared types | `packages/shared/src/` | Cross-package type definitions |
-| API routes | `apps/server/src/routes/` | health, models, providers, sessions, messages |
+| API routes | `apps/server/src/routes/` | health, auth, sessions, messages, jobs, traces, eval 等 |
 | Data layer | `apps/server/src/repo/` | SQLite repo pattern |
 | LLM integration | `apps/server/src/llm/` | OpenAI-compatible API clients |
 | State stores | `apps/web/src/store/` | sessionStore, configStore, userStore |
@@ -48,12 +47,12 @@ MyCopilot/
 ## CONVENTIONS
 - **Bundler**: Uses `rolldown-vite@7.2.2` (pnpm override), NOT standard Vite
 - **React components**: PascalCase directory names (e.g., `ChatShell/`, `Sender/`)
-- **Server modules**: Flat functional modules (repo/, llm/, streaming/, attachment/, prompt/) — NOT traditional services/ layer
+- **Server modules**: Flat functional modules (repo/, llm/, streaming/, agent-loop/, tools/, skills/, mcp/, jobs/, demo/, eval/, plugin/ 等) — NOT traditional services/ layer
 - **TypeScript**: Strict mode everywhere, `verbatimModuleSyntax`, `erasableSyntaxOnly`
-- **State**: Zustand with localStorage persistence in Real mode
+- **State**: Zustand; `configStore` persists to localStorage unconditionally
 - **Styling**: TailwindCSS v4 (CSS-based theming, NOT config-based)
 - **Testing**: Vitest (jsdom for web, node for server/shared)
-- **API mode**: Mock/Real toggle driven from `configStore` at runtime
+- **Auth model**: dual token, admin (`AUTH_TOKEN`) + demo (`DEMO_TOKEN`) roles resolved via `/api/auth/me`; demo role is restricted to a read-only route whitelist (`DEMO_ROUTE_RULES`)
 - **Chunk splitting**: Custom vendor chunks in Vite (react-vendor, ui-vendor, utils-vendor)
 
 ## DOCUMENTATION LANGUAGE (项目级强制约定)
@@ -97,6 +96,6 @@ pnpm --filter server dev  # Server dev only
 - Server serves web static files in production (serves `apps/web/dist/`)
 - Web proxies `/api` → `localhost:3000` in dev mode
 - Database: SQLite stored in `apps/server/data/` (gitignored)
-- Auth: Simple token-based (`AUTH_TOKEN` env var)
+- Auth: dual token (`AUTH_TOKEN` admin + `DEMO_TOKEN` demo, demo limited to read-only whitelist)
 - LLM: Supports any OpenAI-compatible API (configurable per provider)
 - No CI/CD pipeline configured

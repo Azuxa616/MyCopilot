@@ -30,6 +30,9 @@ MyCopilot 面向两类使用者：
 - **Skills**：通过 Markdown 定义可复用的工作方式，可在界面中管理，也可以从目录同步。
 - **MCP**：连接 stdio 或 HTTP MCP 服务，自动同步服务提供的工具。
 - **后台任务**：较长的 Agent 执行通过后台 job worker 处理，并通过 SSE 向前端推送进度。
+- **执行轨迹**：每次 Agent 执行（Run）的每一步调用与六桶上下文预算快照持久化保存，可在聊天中展开查看步骤时间线与预算分布。
+- **评估体系**：内置确定性评估场景（真 runtime + 假 LLM）与 live 场景（真实模型多次一致性统计），`pnpm eval` 一条命令即可回归并生成快照。
+- **能力与评估演示页**：`/capabilities` 展示 Runtime 与普通 AI Chat 的能力对比，`/evaluations` 展示评估成绩单，并支持评估场景的现场确定性回放。
 
 ## 快速开始
 
@@ -115,6 +118,7 @@ Server 端按功能组织为 `routes/`、`repo/`、`llm/`、`prompt/`、`streami
 pnpm dev          # 同时启动 Web 与 Server
 pnpm build        # 构建所有 workspace 包
 pnpm test         # 运行全部 Vitest 测试
+pnpm eval         # 运行 Agent 确定性评估场景，加 -- --report 生成快照
 pnpm lint         # 运行 ESLint
 pnpm typecheck    # 执行 TypeScript 类型检查
 ```

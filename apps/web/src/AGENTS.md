@@ -37,8 +37,8 @@ src/
 - Hooks live INSIDE their component dir (e.g., `ChatShell/hooks/`), never in a top-level `hooks/` folder.
 - Component directories are PascalCase. Single-use widgets can stay as flat files (`EmptyState.tsx`).
 - Components import the API through `api/index.ts`, not `real.ts` or `request.ts` directly.
-- Mock/Real mode is a runtime toggle driven from `configStore`; behavior branches at the barrel.
-- Zustand stores persist to localStorage only in Real mode.
+- Auth resolves a role (`admin` | `demo` | null) via `/api/auth/me` into `configStore`; demo restrictions live server-side (`DEMO_ROUTE_RULES` whitelist), the client only hides the settings nav for demo.
+- `configStore` persists to localStorage unconditionally; `traceStore` / `evalStore` skip persistence (data is refetchable).
 - Styling is TailwindCSS v4, CSS-first. Tokens live in `index.css`, not a JS config.
 
 ## ANTI-PATTERNS
