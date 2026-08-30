@@ -1,6 +1,5 @@
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import type { Server } from 'node:http';
@@ -25,6 +24,7 @@ import { tracesApp } from './routes/traces.js';
 import { evalApp } from './routes/eval.js';
 import { authApp } from './routes/auth.js';
 import { debugRoutes } from './routes/debug.js';
+import { createStaticFileHandler } from './routes/static.js';
 import { listAllEnabledModels } from './repo/model.js';
 import { markStaleRunsOnBoot } from './repo/runTrace.js';
 import { registerTool } from './tools/registry.js';
@@ -160,18 +160,7 @@ void startJobWorker();
 
 // Static file serving — single-container mode
 if (config.serverPublicDir && existsSync(config.serverPublicDir)) {
-  app.get('*', async (c) => {
-    const path = c.req.path;
-    const filePath = `${config.serverPublicDir}${path === '/' ? '/index.html' : path}`;
-    try {
-      const file = await readFile(filePath);
-      return c.body(file);
-    } catch {
-      return c.html(
-        (await readFile(`${config.serverPublicDir}/index.html`)).toString('utf-8'),
-      );
-    }
-  });
+  app.get('*', createStaticFileHandler(config.serverPublicDir));
 }
 
 const server = serve(
