@@ -327,4 +327,84 @@ describe('executeToolCall routing', () => {
     expect(result.content[0]!.text).toContain('Unknown tool');
     expect(mcpCallTool).not.toHaveBeenCalled();
   });
+
+  // --- 13. 确认缓存粒度回归（context7 死循环 + 重复询问 bug）-------------
+  // 用真实 Set 模拟 sessionConfirmations 缓存，验证 executor 传入的 cacheKey：
+  // 同一 restricted 工具的不同参数必须映射到同一个 key（一次确认全会话免问）。
+  async function mockSessionCache(): Promise<Set<string>> {
+    const confirmed = new Set<string>();
+    const { isConfirmedThisSession, markConfirmedThisSession } =
+      await import('../confirmation.js');
+    vi.mocked(isConfirmedThisSession).mockImplementation((key) => confirmed.has(key));
+    vi.mocked(markConfirmedThisSession).mockImplementation((key) => {
+      confirmed.add(key);
+    });
+    return confirmed;
+  }
+
+  it('回归：restricted 工具同会话不同参数不再重复询问（参数摘要不进 cacheKey）', async () => {
+    await mockSessionCache();
+    vi.mocked(getToolsByName).mockReturnValue([
+      makeDbTool('resolve-library-id', { safetyLevel: 'restricted', sourceMcpId: 'mcp-1' }),
+    ]);
+    vi.mocked(listEnabledMcps).mockReturnValue([makeMcp('mcp-1')]);
+    vi.mocked(mcpCallTool).mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+
+    // 第一次：未确认 → 请求审批 → 批准 → 写入会话缓存
+    await executeToolCall(
+      makeToolCall('resolve-library-id', { libraryName: 'React' }, 'call-1'),
+      CTX,
+    );
+    expect(requestToolApproval).toHaveBeenCalledTimes(1);
+
+    // 第二次：同工具、不同参数 → 缓存命中 → 直接执行，不再弹确认框
+    await executeToolCall(
+      makeToolCall('resolve-library-id', { libraryName: 'Vue.js' }, 'call-2'),
+      CTX,
+    );
+    expect(requestToolApproval).toHaveBeenCalledTimes(1);
+    expect(mcpCallTool).toHaveBeenCalledTimes(2);
+  });
+
+  it('path 参数工具保留按路径的确认粒度：不同路径仍需确认、同路径免确认', async () => {
+    await mockSessionCache();
+    vi.mocked(getToolsByName).mockReturnValue([
+      makeDbTool('file_edit', { safetyLevel: 'restricted', sourceMcpId: 'mcp-1' }),
+    ]);
+    vi.mocked(listEnabledMcps).mockReturnValue([makeMcp('mcp-1')]);
+    vi.mocked(mcpCallTool).mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+
+    await executeToolCall(
+      makeToolCall('file_edit', { path: 'C:\\tmp\\a.txt' }, 'call-1'),
+      CTX,
+    );
+    await executeToolCall(
+      makeToolCall('file_edit', { path: 'C:\\tmp\\b.txt' }, 'call-2'),
+      CTX,
+    );
+    expect(requestToolApproval).toHaveBeenCalledTimes(2);
+
+    // 同一路径 → 命中缓存
+    await executeToolCall(
+      makeToolCall('file_edit', { path: 'C:\\tmp\\a.txt' }, 'call-3'),
+      CTX,
+    );
+    expect(requestToolApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it('url 参数工具按 origin 粒度缓存：同 origin 不同路径免确认、跨 origin 重新确认', async () => {
+    await mockSessionCache();
+    vi.mocked(getToolsByName).mockReturnValue([
+      makeDbTool('web_fetch', { safetyLevel: 'restricted', sourceMcpId: 'mcp-1' }),
+    ]);
+    vi.mocked(listEnabledMcps).mockReturnValue([makeMcp('mcp-1')]);
+    vi.mocked(mcpCallTool).mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+
+    await executeToolCall(makeToolCall('web_fetch', { url: 'https://a.com/x' }, 'call-1'), CTX);
+    await executeToolCall(makeToolCall('web_fetch', { url: 'https://a.com/y' }, 'call-2'), CTX);
+    expect(requestToolApproval).toHaveBeenCalledTimes(1);
+
+    await executeToolCall(makeToolCall('web_fetch', { url: 'https://b.com/x' }, 'call-3'), CTX);
+    expect(requestToolApproval).toHaveBeenCalledTimes(2);
+  });
 });
