@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   assembleMessages,
+  DEFAULT_SYSTEM_PROMPT,
   type AttachmentText,
   type SkillInjection,
   type SummaryInjection,
@@ -33,11 +34,21 @@ describe('assembleMessages', () => {
     expect(result).toHaveLength(4); // system + 2 history + user
     expect(result[0]).toEqual({
       role: 'system',
-      content: '你是一个乐于助人的 AI 助手,请用中文回答用户问题。',
+      content: DEFAULT_SYSTEM_PROMPT,
     });
     expect(result[1]).toEqual({ role: 'user', content: 'Hi' });
     expect(result[2]).toEqual({ role: 'assistant', content: 'Hello!' });
     expect(result[3]).toEqual({ role: 'user', content: 'New question' });
+  });
+
+  // Test 1b: 默认提示词包含分层工具契约（L2 契约 + L3 请求分类，
+  // 回归：ee176efb / a2dcd2d0 演示型请求连环调用无最终回答）
+  it('default system prompt contains tool contract and request classification', () => {
+    const result = assembleMessages({ history: [], userContent: 'hi' });
+    expect(result[0]!.content).toContain('工具使用契约');
+    expect(result[0]!.content).toContain('任务完成的唯一标志');
+    expect(result[0]!.content).toContain('请求分类');
+    expect(result[0]!.content).toContain('演示/试用型请求');
   });
 
   // Test 2: With attachments → user message contains attachment text blocks
@@ -119,7 +130,7 @@ describe('assembleMessages', () => {
     expect(result).toHaveLength(2);
     expect(result[0].role).toBe('system');
     expect(result[0].content).toBe(
-      '你是一个乐于助人的 AI 助手,请用中文回答用户问题。',
+      DEFAULT_SYSTEM_PROMPT,
     );
     expect(result[1]).toEqual({ role: 'user', content: 'Solo message' });
   });
@@ -201,7 +212,7 @@ describe('assembleMessages', () => {
     expect(result).toHaveLength(3);
     expect(result[0].role).toBe('system');
     expect(result[0].content).toBe(
-      '你是一个乐于助人的 AI 助手,请用中文回答用户问题。',
+      DEFAULT_SYSTEM_PROMPT,
     );
 
     const skillMsg = result[1];
@@ -303,7 +314,7 @@ describe('assembleMessages', () => {
     // No skill system message — back to default + user
     expect(result).toHaveLength(2);
     expect(result[0].content).toBe(
-      '你是一个乐于助人的 AI 助手,请用中文回答用户问题。',
+      DEFAULT_SYSTEM_PROMPT,
     );
   });
 
@@ -472,7 +483,7 @@ describe('assembleMessages', () => {
     expect(result).toHaveLength(4);
     expect(result[0].role).toBe('system');
     expect(result[0].content).toBe(
-      '你是一个乐于助人的 AI 助手,请用中文回答用户问题。',
+      DEFAULT_SYSTEM_PROMPT,
     );
     expect(result[1].role).toBe('system');
     expect(result[1].content).toContain('# Skill: s1');
@@ -643,7 +654,7 @@ describe('assembleMessages', () => {
     expect(result).toHaveLength(7);
     expect(result[0].role).toBe('system');
     expect(result[0].content).toBe(
-      '你是一个乐于助人的 AI 助手,请用中文回答用户问题。',
+      DEFAULT_SYSTEM_PROMPT,
     );
     expect(result[1].role).toBe('system');
     expect(result[1].content).toContain('# Skill: reviewer');

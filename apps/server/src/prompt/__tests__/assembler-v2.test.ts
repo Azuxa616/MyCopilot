@@ -7,6 +7,7 @@ import type {
 import {
   assembleMessages,
   assembleMessagesV2,
+  DEFAULT_SYSTEM_PROMPT,
   type AttachmentText,
   type SkillInjection,
 } from '../assembler.js';
@@ -92,7 +93,7 @@ describe('assembleMessagesV2', () => {
     expect(ctx.messages).toHaveLength(4);
     expect(ctx.messages[0]).toEqual({
       role: 'system',
-      content: '你是一个乐于助人的 AI 助手,请用中文回答用户问题。',
+      content: DEFAULT_SYSTEM_PROMPT,
     });
     expect(ctx.messages[1]).toEqual({ role: 'user', content: 'Hi' });
     expect(ctx.messages[2]).toEqual({ role: 'assistant', content: 'Hello!' });
