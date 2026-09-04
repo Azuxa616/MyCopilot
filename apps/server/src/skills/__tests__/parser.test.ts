@@ -114,4 +114,31 @@ body`;
     expect(result.frontmatter.name).toBe('');
     expect(result.frontmatter.description).toBe('');
   });
+
+  it('parses always: true from frontmatter', () => {
+    const parsed = parseSkillMarkdown(`---
+name: A
+description: d
+always: true
+---
+body`);
+    expect(parsed.frontmatter.always).toBe(true);
+  });
+
+  it('always defaults to absent and tolerates invalid values', () => {
+    const absent = parseSkillMarkdown(`---
+name: A
+description: d
+---
+body`);
+    expect(absent.frontmatter.always).toBeUndefined();
+
+    const invalid = parseSkillMarkdown(`---
+name: A
+description: d
+always: yes
+---
+body`);
+    expect(invalid.frontmatter.always).toBeUndefined();
+  });
 });

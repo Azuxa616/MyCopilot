@@ -1,14 +1,16 @@
 # docker/docker-compose.demo.yml
-# 演示实例：仅绑定 127.0.0.1:3100，由宿主机 nginx 反代对外。
+# 演示实例（泳道 demo）：仅绑定 127.0.0.1:3100，由宿主机 nginx 反代对外。
 # 与自用实例（docker-compose.yml，project mycopilot）使用不同 project
 # name 与数据卷 → 独立 bridge 网络 + 独立 SQLite，互不可达。
-version: '3.9'
+# 镜像默认从 GHCR 拉取（CI 构建推送）；IMAGE 未设置时回退为本地构建（首次部署/离线场景）。
 name: mycopilot-demo
 services:
   mycopilot-demo:
+    image: ${IMAGE:-ghcr.io/azuxa616/my-copilot:latest}
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    pull_policy: ${PULL_POLICY:-missing}
     ports:
       - "127.0.0.1:3100:3000"
     volumes:

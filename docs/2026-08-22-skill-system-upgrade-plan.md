@@ -1,5 +1,11 @@
 ﻿# Skill 系统升级（P0+P1）实施计划
 
+> **执行记录（2026-08-22，分支 `skill-system-upgrade`）：** 计划已全部执行完毕（Task 1-10）并通过终审。与原文的偏差：
+> - **迁移编号**：计划原文的 `0005_skill_files.sql` 实际落地为 **`0006_skill_files.sql`**（0005 被并发的 plugin 系统迁移 `0005_plugins.sql` 占用）
+> - **Task 1 形态**：P0 采纳了工作区已存在的 `prompt/skill-injections.ts`（`buildSkillInjections()`）实现（commit `e3349f3`，在 prase-2-dev 主分支），未新建 `agent-loop/agent-context.ts`；diy-agent 计划扩展该文件加白名单参数
+> - **终审修复**（`2313df4`）：sync 增加 triggers-only 变更检测；repo 的 createSkill/updateSkill/replaceSkillFiles 包 `db.transaction`；zip 附属文件路径净化（`isSafeSkillFilePath`）+ 嵌套形态剥离 pack 根前缀；PATCH `/:id` 校验 files 路径
+> - **Shared 类型**：`SkillSource` 因并发 plugin 工作新增 `'plugin'` 枚举值，与本计划新增类型合并保留
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 修复 skills 注入链路缺口（P0），并把 skill 从单文件升级为目录包模型（`SKILL.md` + 附属文件），补齐编辑 UI 与 ZIP 导入（P1）。

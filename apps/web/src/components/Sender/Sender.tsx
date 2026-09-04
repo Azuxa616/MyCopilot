@@ -10,6 +10,7 @@ import { useTextareaAutoHeight } from './hooks/useTextareaAutoHeight'
 import { useAttachments } from './hooks/useAttachments'
 // Store
 import { useSessionStore, NEW_SESSION_SENTINEL } from '../../store/sessionStore'
+import { useDraftStore } from '../../store/draftStore'
 // Utils
 import { showMessageAlert } from '../common/Alert/alertUtils'
 import { getErrorMessage } from '../../api'
@@ -45,6 +46,15 @@ export default function Sender() {
         if (isNewSession) {
             resetSender();
         }
+    }
+
+    // 消费一次性草稿（设置页"让 AI 生成"入口写入）。仅当输入框为空时注入，避免覆盖用户输入。
+    const pendingDraft = useDraftStore((s: { pendingDraft: string | null }) => s.pendingDraft);
+    const [draftApplied, setDraftApplied] = useState(false);
+    if (pendingDraft !== null && !draftApplied) {
+        setDraftApplied(true);
+        if (!content) setContent(pendingDraft);
+        useDraftStore.getState().consumePendingDraft();
     }
 
     const currentSession = useSessionStore((state) => state.currentSession);

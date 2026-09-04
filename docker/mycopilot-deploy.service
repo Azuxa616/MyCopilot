@@ -1,0 +1,15 @@
+[Unit]
+Description=MyCopilot auto-deploy: poll GHCR and roll out to demo+personal lanes
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# ubuntu 用户在 docker 组，可直接操作 docker
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/MyCopilot/docker
+ExecStart=/home/ubuntu/MyCopilot/docker/deploy.sh
+# 输出进 journald，journalctl -u mycopilot-deploy 查看
+StandardOutput=journal
+StandardError=journal

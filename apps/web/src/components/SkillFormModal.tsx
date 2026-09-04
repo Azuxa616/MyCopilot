@@ -4,7 +4,7 @@
 // this preview is best-effort and frontend-only.
 
 import { useState, useMemo } from 'react'
-import type { CreateSkillParams, SkillSource } from '@my-copilot/shared'
+import type { CreateSkillParams, SkillDetail, SkillSource, UpdateSkillParams } from '@my-copilot/shared'
 import Modal from './common/Modal'
 import { FormField, formControlClassName } from './common/FormField'
 
@@ -12,6 +12,9 @@ export interface SkillFormModalProps {
   open: boolean
   onClose: () => void
   onSave: (params: CreateSkillParams) => void
+  /** 编辑模式：要编辑的 skill（null/undefined = 新建）。directory 来源由调用方屏蔽。 */
+  editing?: SkillDetail | null
+  onUpdate?: (id: string, params: UpdateSkillParams) => void
 }
 
 type Mode = 'upload' | 'paste'
@@ -45,10 +48,19 @@ function parseFrontmatterHint(text: string): FrontmatterHint {
   return result
 }
 
+/** 创建模板：点击填入骨架（frontmatter 字段为契约，占位内容可读即可）。 */
+const TEMPLATES: Record<string, string> = {
+  代码评审: `---\nname: code-review\ndescription: 逐文件评审代码变更，输出结构化问题清单与修复建议\ntriggers:\n  - 评审\n  - code review\n---\n\n## 评审步骤\n1. 阅读变更范围，列出涉及文件\n2. 按正确性/安全性/可读性逐项检查\n3. 输出问题清单（级别 + 位置 + 建议）`,
+  写作风格: `---\nname: writing-style\ndescription: 以简洁技术写作风格润色文本\n---\n\n## 风格要点\n- 短句优先，一段一个要点\n- 术语保持一致\n- 代码标识符用原文不翻译`,
+  翻译规范: `---\nname: translation\ndescription: 中英互译时保留术语与代码标识符原文\n---\n\n## 规范\n- 代码标识符、API 名、产品名保留原文\n- 长句拆分，符合目标语言习惯\n- 不确定的术语先列出供确认`,
+}
+
 export default function SkillFormModal({
   open,
   onClose,
   onSave,
+  editing = null,
+  onUpdate,
 }: SkillFormModalProps) {
   const [mode, setMode] = useState<Mode>('upload')
   const [fileName, setFileName] = useState<string>('')
@@ -72,6 +84,12 @@ export default function SkillFormModal({
       setDescription('')
       setErrors({})
       setAutoFilled(false)
+      if (editing) {
+        setName(editing.name)
+        setDescription(editing.description)
+        setContent(editing.content)
+        setAutoFilled(false)
+      }
     }
   }
 
@@ -121,19 +139,27 @@ export default function SkillFormModal({
 
   const handleSubmit = () => {
     if (!validate()) return
-    const params: CreateSkillParams = {
-      name: name.trim(),
-      description: description.trim(),
-      body: content,
-      source: 'upload' as SkillSource, // frontend always creates as 'upload'
-      enabled: true,
+    if (editing && onUpdate) {
+      onUpdate(editing.id, {
+        name: name.trim(),
+        description: description.trim(),
+        body: content,
+      })
+    } else {
+      const params: CreateSkillParams = {
+        name: name.trim(),
+        description: description.trim(),
+        body: content,
+        source: 'upload' as SkillSource,
+        enabled: true,
+      }
+      onSave(params)
     }
-    onSave(params)
     onClose()
   }
 
   return (
-    <Modal open={open} onOpenChange={(o) => !o && onClose()} title="新建 Skill" width="640px">
+    <Modal open={open} onOpenChange={(o) => !o && onClose()} title={editing ? '编辑 Skill' : '新建 Skill'} width="640px">
       <div className="flex flex-col gap-4">
         {/* Mode toggle */}
         <div className="flex gap-2 p-1 bg-bg-secondary rounded-lg border border-border-base">
@@ -152,6 +178,30 @@ export default function SkillFormModal({
             </button>
           ))}
         </div>
+
+        {!editing && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-text-tertiary">模板：</span>
+            {Object.keys(TEMPLATES).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  setMode('paste')
+                  setContent(TEMPLATES[key]!)
+                  const parsed = parseFrontmatterHint(TEMPLATES[key]!)
+                  setName(parsed.name ?? '')
+                  setDescription(parsed.description ?? '')
+                  setAutoFilled(true)
+                  setFileName('')
+                }}
+                className="px-2.5 py-1 text-xs bg-bg-secondary border border-border-base rounded-full hover:border-primary-400 transition-colors"
+              >
+                {key}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Content input */}
         <FormField label="Skill 内容 (.md)" required error={errors.content}>
@@ -240,7 +290,7 @@ export default function SkillFormModal({
             onClick={handleSubmit}
             className="px-4 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors font-medium"
           >
-            创建
+            {editing ? '保存' : '创建'}
           </button>
         </div>
       </div>

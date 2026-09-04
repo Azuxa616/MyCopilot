@@ -10,4 +10,5 @@ export * from './job.js';
 export * from './context.js';
 export * from './debug.js';
 export * from './run.js';
+export * from './plugin.js';
 export * from './auth.js';

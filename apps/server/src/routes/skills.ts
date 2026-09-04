@@ -6,9 +6,13 @@ import {
   createSkill,
   updateSkill,
   deleteSkill,
+  getSkillFile,
 } from '../repo/skill.js';
 import { parseSkillMarkdown } from '../skills/parser.js';
+import { parseSkillZip } from '../skills/zip-import.js';
+import { isSafeSkillFilePath } from '../skills/limits.js';
 import { syncDirectorySkills, type SyncResult } from '../skills/sync.js';
+import { listRepoSkills, importRepoSkill } from '../skills/github.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import { getDb } from '../db/index.js';
@@ -41,16 +45,43 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
     return successResponse(c, data);
   });
 
-  // POST / — create a skill from raw markdown content.
+  // POST / — create a skill. Two accepted shapes:
+  //   { content } — raw SKILL.md markdown (frontmatter parsed server-side)
+  //   { name, description, body } — structured fields (SkillFormModal 创建流)
   app.post('/', async (c) => {
-    const body = await c.req.json<{ source?: SkillSource; content?: string }>();
+    const body = await c.req.json<{
+      source?: SkillSource;
+      content?: string;
+      name?: string;
+      description?: string;
+      body?: string;
+      triggers?: string[];
+      files?: { path: string; content: string }[];
+    }>();
 
     const source: SkillSource =
       body.source === 'directory' || body.source === 'upload' ? body.source : 'upload';
+
+    // 结构化形态（name + body 必填）：字段直接使用，无需 frontmatter
+    if (typeof body.name === 'string' && typeof body.body === 'string') {
+      if (!body.name.trim() || !body.body.trim()) {
+        throw new HttpError(400, 'Missing required fields: name, body');
+      }
+      const data = createSkill({
+        name: body.name.trim(),
+        description: typeof body.description === 'string' ? body.description.trim() : '',
+        body: body.body,
+        source,
+        triggers: body.triggers,
+        files: body.files,
+      });
+      return successResponse(c, data, 201);
+    }
+
     const content = typeof body.content === 'string' ? body.content : '';
 
     if (!content.trim()) {
-      throw new HttpError(400, 'Missing required field: content');
+      throw new HttpError(400, 'Missing required field: content (or name + body)');
     }
 
     const parsed = parseSkillMarkdown(content);
@@ -66,9 +97,66 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
       description: parsed.frontmatter.description,
       body: parsed.body,
       source,
+      triggers: parsed.frontmatter.triggers,
+      always: parsed.frontmatter.always,
     });
 
     return successResponse(c, data, 201);
+  });
+
+  // POST /import — upload a ZIP containing a skill directory pack.
+  app.post('/import', async (c) => {
+    const body = await c.req.parseBody();
+    const file = body['file'];
+    if (!(file instanceof File)) {
+      throw new HttpError(400, 'Missing required field: file');
+    }
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      throw new HttpError(400, 'Only .zip files are supported');
+    }
+
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const parsed = parseSkillZip(buffer);
+    if (!parsed.ok || !parsed.skill) {
+      throw new HttpError(400, parsed.error ?? 'Invalid skill zip');
+    }
+
+    const { name, description, body: skillBody, triggers, files } = parsed.skill;
+    const data = createSkill({
+      name,
+      description,
+      body: skillBody,
+      triggers,
+      files,
+      source: 'upload',
+    });
+
+    return successResponse(c, data, 201);
+  });
+
+  // GET /github/manifest — 列出仓库内的 skill 候选（只读，agent 仓库内检索用）。
+  app.get('/github/manifest', async (c) => {
+    const url = c.req.query('url');
+    if (!url) throw new HttpError(400, 'Missing required query: url');
+    try {
+      return successResponse(c, await listRepoSkills(url));
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // POST /import/github — 从仓库导入单个 skill（path 缺省要求仓库为单 skill 形态）。
+  app.post('/import/github', async (c) => {
+    const body = await c.req.json<{ url?: string; path?: string }>();
+    if (!body.url) throw new HttpError(400, 'Missing required field: url');
+    if (body.path !== undefined && typeof body.path !== 'string') {
+      throw new HttpError(400, 'Invalid field: path must be a string');
+    }
+    try {
+      return successResponse(c, await importRepoSkill(body.url, body.path), 201);
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
   });
 
   // GET /:id — return full skill detail (body exposed as `content`).
@@ -77,6 +165,40 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
     const data = getSkill(id);
     if (!data) {
       throw new HttpError(404, 'Skill not found');
+    }
+    return successResponse(c, data);
+  });
+
+  // GET /:id/files/* — return one side file's content (path may contain '/').
+  // Wildcard (not :path) so nested paths like references/api.md work; callers
+  // percent-encode the path (encodeURIComponent keeps '/' as %2F).
+  app.get('/:id/files/*', (c) => {
+    const id = c.req.param('id');
+
+    const marker = '/files/';
+    const idx = c.req.path.indexOf(marker);
+    let filePath = idx >= 0 ? c.req.path.slice(idx + marker.length) : '';
+    try {
+      filePath = decodeURIComponent(filePath);
+    } catch {
+      throw new HttpError(400, 'Invalid file path encoding');
+    }
+
+    if (
+      !filePath ||
+      filePath.includes('..') ||
+      filePath.startsWith('/') ||
+      filePath.includes('\\')
+    ) {
+      throw new HttpError(400, 'Invalid file path');
+    }
+
+    if (!getSkillMeta(id)) {
+      throw new HttpError(404, 'Skill not found');
+    }
+    const data = getSkillFile(id, filePath);
+    if (!data) {
+      throw new HttpError(404, 'File not found');
     }
     return successResponse(c, data);
   });
@@ -96,6 +218,15 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
     }
 
     const body = await c.req.json<UpdateSkillParams>();
+    if (body.files) {
+      const unsafe = body.files.filter((f) => !isSafeSkillFilePath(f.path));
+      if (unsafe.length > 0) {
+        throw new HttpError(
+          400,
+          `Invalid file path(s): ${unsafe.map((f) => f.path).join(', ')}`,
+        );
+      }
+    }
     const data = updateSkill(id, body);
     if (!data) {
       throw new HttpError(404, 'Skill not found');

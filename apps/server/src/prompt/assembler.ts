@@ -27,15 +27,45 @@ export interface AttachmentText {
   content: string;
 }
 
-/** Skill body to inject into the system prompt. */
+/** Skill 注入条目（渐进披露：常规 skill 仅进清单，正文经 read_skill 按需读取）。 */
 export interface SkillInjection {
   name: string;
+  description?: string;
+  triggers?: string[];
   body: string;
+  always?: boolean;
 }
 
 /** Prior conversation summary to inject as a third system message (T26). */
 export interface SummaryInjection {
   text: string;
+}
+
+/** 清单 + always 全文段（v1/v2 共用）。字节序确定：清单在前、always 全文在后。 */
+export function buildSkillsSection(skills: SkillInjection[]): string {
+  const manifest = skills.filter((s) => !s.always && s.body.trim().length > 0);
+  const full = skills.filter((s) => s.always && s.body.trim().length > 0);
+  if (manifest.length === 0 && full.length === 0) return '';
+
+  const parts: string[] = [];
+  if (manifest.length > 0) {
+    const lines = manifest
+      .map((s) => {
+        const desc = s.description?.trim() || '（无描述）';
+        const trig = s.triggers && s.triggers.length > 0 ? ` | triggers: ${s.triggers.join(', ')}` : '';
+        return `- name: ${s.name} | description: ${desc}${trig}`;
+      })
+      .join('\n');
+    parts.push(
+      `The following skills are available. To use one, first read its full ` +
+        `instructions with the read_skill tool (pass the exact name), then follow them:\n\n${lines}`,
+    );
+  }
+  if (full.length > 0) {
+    const blocks = full.map((s) => `# Skill: ${s.name}\n\n${s.body.trim()}`).join('\n\n---\n\n');
+    parts.push(`Always apply these skills:\n\n${blocks}`);
+  }
+  return parts.join('\n\n');
 }
 
 /**
@@ -95,17 +125,9 @@ export function assembleMessages(params: {
   messages.push({ role: 'system', content: DEFAULT_SYSTEM_PROMPT });
 
   // 2. Inject enabled skills (if provided) as an additional system message.
-  if (params.skills && params.skills.length > 0) {
-    const skillBlocks = params.skills
-      .filter((s) => s.body.trim().length > 0)
-      .map((s) => `# Skill: ${s.name}\n\n${s.body.trim()}`)
-      .join('\n\n---\n\n');
-    if (skillBlocks) {
-      messages.push({
-        role: 'system',
-        content: `The following skills are available. Follow their instructions when relevant:\n\n${skillBlocks}`,
-      });
-    }
+  const skillsText = buildSkillsSection(params.skills ?? []);
+  if (skillsText) {
+    messages.push({ role: 'system', content: skillsText });
   }
 
   // 3. Inject prior conversation summary (T26) as a third system message.
@@ -284,16 +306,7 @@ export async function assembleMessagesV2(
   // (1) 前缀各组成部分的文本（与最终注入的 system 消息逐字节一致）。
   const systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
-  let skillsText = '';
-  if (params.skills && params.skills.length > 0) {
-    const skillBlocks = params.skills
-      .filter((s) => s.body.trim().length > 0)
-      .map((s) => `# Skill: ${s.name}\n\n${s.body.trim()}`)
-      .join('\n\n---\n\n');
-    if (skillBlocks) {
-      skillsText = `The following skills are available. Follow their instructions when relevant:\n\n${skillBlocks}`;
-    }
-  }
+  const skillsText = buildSkillsSection(params.skills ?? []);
 
   const summaryMessageText =
     params.summary && params.summary.text.trim().length > 0

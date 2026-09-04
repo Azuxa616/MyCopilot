@@ -196,10 +196,10 @@ describe('assembleMessages', () => {
 
   // ===== Skills injection (T8) =====
 
-  it('injects skills as an additional system message after the default prompt', () => {
+  it('injects manifest (no body) for regular skills, full text for always skills', () => {
     const skills: SkillInjection[] = [
-      { name: 'summarizer', body: 'Always be concise.' },
-      { name: 'reviewer', body: 'Review code carefully.' },
+      { name: 'pdf', description: '处理 PDF', triggers: ['pdf', '文档'], body: 'SECRET-BODY', always: false },
+      { name: 'persona', description: '', triggers: [], body: 'You are terse.', always: true },
     ];
 
     const result = assembleMessages({
@@ -217,25 +217,25 @@ describe('assembleMessages', () => {
 
     const skillMsg = result[1];
     expect(skillMsg.role).toBe('system');
-    expect(skillMsg.content).toContain(
-      'The following skills are available. Follow their instructions when relevant:',
-    );
-    // Both skill bodies are present, wrapped under "# Skill: <name>"
-    expect(skillMsg.content).toContain('# Skill: summarizer');
-    expect(skillMsg.content).toContain('Always be concise.');
-    expect(skillMsg.content).toContain('# Skill: reviewer');
-    expect(skillMsg.content).toContain('Review code carefully.');
-    // Skill blocks are separated by a horizontal rule
-    expect(skillMsg.content).toContain('\n\n---\n\n');
+    // Regular skill: manifest only (name, description, triggers) + read_tool guidance
+    expect(skillMsg.content).toContain('- name: pdf');
+    expect(skillMsg.content).toContain('处理 PDF');
+    expect(skillMsg.content).toContain('pdf, 文档');
+    expect(skillMsg.content).toContain('read_skill');
+    // Regular skill body NOT included
+    expect(skillMsg.content).not.toContain('SECRET-BODY');
+    // Always skill: full body included
+    expect(skillMsg.content).toContain('# Skill: persona');
+    expect(skillMsg.content).toContain('You are terse.');
 
     expect(result[2]).toEqual({ role: 'user', content: 'Hi' });
   });
 
   it('keeps skill order as provided (caller sorts by createdAt)', () => {
     const skills: SkillInjection[] = [
-      { name: 'first', body: 'Body-1' },
-      { name: 'second', body: 'Body-2' },
-      { name: 'third', body: 'Body-3' },
+      { name: 'first', description: 'First skill', triggers: ['f'], body: 'Body-1', always: false },
+      { name: 'second', description: 'Second skill', triggers: ['s'], body: 'Body-2', always: false },
+      { name: 'third', description: 'Third skill', triggers: ['t'], body: 'Body-3', always: true },
     ];
 
     const result = assembleMessages({
@@ -245,9 +245,9 @@ describe('assembleMessages', () => {
     });
 
     const skillContent = result[1].content!;
-    const i1 = skillContent.indexOf('# Skill: first');
-    const i2 = skillContent.indexOf('# Skill: second');
-    const i3 = skillContent.indexOf('# Skill: third');
+    const i1 = skillContent.indexOf('- name: first');
+    const i2 = skillContent.indexOf('- name: second');
+    const i3 = skillContent.indexOf('# Skill: third'); // always skills use full text
     expect(i1).toBeLessThan(i2);
     expect(i2).toBeLessThan(i3);
   });
@@ -279,9 +279,9 @@ describe('assembleMessages', () => {
 
   it('filters out skills with empty or whitespace-only bodies', () => {
     const skills: SkillInjection[] = [
-      { name: 'empty', body: '' },
-      { name: 'whitespace', body: '   \n\t  ' },
-      { name: 'valid', body: 'Real instructions.' },
+      { name: 'empty', body: '', always: false },
+      { name: 'whitespace', body: '   \n\t  ', always: false },
+      { name: 'valid', body: 'Real instructions.', always: false },
     ];
 
     const result = assembleMessages({
@@ -293,16 +293,15 @@ describe('assembleMessages', () => {
     // Still injects a skill system message because 'valid' remains
     expect(result).toHaveLength(3);
     const skillContent = result[1].content;
-    expect(skillContent).toContain('# Skill: valid');
-    expect(skillContent).toContain('Real instructions.');
-    expect(skillContent).not.toContain('# Skill: empty');
-    expect(skillContent).not.toContain('# Skill: whitespace');
+    expect(skillContent).toContain('- name: valid');
+    expect(skillContent).not.toContain('- name: empty');
+    expect(skillContent).not.toContain('- name: whitespace');
   });
 
   it('does not inject skill system message when all skill bodies are empty', () => {
     const skills: SkillInjection[] = [
-      { name: 'a', body: '' },
-      { name: 'b', body: '  ' },
+      { name: 'a', body: '', always: false },
+      { name: 'b', body: '  ', always: false },
     ];
 
     const result = assembleMessages({
@@ -320,7 +319,7 @@ describe('assembleMessages', () => {
 
   it('trims skill bodies before injecting', () => {
     const skills: SkillInjection[] = [
-      { name: 'trimmer', body: '\n  Trim me.  \n' },
+      { name: 'trimmer', body: '\n  Trim me.  \n', always: true },
     ];
 
     const result = assembleMessages({
@@ -330,7 +329,7 @@ describe('assembleMessages', () => {
     });
 
     const skillContent = result[1].content;
-    // Trimmed body should not carry surrounding whitespace
+    // Trimmed body should not carry surrounding whitespace (always skill gets full text)
     expect(skillContent).toContain('# Skill: trimmer\n\nTrim me.');
     expect(skillContent).not.toMatch(/Trim me\.\s+\n/);
   });
@@ -344,7 +343,7 @@ describe('assembleMessages', () => {
       { name: 'note.txt', content: 'NOTE' },
     ];
     const skills: SkillInjection[] = [
-      { name: 'skill-a', body: 'A instructions.' },
+      { name: 'skill-a', description: 'Skill A', triggers: ['a'], body: 'A instructions.', always: false },
     ];
 
     const result = assembleMessages({
@@ -358,7 +357,7 @@ describe('assembleMessages', () => {
     expect(result).toHaveLength(5);
     expect(result[0].role).toBe('system');
     expect(result[1].role).toBe('system');
-    expect(result[1].content).toContain('# Skill: skill-a');
+    expect(result[1].content).toContain('- name: skill-a');
     expect(result[2]).toEqual({ role: 'user', content: 'Prior question' });
     expect(result[3]).toEqual({ role: 'assistant', content: 'Prior answer' });
     expect(result[4].role).toBe('user');
@@ -445,7 +444,7 @@ describe('assembleMessages', () => {
         toolCallId: 'call_x',
       }),
     ];
-    const skills: SkillInjection[] = [{ name: 's', body: 'S body.' }];
+    const skills: SkillInjection[] = [{ name: 's', description: 'Skill S', triggers: [], body: 'S body.', always: false }];
 
     const result = assembleMessages({
       history,
@@ -457,7 +456,7 @@ describe('assembleMessages', () => {
     expect(result).toHaveLength(4);
     expect(result[0].role).toBe('system');
     expect(result[1].role).toBe('system');
-    expect(result[1].content).toContain('# Skill: s');
+    expect(result[1].content).toContain('- name: s');
     expect(result[2]).toEqual({
       role: 'tool',
       content: 'tool-out',
@@ -470,7 +469,7 @@ describe('assembleMessages', () => {
 
   it('injects summary as a third system message after default prompt and skills', () => {
     const summary: SummaryInjection = { text: 'User asked about the weather. Assistant replied it was sunny.' };
-    const skills: SkillInjection[] = [{ name: 's1', body: 'Be concise.' }];
+    const skills: SkillInjection[] = [{ name: 's1', description: 'Skill 1', triggers: ['s1'], body: 'Be concise.', always: false }];
 
     const result = assembleMessages({
       history: [],
@@ -486,7 +485,7 @@ describe('assembleMessages', () => {
       DEFAULT_SYSTEM_PROMPT,
     );
     expect(result[1].role).toBe('system');
-    expect(result[1].content).toContain('# Skill: s1');
+    expect(result[1].content).toContain('- name: s1');
     expect(result[2].role).toBe('system');
     // Summary wrapper format: [Previous conversation summary]\n\n<text>
     expect(result[2].content).toBe(
@@ -636,7 +635,7 @@ describe('assembleMessages', () => {
       createMessage({ id: 'n3', role: 'assistant', content: `NEW_A3-${big}` }),
     ];
     const skills: SkillInjection[] = [
-      { name: 'reviewer', body: 'Always review carefully.' },
+      { name: 'reviewer', description: 'Code reviewer', triggers: ['review'], body: 'Always review carefully.', always: false },
     ];
     const summary: SummaryInjection = {
       text: 'The user previously asked about T26 integration.',
@@ -657,7 +656,7 @@ describe('assembleMessages', () => {
       DEFAULT_SYSTEM_PROMPT,
     );
     expect(result[1].role).toBe('system');
-    expect(result[1].content).toContain('# Skill: reviewer');
+    expect(result[1].content).toContain('- name: reviewer');
     expect(result[2].role).toBe('system');
     expect(result[2].content).toContain('[Previous conversation summary]');
     expect(result[2].content).toContain('T26 integration');

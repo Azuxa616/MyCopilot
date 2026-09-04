@@ -153,7 +153,7 @@ describe('assembleMessagesV2', () => {
 
   it('第二级触发：超预算 + mock adapter 返回 SUMMARY_TEXT → messages 含 [Previous conversation summary]，degraded=true', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // 巨大 skills 文本撑爆 system 桶（480 tokens），使一级截断后仍超预算 → 进二级。
+    // 巨大 always: true skills 文本撑爆 system 桶（480 tokens），使一级截断后仍超预算 → 进二级。
     const big = 'x'.repeat(3200);
     const history: Message[] = [
       createMessage({ id: 'm0', role: 'user', content: `Q1-${big}` }),
@@ -161,8 +161,9 @@ describe('assembleMessagesV2', () => {
       createMessage({ id: 'm2', role: 'user', content: `Q2-${big}` }),
       createMessage({ id: 'm3', role: 'assistant', content: `A2-${big}` }),
     ];
+    // Use always: true to include full body in manifest, triggering budget overflow
     const skills: SkillInjection[] = [
-      { name: 'big-skill', body: 'S'.repeat(4000) },
+      { name: 'big-skill', description: 'Big skill', triggers: ['big'], body: 'S'.repeat(4000), always: true },
     ];
     const { adapter, streamSpy } = summaryAdapter('SUMMARY_TEXT');
 
@@ -185,10 +186,10 @@ describe('assembleMessagesV2', () => {
     expect(summaryMsg!.content).toBe(
       '[Previous conversation summary]\n\nSUMMARY_TEXT',
     );
-    // 前缀顺序：system → skills → 摘要消息 → user
+    // 前缀顺序：system → skills (full text for always) → 摘要消息 → user
     const summaryIdx = ctx.messages.indexOf(summaryMsg!);
     expect(ctx.messages[0].role).toBe('system');
-    expect(ctx.messages[summaryIdx - 1].content).toContain('# Skill: big-skill');
+    expect(ctx.messages[summaryIdx - 1].content).toContain('# Skill: big-skill'); // always skills get full text
     expect(ctx.messages[ctx.messages.length - 1]).toEqual({
       role: 'user',
       content: '当前问题',
@@ -205,8 +206,9 @@ describe('assembleMessagesV2', () => {
       createMessage({ id: 'm0', role: 'user', content: `Q1-${big}` }),
       createMessage({ id: 'm1', role: 'assistant', content: `A1-${big}` }),
     ];
+    // Use always: true to include full body in manifest, triggering budget overflow
     const skills: SkillInjection[] = [
-      { name: 'big-skill', body: 'S'.repeat(4000) },
+      { name: 'big-skill', description: 'Big skill', triggers: ['big'], body: 'S'.repeat(4000), always: true },
     ];
 
     // 无 adapter + 无 adapterConfig → 二级被跳过，messages 不含摘要消息
@@ -286,7 +288,7 @@ describe('assembleMessagesV2', () => {
         value: 'Lives in Beijing',
       }),
     ]);
-    const skills: SkillInjection[] = [{ name: 's1-skill', body: 'Be concise.' }];
+    const skills: SkillInjection[] = [{ name: 's1-skill', description: 'Skill S1', triggers: ['s1'], body: 'Be concise.', always: false }];
 
     const ctx = await assembleMessagesV2({
       history: [],
@@ -306,7 +308,7 @@ describe('assembleMessagesV2', () => {
     );
     // 插在 skills 之后（稳定前缀：system → skills → memory）
     const memoryIdx = ctx.messages.indexOf(memoryMsg!);
-    expect(ctx.messages[memoryIdx - 1].content).toContain('# Skill: s1-skill');
+    expect(ctx.messages[memoryIdx - 1].content).toContain('- name: s1-skill');
     expect(ctx.degraded).toBe(false);
   });
 
@@ -382,7 +384,7 @@ describe('assembleMessagesV2', () => {
       }),
     ];
     const skills: SkillInjection[] = [
-      { name: 'skill-a', body: 'A instructions.' },
+      { name: 'skill-a', description: 'Skill A', triggers: ['a'], body: 'A instructions.', always: false },
     ];
     const summary = { text: 'Earlier the user greeted the assistant.' };
     const attachments: AttachmentText[] = [{ name: 'note.txt', content: 'NOTE' }];

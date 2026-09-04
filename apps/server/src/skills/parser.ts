@@ -54,5 +54,9 @@ function normalizeFrontmatter(data: Record<string, unknown>): SkillFrontmatter {
     result.version = data.version;
   }
 
+  if (typeof data.always === 'boolean') {
+    result.always = data.always;
+  }
+
   return result;
 }
