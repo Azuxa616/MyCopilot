@@ -7,7 +7,6 @@ import { MessageRole, MessageStatus } from '@my-copilot/shared'
 import type { Virtualizer } from '@tanstack/react-virtual'
 // Components
 import MessageCard from '../common/MessageCard'
-import ToolCallProgress from '../common/ToolCallProgress'
 import ThinkingIndicator from '../common/ThinkingIndicator'
 // Assets
 import aiAvatar from '../../assets/img/avatar-ai.svg'
@@ -95,10 +94,7 @@ export default function MessageList({
               onRetry={showRetry ? () => onRegenerate(message) : undefined}
             />
             {isLastMessage && (
-              <>
-                <ThinkingIndicator alignRight={isUserMessage} />
-                <ToolCallProgress />
-              </>
+              <ThinkingIndicator alignRight={isUserMessage} />
             )}
           </div>
         )
