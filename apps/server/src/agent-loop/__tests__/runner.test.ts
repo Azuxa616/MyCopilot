@@ -8,6 +8,7 @@ import type {
 import type {
   ProviderAdapter,
   AdapterConfig,
+  ChatMessage,
 } from '../../llm/base.js';
 import type { ToolExecutionResult } from '../../tools/registry.js';
 import type {
@@ -93,11 +94,16 @@ function makeTool(name = 'echo'): Tool {
   };
 }
 
-function makeAdapter(streams: AsyncGenerator<StreamEvent>[]): ProviderAdapter {
+function makeAdapter(
+  streams: AsyncGenerator<StreamEvent>[],
+  /** 每次调用的 chatMessages 快照（迭代感知提醒测试用）。 */
+  captured?: ChatMessage[][],
+): ProviderAdapter {
   let call = 0;
   return {
     type: 'openai',
-    chatCompletionStream: () => {
+    chatCompletionStream: (messages: ChatMessage[]) => {
+      captured?.push(messages.map((m) => ({ ...m })));
       const gen = streams[call];
       call += 1;
       if (!gen) {
@@ -348,6 +354,167 @@ describe('runAgentLoop', () => {
     expect(mockExecuteToolCall).toHaveBeenCalledTimes(3);
   });
 
+  // --- 4b. 非完整终态的可见截断提示（回归：ee176efb 会话） ----------------
+  // max_iterations 的最后一段文本是"接下来调用 X…"式前导语，直接作为最终
+  // 回答展示会误导用户；持久化内容与返回 content 都必须带截断提示。
+  it('max_iterations 终态：最终内容追加可见停止提示（含轮次数）并同步持久化', async () => {
+    const foreverTools: AsyncGenerator<StreamEvent>[] = [];
+    for (let i = 0; i < 3; i++) {
+      foreverTools.push(
+        generatorFrom([
+          events.content(`第${i}轮前导语。`),
+          events.toolCallDone(i, `call-${i}`, 'echo', { round: i }),
+          events.finish('tool_calls'),
+        ]),
+      );
+    }
+    const adapter = makeAdapter(foreverTools);
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+
+    const result = await runAgentLoop(
+      makeParams({
+        adapter,
+        tools: [makeTool('echo')],
+        maxIterations: 3,
+      }),
+    );
+
+    expect(result.status).toBe('max_iterations');
+    // 内容 = 最后一轮文本 + 分隔线 + 提示（含实际上限轮次 3）
+    expect(result.content).toContain('第2轮前导语。');
+    expect(result.content).toContain('最大工具调用轮次');
+    expect(result.content).toContain('3');
+    // 占位消息持久化同一份内容（done 事件与刷新后的 DB 读取均可见）
+    expect(mockUpdateMessage).toHaveBeenLastCalledWith('assistant-msg-1', {
+      content: result.content,
+      status: 'sent',
+    });
+  });
+
+  it('length_limited 终态：部分内容后追加截断提示', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([events.content('半截的回答'), events.finish('length')]),
+    ]);
+
+    const result = await runAgentLoop(makeParams({ adapter }));
+
+    expect(result.status).toBe('length_limited');
+    expect(result.content.startsWith('半截的回答')).toBe(true);
+    expect(result.content).toContain('被截断');
+    expect(mockUpdateMessage).toHaveBeenCalledWith('assistant-msg-1', {
+      content: result.content,
+      status: 'sent',
+    });
+  });
+
+  it('completed 终态：内容不加任何提示（回归护栏）', async () => {
+    const adapter = makeAdapter([
+      generatorFrom([events.content('正常回答'), events.finish('stop')]),
+    ]);
+
+    const result = await runAgentLoop(makeParams({ adapter }));
+
+    expect(result.status).toBe('completed');
+    expect(result.content).toBe('正常回答');
+  });
+
+  // --- 4c. 迭代感知收敛提醒（Cursor Ralph Loop / Copilot 渐进施压模式） ----
+  // 从第 ITERATION_REMINDER_THRESHOLD 轮起注入临时 system 提醒、最后一轮注入
+  // 强提醒，帮助模型收敛（回归：演示型请求 10 轮耗尽仍无最终回答）。
+  // 提醒只进 LLM 请求：不落库、不推送前端、不进 history。
+  function toolRoundAdapter(
+    rounds: number,
+    captured: ChatMessage[][],
+  ): ProviderAdapter {
+    const streams: AsyncGenerator<StreamEvent>[] = [];
+    for (let i = 0; i < rounds; i++) {
+      streams.push(
+        generatorFrom([
+          events.toolCallDone(i, `call-${i}`, 'echo', { round: i }),
+          events.finish('tool_calls'),
+        ]),
+      );
+    }
+    // 最后一轮流：直接给出最终回答
+    streams.push(generatorFrom([events.content('总结'), events.finish('stop')]));
+    return makeAdapter(streams, captured);
+  }
+
+  it('第 3 轮起注入渐进提醒，最后一轮注入强提醒（均为临时 system 消息）', async () => {
+    const captured: ChatMessage[][] = [];
+    const adapter = toolRoundAdapter(4, captured);
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+
+    const result = await runAgentLoop(
+      makeParams({ adapter, tools: [makeTool('echo')], maxIterations: 5 }),
+    );
+
+    expect(result.status).toBe('completed');
+    expect(captured).toHaveLength(5); // 4 工具轮 + 1 回答轮
+
+    const reminderIn = (msgs: ChatMessage[]): string | undefined => {
+      for (const m of msgs) {
+        if (
+          m.role === 'system' &&
+          typeof m.content === 'string' &&
+          m.content.includes('[系统提醒]')
+        ) {
+          return m.content;
+        }
+      }
+      return undefined;
+    };
+
+    // 第 1、2 轮：无提醒
+    expect(reminderIn(captured[0]!)).toBeUndefined();
+    expect(reminderIn(captured[1]!)).toBeUndefined();
+    // 第 3、4 轮：渐进提醒，含轮次进度
+    expect(reminderIn(captured[2]!)).toContain('3/5');
+    expect(reminderIn(captured[3]!)).toContain('4/5');
+    // 第 5 轮（maxSteps 最后一轮）：强提醒
+    expect(reminderIn(captured[4]!)).toContain('最后一次');
+  });
+
+  it('提醒消息不落库不推送前端：createMessage 无 system 角色，onEvent 无提醒文本', async () => {
+    const captured: ChatMessage[][] = [];
+    const adapter = toolRoundAdapter(3, captured);
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+    const onEvent = vi.fn<(event: AgentLoopEvent) => void>();
+
+    await runAgentLoop(
+      makeParams({ adapter, tools: [makeTool('echo')], maxIterations: 4, onEvent }),
+    );
+
+    const createdRoles = mockCreateMessage.mock.calls.map(
+      (c) => (c[0] as { role: string }).role,
+    );
+    expect(createdRoles).not.toContain('system');
+    const eventJson = JSON.stringify(onEvent.mock.calls);
+    expect(eventJson).not.toContain('[系统提醒]');
+  });
+
+  it('两轮内完成的运行不注入任何提醒（回归护栏）', async () => {
+    const captured: ChatMessage[][] = [];
+    const adapter = makeAdapter(
+      [
+        generatorFrom([
+          events.toolCallDone(0, 'call-0', 'echo'),
+          events.finish('tool_calls'),
+        ]),
+        generatorFrom([events.content('答'), events.finish('stop')]),
+      ],
+      captured,
+    );
+    mockExecuteToolCall.mockResolvedValue(toolResult('ok'));
+
+    await runAgentLoop(makeParams({ adapter, tools: [makeTool('echo')] }));
+
+    const hasReminder = captured.some((msgs) =>
+      msgs.some((m) => m.role === 'system' && m.content?.includes('[系统提醒]')),
+    );
+    expect(hasReminder).toBe(false);
+  });
+
   // --- 5. Abort before iteration --------------------------------------
   it('returns status="aborted" when the signal fires before any iteration', async () => {
     const ac = new AbortController();
@@ -406,7 +573,9 @@ describe('runAgentLoop', () => {
     const result = await runAgentLoop(makeParams({ adapter }));
 
     expect(result.status).toBe('length_limited');
-    expect(result.content).toBe('truncated');
+    // 2026-08-22 起非完整终态内容追加可见截断提示（回归：ee176efb）
+    expect(result.content.startsWith('truncated')).toBe(true);
+    expect(result.content).toContain('被截断');
   });
 
   // --- 8. Empty stream (no finish event) ------------------------------

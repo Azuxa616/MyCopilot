@@ -11,8 +11,8 @@ import ReactMarkdownRenderer from '../MarkdownRenderer'
 import Avatar from './Avatar'
 import MessageActions from './MessageActions'
 import AttachmentCard from '../Sender/AttachmentCard'
-import ToolCallsBlock from './ToolCallsBlock'
-import ReasoningBlock from './ReasoningBlock'
+import AgentTimeline from './AgentTimeline'
+import type { MessageWithTimeline } from '../../types/timeline'
 // Utils
 import { getRelativeTime } from '../../utils/time'
 import { showMessageAlert } from './Alert/alertUtils'
@@ -317,8 +317,14 @@ export default function MessageCard({
 
         <div className={bubbleClass}>
           {StatusBar}
-          {/* Extended Thinking：推理文本与正文分开渲染（默认折叠，无 reasoningText 不渲染） */}
-          {isAssistant && !isFailed && <ReasoningBlock message={message} />}
+          {/* 过程时间线：思考/前导文本/工具调用统一挂载（流式 live 展开活跃条目，
+              完成后折叠为摘要行），正文只承载最终回答 */}
+          {isAssistant && !isFailed && (
+            <AgentTimeline
+              entries={(message as MessageWithTimeline).timeline ?? []}
+              live={isSending}
+            />
+          )}
           <RenderContent
             message={message}
             isSystem={isSystem}
@@ -328,9 +334,6 @@ export default function MessageCard({
             isStreaming={isStreaming ?? false}
           />
         </div>
-
-        {/* NEW: Render tool calls block if present */}
-        <ToolCallsBlock message={message} debugMode={import.meta.env.DEV} />
 
         {message.attachments.length > 0 && (
           <div className="ml-2 shrink-0">

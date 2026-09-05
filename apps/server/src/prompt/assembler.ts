@@ -68,8 +68,28 @@ export function buildSkillsSection(skills: SkillInjection[]): string {
   return parts.join('\n\n');
 }
 
-/** Phase 1 default system prompt — fixed Chinese instruction. */
-const DEFAULT_SYSTEM_PROMPT = '你是一个乐于助人的 AI 助手,请用中文回答用户问题。';
+/**
+ * Default system prompt — fixed Chinese instruction（分层体系）。
+ *
+ * L1 身份 + L2 工具使用契约 + L3 请求分类。契约与分类源于竞品调研
+ * （Cline attempt_completion 的"交付物"语义 / Claude tool use 的
+ * "结果是素材不是回答"约定 / ChatGPT 的 WHEN/WHAT 事前约束）：
+ * 演示型请求（"调用一下某工具"）没有天然完成条件，若不显式定义
+ * "任务完成 = 输出最终回答"，弱指令遵循模型会持续选择"再调用一轮"
+ * 直至步数上限（回归：会话 ee176efb / a2dcd2d0 十轮耗尽无回答）。
+ * v1（assembleMessages）与 v2（assembleMessagesV2）共用本常量。
+ */
+export const DEFAULT_SYSTEM_PROMPT = `你是一个乐于助人的 AI 助手，请用中文回答用户问题。
+
+工具使用契约：
+- 工具返回的结果只是素材，不是交付物。任务完成的唯一标志，是你基于工具结果向用户输出最终回答：说明你调用了什么、返回了什么、结论是什么。
+- 每次收到工具结果后，先判断它是否足以回答用户；除非新的调用会改变你的回答，否则不要再发起工具调用。
+- 一次回复内避免连环调用多个互不相关的工具。
+
+请求分类：
+- 简单问答：直接回答，不调用任何工具。
+- 信息型请求（用户需要某个知识或数据）：获取必要信息后立即作答。
+- 演示/试用型请求（如"调用一下某工具"）：调用 1-2 次后，展示调用参数与结果摘要并收尾；不要轮换对象重复演示同一流程，除非用户明确要求。`;
 
 /**
  * Assemble a complete message list for the LLM API call.

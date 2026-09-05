@@ -1,7 +1,7 @@
 // ChatShell - Chat interface
 // Contains message input area and conversation display area
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 // Components
 import Sender from '../Sender'
 import EmptyChatView from './EmptyChatView'
@@ -16,9 +16,10 @@ import { useJobStream, TERMINAL_JOB_STATUSES } from './hooks/useJobStream'
 import { useSessionStore } from '../../store/sessionStore'
 import { useConfigStore } from '../../store/configStore'
 import { NEW_SESSION_SENTINEL } from '../../store/sessionStore'
+// Utils
+import { attachTimelines, asTimelineMessages } from '../../utils/timeline'
 // API
 import { api } from '../../api'
-import { MessageRole } from '@my-copilot/shared'
 import type { Model, Provider } from '@my-copilot/shared'
 import { showMessageAlert } from '../common/Alert/alertUtils'
 
@@ -34,17 +35,19 @@ export default function ChatShell() {
   const activeJobId = useSessionStore((state) => state.activeJobId)
   const setActiveJobId = useSessionStore((state) => state.setActiveJobId)
 
-  // Get messages for current session from cache.
-  // Filter out:
-  //  - tool messages (role='tool') — internal tool results, shown via SSE during live chat
-  //  - assistant messages with toolCalls — intermediate tool-call requests, not user-facing.
-  //    The final assistant response is always a separate message without toolCalls.
-  //    Without this filter, refresh shows empty bubbles from intermediate rounds.
-  const messages = selectedSessionId
-    ? (messagesCache[selectedSessionId] || []).filter(
-        m => m.role !== MessageRole.TOOL && !(m.role === MessageRole.ASSISTANT && m.toolCalls)
-      )
-    : []
+  // Get messages for current session from cache, grouped into "timeline +
+  // final answer" per assistant turn:
+  //  - intermediate rounds (assistant with toolCalls, role='tool' results) are
+  //    folded into a timeline attached to the terminal assistant message
+  //    (rebuilt from DB rows after refresh; live timeline preserved as-is)
+  //  - the terminal assistant message keeps only the final answer as content
+  const messages = useMemo(
+    () =>
+      selectedSessionId
+        ? attachTimelines(asTimelineMessages(messagesCache[selectedSessionId] || []))
+        : [],
+    [messagesCache, selectedSessionId],
+  )
 
   // Chat content scroll container
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)

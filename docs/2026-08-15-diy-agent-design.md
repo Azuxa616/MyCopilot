@@ -80,8 +80,8 @@ CREATE TABLE agents (
   model_id TEXT,                          -- NULL = 跟随会话模型
   parameters TEXT NOT NULL DEFAULT '{}',  -- JSON，透传给 adapter
   enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  created_at INTEGER NOT NULL,            -- Date.now()，对齐 repo/base.ts now() 与既有表约定
+  updated_at INTEGER NOT NULL
 );
 ```
 
@@ -105,9 +105,9 @@ agent 被删除后会话自动退回默认行为（NULL），不阻塞历史会�
 
 1. 建 `agents` 表（结构见上）
 2. `ALTER TABLE sessions ADD COLUMN agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL`
-3. **重建三张绑定表以补外键**（SQLite 不支持 `ADD CONSTRAINT`，沿用 0003 的"建新表 → 拷贝 → 删旧表 → 改名"先例）：
-   - `agent_tools`：现状仅有 `tool_id → tools(id) ON DELETE CASCADE`（0003 引入），**没有** `agent_id` 外键（agents 表此前不存在）——补 `agent_id → agents(id) ON DELETE CASCADE`；`safety_level` 保持 `NOT NULL DEFAULT 'inherit'` 不变（已核实：以 `'inherit'` 哨兵值表示继承，无需放宽为可空）
-   - `agent_skills` / `agent_mcps`：现状为无外键的裸连接表（0001 引入）——补齐两个方向的 `ON DELETE CASCADE`
+3. **重建三张绑定表**（SQLite 不支持 `ADD CONSTRAINT`，沿用 0003 的"建新表 → 拷贝 → 删旧表 → 改名"先例）：
+   - `agent_tools`：**去掉** 0003 引入的 `tool_id → tools(id)` 外键（已核实：内置工具仅存在于内存注册表 `tools/registry.ts`，不写入 `tools` 表，该表只存 mcp-provided 工具——保留此外键将使内置工具无法绑定）；**新增** `agent_id → agents(id) ON DELETE CASCADE`；`safety_level` 保持 `NOT NULL DEFAULT 'inherit'` 不变（以 `'inherit'` 哨兵值表示继承）。绑定键统一为 `Tool.id`（内置工具的 id 即其 name，如 `calculator`）。mcp-provided 工具删除时（`deleteToolsByMcp`/`deleteTool`）显式清理对应绑定行，补偿失去的级联
+   - `agent_skills` / `agent_mcps`：现状为无外键的裸连接表（0001 引入）——补齐 `agent_id → agents(id)` 与 `skill_id → skills(id)` / `mcp_id → mcps(id)` 双向 `ON DELETE CASCADE`
 
 ### Shared 类型
 
@@ -121,9 +121,10 @@ agent 被删除后会话自动退回默认行为（NULL），不阻塞历史会�
 | `apps/server/src/repo/agent.ts` | 从"仅安全覆盖查询"扩展为完整 CRUD + 三类绑定读写（PUT 时全量替换绑定） |
 | `apps/server/src/routes/agents.ts`（新） | REST CRUD + 绑定随 agent 读写；挂载到 `index.ts` |
 | `repo/session.ts` + sessions 路由 | 创建会话接受可选 `agentId`；`PATCH /api/sessions/:id` 支持改绑 |
-| `agent-loop/runner.ts` | 从 session 解析 agent（替代硬编码 `'default'`），`agentId` 贯穿到 executor |
-| `prompt/assembler.ts` | agent 有 `systemPrompt` → 替换默认系统提示；仅注入绑定的 skills |
-| `tools/executor.ts` | 有效工具集按 `绑定 ∩ 全局启用` 过滤；MCP 工具按绑定 server 过滤 |
+| `agent-loop/runner.ts` | 从 session 解析 agent（替代硬编码 `'default'`），`agentId` 贯穿到 executor；新增 `systemPrompt` 参数透传给 assembler |
+| `prompt/assembler.ts` | 新增 `systemPromptOverride` 参数：非空则**替换**默认系统提示；skills 注入逻辑不变 |
+| `streaming/lifecycle.ts` + `jobs/worker.ts` | **补齐 skills 注入链路**（现状缺口：assembler/runner 支持 `skills` 参数，但 lifecycle 与 worker 均未传入，skills 在生产链路实际未生效）；有 agent 时按绑定过滤工具/技能 |
+| `tools/executor.ts` | 不改执行逻辑；有效工具集过滤发生在 lifecycle/worker 的工具收集处（`绑定 ∩ 全局启用`） |
 | 模型解析 | `agent.modelId` 覆盖会话模型；模型不存在 → 回退 + warn |
 
 **关键约束：不改 SSE 协议、不改 runner 循环逻辑、不动 `ToolApproval` 审批流。** 本期只是把"配置从哪来"从硬编码换成 agent 实体。
@@ -132,7 +133,7 @@ agent 被删除后会话自动退回默认行为（NULL），不阻塞历史会�
 
 | 组件 | 内容 |
 |---|---|
-| `api/real.ts` + `api/mock.ts` | agents CRUD 端点 + session 改绑；**Mock 模式对齐**（项目约定 Mock/Real 双模式运行时切换） |
+| `api/real.ts` | agents CRUD 函数 + session 改绑（注意：mock 模式已移除，`api/index.ts` barrel 直接导出 real，无 mock 对齐负担） |
 | `store/agentStore.ts`（新） | Zustand store，对齐 sessionStore/configStore 模式：缓存 agents 列表 + CRUD actions |
 | `components/AgentManager/`（新） | 列表 + 创建/编辑弹窗：name / description / systemPrompt（textarea）/ modelId（下拉，含"跟随会话"空选项）/ enabled 开关 + 三个绑定多选器（工具/技能/MCP，新建默认全选）。入口：设置面板，与 Tools/Skills/MCP 管理并列 |
 | 会话创建流程 | agent 选择器（默认"默认助手"） |
@@ -162,7 +163,6 @@ agent 被删除后会话自动退回默认行为（NULL），不阻塞历史会�
 **web（Vitest / jsdom 环境）**
 - `agentStore`：CRUD actions
 - `AgentManager`：表单校验、三类绑定多选器行为
-- mock API 与 real API 端点对齐
 
 **手动验收**
 - 创建仅绑 `websearch` + `http` 的 agent → 绑定会话 → 全链路验证工具边界（其他工具不可见/不可调用）

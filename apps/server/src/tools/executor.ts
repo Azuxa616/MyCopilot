@@ -62,7 +62,14 @@ export async function executeToolCall(
     const agentId = context.agentId ?? DEFAULT_AGENT_ID;
     const safetyLevel = resolveEffectiveSafetyLevel(target.tool, target.ref, agentId);
     const argumentsDigest = digestToolCallArguments(toolCall.arguments);
-    const resourceScope = deriveResourceScope(args, argumentsDigest);
+    const resourceScope = deriveResourceScope(args);
+    // 会话确认缓存 key（设计文档 §2：sessionId + agentId + toolRef + policyVersion
+    // + resourceScope）。注意：参数摘要（argumentsDigest）不参与 key —— 它只落在
+    // ToolApproval 记录上用于审计。否则像 context7 这类每次参数都不同的查询型
+    // MCP 工具，"会话内确认一次" 会退化为 "每套参数确认一次"，确认框会在
+    // agent loop 的每一轮反复弹出（与 UI 承诺 "确认后本会话内将不再重复询问
+    // 此工具" 矛盾）。资源粒度由 resourceScope 承担：path:/origin: 前缀保留
+    // 细粒度，无法计算范围的工具按整个工具缓存（'tool'）。
     const cacheKey = [
       context.sessionId,
       agentId,
@@ -70,7 +77,6 @@ export async function executeToolCall(
       target.ref.sourceMcpId ?? '-',
       target.ref.policyVersion,
       resourceScope,
-      argumentsDigest,
     ].join(':');
 
     const needsConfirmation =
@@ -256,23 +262,29 @@ function parseArguments(raw: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function deriveResourceScope(
-  args: Record<string, unknown>,
-  argumentsDigest: string,
-): string {
+/**
+ * Derive the resource scope a confirmation covers:
+ * - path/file/directory args → `path:<resolved>`（按路径粒度缓存确认）
+ * - url arg → `origin:<origin>`（按来源粒度缓存确认）
+ * - 其余（参数无法定义资源边界的工具，如 context7 的查询类 MCP 工具）
+ *   → `tool`（按整个工具缓存确认，兑现 UI 承诺"本会话内不再重复询问此工具"）。
+ *
+ * scope 直接进入会话确认缓存 key，因此它（而非参数摘要）决定确认的复用粒度。
+ */
+function deriveResourceScope(args: Record<string, unknown>): string {
   for (const key of ['path', 'file', 'directory']) {
-    if (typeof args[key] === 'string' && args[key].trim()) {
-      return `path:${resolvePath(args[key].trim())}`;
+    if (typeof args[key] === 'string' && (args[key] as string).trim()) {
+      return `path:${resolvePath((args[key] as string).trim())}`;
     }
   }
   if (typeof args.url === 'string') {
     try {
       return `origin:${new URL(args.url).origin}`;
     } catch {
-      return `args:${argumentsDigest}`;
+      return 'tool';
     }
   }
-  return `args:${argumentsDigest}`;
+  return 'tool';
 }
 
 function stableSerialize(value: unknown): string {

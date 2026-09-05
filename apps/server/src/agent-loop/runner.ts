@@ -67,7 +67,11 @@ export type AgentLoopStatus =
 /** Result returned by runAgentLoop after termination. */
 export interface AgentLoopResult {
   status: AgentLoopStatus;
-  /** Accumulated textual content from the final iteration (may be partial). */
+  /**
+   * Accumulated textual content from the final iteration (may be partial).
+   * Non-complete terminals (max_iterations / length_limited) carry an
+   * appended stop notice so the truncation is visible to the user.
+   */
   content: string;
   /** Synthetic messages added to history (for caller inspection). */
   messages: Message[];
@@ -129,6 +133,69 @@ export interface RunAgentLoopParams {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MAX_ITERATIONS = 10;
+
+/**
+ * 从第几轮 LLM 调用起注入渐进式收敛提醒（迭代感知收敛机制）。
+ *
+ * 参考 Cursor Ralph Loop 的 iteration/max_iterations 状态注入与 GitHub
+ * Copilot SDK 的渐进施压模式：演示型/模糊目标请求（如"调用一下某工具"）
+ * 缺少天然完成条件，弱指令遵循模型会持续选择"再调用一轮"直至步数上限
+ * （回归案例：会话 ee176efb / a2dcd2d0，10 轮耗尽仍无最终回答）。
+ */
+const ITERATION_REMINDER_THRESHOLD = 3;
+
+/**
+ * 构造第 iteration 轮（共 maxSteps 轮）的收敛提醒文本。
+ *
+ * - 最后一轮（iteration === maxSteps）：强提醒，明确下一轮必须交付最终回答；
+ * - 第 ITERATION_REMINDER_THRESHOLD 轮起：渐进提醒，含轮次进度 X/Y；
+ * - 之前：null（不注入）。
+ *
+ * 提醒以临时 system 消息进入本次 LLM 请求——不落库、不推送前端、
+ * 不进 history，对持久化与 SSE 协议零影响。
+ */
+function buildIterationReminder(
+  iteration: number,
+  maxSteps: number,
+): string | null {
+  if (iteration >= maxSteps) {
+    return (
+      '[系统提醒] 这是最后一次工具调用机会。下一轮输出必须是不含任何工具调用的' +
+      '最终回答：请基于已获得的全部结果，完成对用户的回答（说明调用了什么、' +
+      '返回了什么、结论是什么）。'
+    );
+  }
+  if (iteration >= ITERATION_REMINDER_THRESHOLD) {
+    return (
+      `[系统提醒] 本次运行已进行到第 ${iteration}/${maxSteps} 轮工具调用。` +
+      '请评估任务是否已完成；除非新的调用会改变你的回答，否则请基于已有结果' +
+      '直接输出最终回答。'
+    );
+  }
+  return null;
+}
+
+/**
+ * 非完整终态（步数/预算/长度截断）在最终内容后追加的可见提示。
+ *
+ * 这些终态的最后一段文本通常是"接下来调用 X…"式的前导语——模型正在为下一轮
+ * 工具调用做准备时被截断（真实案例：会话 ee176efb 以"…查询文档："收尾并
+ * 被当作正常回答展示）。提示随内容一起持久化（占位消息）并经 done 事件下发，
+ * 前端与刷新后的 DB 读取看到的都是同一份带提示的内容。
+ */
+function appendStopNotice(
+  content: string,
+  reason: 'max_iterations' | 'max_tokens' | 'length_limited',
+  maxSteps: number,
+): string {
+  const notice =
+    reason === 'max_iterations'
+      ? `⚠️ 已达到单次运行的最大工具调用轮次（${maxSteps} 轮），回复自动停止；可发送新消息继续。`
+      : reason === 'max_tokens'
+        ? '⚠️ 对话上下文接近预算上限，回复自动停止；可开启新会话或精简上下文后继续。'
+        : '⚠️ 输出因模型长度上限被截断，内容可能不完整。';
+  return content.trim().length > 0 ? `${content}\n\n---\n${notice}` : notice;
+}
 
 /**
  * Token threshold above which the agent loop lazily summarizes history (T25).
@@ -362,8 +429,13 @@ export async function runAgentLoop(
         // Context v2（assembleMessagesV2）内部已实现压缩降级链，此处不再
         // 二次压缩、直接终止；两种 StopReason 都映射到旧外部状态
         // 'max_iterations'（Run → incomplete）。
+        const stopNoticeContent = appendStopNotice(
+          lastIterationContent,
+          guardDecision.reason === 'max_tokens' ? 'max_tokens' : 'max_iterations',
+          guard.config.maxSteps,
+        );
         updateMessage(userMessageId, {
-          content: lastIterationContent,
+          content: stopNoticeContent,
           status: 'sent',
         });
         runState.transition('max_steps');
@@ -373,7 +445,7 @@ export async function runAgentLoop(
         });
         return {
           status: 'max_iterations',
-          content: lastIterationContent,
+          content: stopNoticeContent,
           messages: addedMessages,
         };
       }
@@ -415,6 +487,16 @@ export async function runAgentLoop(
         ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
         ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
       }));
+
+      // 2b. 迭代感知收敛提醒（buildIterationReminder）：临时 system 消息
+      //     只进本次 LLM 请求，不落库、不推送前端、不进 history。
+      const iterationReminder = buildIterationReminder(
+        iterations,
+        guard.config.maxSteps,
+      );
+      if (iterationReminder) {
+        chatMessages.push({ role: 'system', content: iterationReminder });
+      }
 
       // 3. Open the LLM stream.
       const generator = adapter.chatCompletionStream(chatMessages, adapterConfig, {
@@ -472,7 +554,6 @@ export async function runAgentLoop(
       //    - 'length'→max_tokens→compress_context：Context v2 装配内部已完成
       //      压缩降级链，此处直接终止并保持 v1 外部行为 'length_limited'
       if (finishReason === 'stop' || finishReason === 'length') {
-        updateMessage(userMessageId, { content: iterationContent, status: 'sent' });
         const action = routeStopReason(STOP_REASON_BY_FINISH[finishReason]);
         let status: AgentLoopStatus;
         if (action === 'terminate_completed') {
@@ -482,8 +563,13 @@ export async function runAgentLoop(
           runState.transition('max_steps'); // in_progress → incomplete
           status = 'length_limited';
         }
+        const finalContent =
+          status === 'length_limited'
+            ? appendStopNotice(iterationContent, 'length_limited', guard.config.maxSteps)
+            : iterationContent;
+        updateMessage(userMessageId, { content: finalContent, status: 'sent' });
         await safeEmit(onEvent, { type: 'agent_loop_end', endReason: status });
-        return { status, content: iterationContent, messages: addedMessages };
+        return { status, content: finalContent, messages: addedMessages };
       }
 
       // 7. No tool calls and no explicit finish — treat as complete to avoid
@@ -658,10 +744,15 @@ export async function runAgentLoop(
     // 14. 步数上限耗尽（guard.config.maxSteps）：对应 LoopGuard 的 max_steps
     //     语义（RFC §5/§6 terminate_incomplete），映射旧外部状态
     //     'max_iterations'（Run → incomplete）。
-    updateMessage(userMessageId, { content: lastIterationContent, status: 'sent' });
+    const exhaustedContent = appendStopNotice(
+      lastIterationContent,
+      'max_iterations',
+      guard.config.maxSteps,
+    );
+    updateMessage(userMessageId, { content: exhaustedContent, status: 'sent' });
     runState.transition('max_steps');
     await safeEmit(onEvent, { type: 'agent_loop_end', endReason: 'max_iterations' });
-    return { status: 'max_iterations', content: lastIterationContent, messages: addedMessages };
+    return { status: 'max_iterations', content: exhaustedContent, messages: addedMessages };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 

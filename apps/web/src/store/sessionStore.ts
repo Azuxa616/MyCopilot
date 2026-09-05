@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { Session, SessionSummary, CreateSessionParams, Message } from '@my-copilot/shared';
 import { api } from '../api';
 import { parseSSEStream, type ConfirmationEventData } from '../utils/streamUtils';
+import type { MessageWithTimeline, TimelineEntry } from '../types/timeline';
 
 // Sentinel value for a "pending" (not-yet-created) session
 export const NEW_SESSION_SENTINEL = '__new__';
@@ -44,10 +45,10 @@ export interface ActiveToolCall {
 }
 
 /**
- * 前端本地的 assistant 消息扩展：Extended Thinking 推理文本（RFC agent-loop-v2 §3）。
- * 仅存在于前端消息缓存用于渲染，不持久化、不上行 server，故不进 shared Message 类型。
+ * 前端本地的 assistant 消息扩展（过程时间线）从 types/timeline.ts 导入；
+ * 仅存在于前端消息缓存用于渲染，不持久化、不上行 server（刷新后由
+ * utils/timeline.ts 从服务端消息重建，reasoning 除外）。
  */
-export type MessageWithReasoning = Message & { reasoningText?: string };
 
 /**
  * 状态机转移表（RFC agent-loop-v2 §7）。非法前置状态保持不变：
@@ -142,8 +143,8 @@ interface SessionStore {
 
     // Actions - message operations
     addMessage: (sessionId: string, message: Message) => void;
-    /** updates 额外接受前端本地字段 reasoningText（Extended Thinking 渲染，见 MessageWithReasoning）。 */
-    updateMessage: (sessionId: string, messageId: string, updates: Partial<MessageWithReasoning>) => void;
+    /** updates 额外接受前端本地字段 timeline（过程时间线渲染，见 MessageWithTimeline）。 */
+    updateMessage: (sessionId: string, messageId: string, updates: Partial<MessageWithTimeline>) => void;
     deleteMessage: (sessionId: string, messageId: string) => void;
 
     // Actions - business methods
@@ -167,6 +168,62 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
             }
             return patch;
         });
+    };
+
+    /**
+     * 把会话内最后一条 sending 状态的 assistant 占位消息收尾为 aborted。
+     *
+     * 回归修复：用户点击停止（或流异常断开）时，SSE 终态事件（done/error/
+     * aborted）往往不会到达前端 —— cancelStream 主动断开 fetch 后
+     * parseSSEStream 会静默返回，服务端写往已关闭连接的事件也无人接收。
+     * 修复前占位消息会永远停留在 sending 状态，并保留 agent loop
+     * 多轮拼接的全文（"好的，我来调用…好的，我再调用…"）。
+     * 幂等：消息一旦离开 sending 状态，findSendingAssistantId 即不再命中。
+     */
+    const markSendingAssistantAborted = (sessionId: string): void => {
+        const messages = get().messagesCache[sessionId] || [];
+        const sendingId = findSendingAssistantId(messages);
+        if (sendingId) {
+            get().updateMessage(sessionId, sendingId, { status: 'aborted' });
+        }
+    };
+
+    /**
+     * 时间线维护（过程时间线设计的 store 侧核心）：对 sending assistant
+     * 消息的 timeline 字段做函数式更新。所有 SSE 过程回调（reasoning /
+     * delta / tool_call_* / tool_result / 终态收尾）经由这里读写条目。
+     */
+    const updateTimeline = (
+        sessionId: string,
+        fn: (entries: TimelineEntry[]) => TimelineEntry[],
+    ): void => {
+        const messages = get().messagesCache[sessionId] || [];
+        const sendingId = findSendingAssistantId(messages);
+        if (!sendingId) return;
+        const msg = messages.find((m) => m.id === sendingId) as MessageWithTimeline;
+        get().updateMessage(sessionId, sendingId, { timeline: fn(msg.timeline ?? []) });
+    };
+
+    /** 把最后一个未收尾的 reasoning 条目标记为 done（回答/工具开始时调用）。 */
+    const closeOpenReasoning = (sessionId: string): void => {
+        updateTimeline(sessionId, (entries) => {
+            const last = entries[entries.length - 1];
+            if (last?.kind === 'reasoning' && !last.done) {
+                return [...entries.slice(0, -1), { ...last, done: true }];
+            }
+            return entries;
+        });
+    };
+
+    /** 终态收尾：仍在 running 的工具条目落定（error 终态标 error，其余标 done）。 */
+    const finalizeTimeline = (sessionId: string, asError: boolean): void => {
+        updateTimeline(sessionId, (entries) =>
+            entries.map((e) =>
+                e.kind === 'tool' && e.status === 'running'
+                    ? { ...e, status: asError ? 'error' : 'done' as const, endedAt: e.endedAt ?? Date.now() }
+                    : e,
+            ),
+        );
     };
 
     return {
@@ -458,21 +515,57 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                         if (sendingId) {
                             const lastMsg = messages.find(m => m.id === sendingId)!;
                             updateMessage(realSessionId, sendingId, { content: lastMsg.content + deltaContent });
+                            // 回答开始 → 收尾 reasoning 条目（"思考中…" → "思考过程"）
+                            closeOpenReasoning(realSessionId);
                         }
                     },
-                    // Extended Thinking（RFC §3）：推理增量累积到当前 sending assistant 消息的
-                    // 前端本地字段 reasoningText（MessageWithReasoning），UI 侧默认折叠渲染。
+                    // Extended Thinking（RFC §3）：推理增量累积为时间线 reasoning 条目
+                    // （连续 delta 归并进同一条目；回答/工具开始时收尾为 done）。
                     onReasoning: (reasoningDelta) => {
+                        updateTimeline(realSessionId, (entries) => {
+                            const last = entries[entries.length - 1];
+                            if (last?.kind === 'reasoning' && !last.done) {
+                                return [...entries.slice(0, -1), { ...last, text: last.text + reasoningDelta }];
+                            }
+                            return [...entries, {
+                                kind: 'reasoning',
+                                id: `reason-${Date.now()}-${entries.length}`,
+                                text: reasoningDelta,
+                                done: false,
+                            }];
+                        });
+                    },
+                    // tool_call_* / tool_result 事件：维护时间线条目 + activeToolCalls
+                    // （后者仅驱动 agentState 状态机）并驱动状态机
+                    onToolCallStart: (msgId, index) => {
+                        // 前导文本快照：本轮首个 tool_call_start 时，把气泡中累积的
+                        // 当前轮文本移入时间线 lead 条目并清空气泡——正文只承载最终
+                        // 回答，消灭"思考/前导写进气泡又被 onDone 覆盖删除"的闪动。
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
                         if (sendingId) {
                             const lastMsg = messages.find(m => m.id === sendingId)!;
-                            const prev = (lastMsg as MessageWithReasoning).reasoningText ?? '';
-                            updateMessage(realSessionId, sendingId, { reasoningText: prev + reasoningDelta });
+                            if (lastMsg.content.trim().length > 0) {
+                                const leadText = lastMsg.content;
+                                closeOpenReasoning(realSessionId);
+                                updateTimeline(realSessionId, (entries) => [...entries, {
+                                    kind: 'lead',
+                                    id: `lead-${Date.now()}-${entries.length}`,
+                                    text: leadText,
+                                }]);
+                                updateMessage(realSessionId, sendingId, { content: '' });
+                            } else {
+                                closeOpenReasoning(realSessionId);
+                            }
+                            // 工具条目（组合键占位，tool_call_done 后换真实 id）
+                            updateTimeline(realSessionId, (entries) => [...entries, {
+                                kind: 'tool',
+                                id: `${msgId}:${index}`,
+                                name: '',
+                                status: 'running',
+                                startedAt: Date.now(),
+                            }]);
                         }
-                    },
-                    // tool_call_* 事件：维护 activeToolCalls 进度并驱动状态机
-                    onToolCallStart: (msgId, index) => {
                         set((state) => ({
                             activeToolCalls: [
                                 ...state.activeToolCalls,
@@ -484,6 +577,13 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                     onToolCallDelta: (msgId, index, _id, name) => {
                         // 只补全运行中的工具名，不影响状态机
                         if (name === undefined) return;
+                        if (name) {
+                            updateTimeline(realSessionId, (entries) => entries.map((e) =>
+                                e.kind === 'tool' && e.status === 'running' && !e.name
+                                    ? { ...e, name }
+                                    : e,
+                            ));
+                        }
                         set((state) => ({
                             activeToolCalls: state.activeToolCalls.map(call =>
                                 call.id === toolCallKey(msgId, index) && call.status === 'running'
@@ -492,7 +592,16 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                             ),
                         }));
                     },
-                    onToolCallDone: (msgId, index, id, name) => {
+                    onToolCallDone: (msgId, index, id, name, args) => {
+                        // 时间线：组合键 → 真实 id，回填名称与参数（执行仍在进行，
+                        // tool_result 到达才算 done——修复旧 UI 在参数到齐时就打 ✓）
+                        if (args !== undefined) {
+                            updateTimeline(realSessionId, (entries) => entries.map((e) =>
+                                e.kind === 'tool' && e.id === `${msgId}:${index}`
+                                    ? { ...e, id, name, args }
+                                    : e,
+                            ));
+                        }
                         set((state) => ({
                             activeToolCalls: state.activeToolCalls.map(call =>
                                 call.id === toolCallKey(msgId, index)
@@ -502,7 +611,19 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                             agentState: transitionAgentState(state.agentState, 'tool_call_done'),
                         }));
                     },
-                    onToolResult: (_msgId, toolCallId) => {
+                    onToolResult: (_msgId, toolCallId, result, isError) => {
+                        // 工具结果回填：状态 done/error + 结果文本 + 结束时间（耗时）
+                        updateTimeline(realSessionId, (entries) => entries.map((e) =>
+                            e.kind === 'tool' && e.id === toolCallId
+                                ? {
+                                    ...e,
+                                    status: isError ? 'error' : 'done',
+                                    result,
+                                    isError,
+                                    endedAt: Date.now(),
+                                }
+                                : e,
+                        ));
                         // 工具结果到达时保持 done 状态（幂等）
                         set((state) => ({
                             activeToolCalls: state.activeToolCalls.map(call =>
@@ -516,6 +637,8 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
                         if (sendingId) {
+                            // 终态收尾时间线（running 条目落定），时间线本身保留在消息上
+                            finalizeTimeline(realSessionId, false);
                             updateMessage(realSessionId, sendingId, {
                                 status: 'sent',
                                 // Override locally-accumulated SSE deltas with the
@@ -537,6 +660,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
                         if (sendingId) {
+                            finalizeTimeline(realSessionId, true);
                             updateMessage(realSessionId, sendingId, {
                                 status: 'failed',
                                 error: errorMsg,
@@ -548,6 +672,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                         const messages = get().messagesCache[realSessionId] || [];
                         const sendingId = findSendingAssistantId(messages);
                         if (sendingId) {
+                            finalizeTimeline(realSessionId, false);
                             updateMessage(realSessionId, sendingId, { status: 'aborted' });
                         }
                     },
@@ -555,8 +680,30 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                         set({ pendingConfirmation: data });
                     },
                 });
+
+                // 流已结束但终态回调（onDone/onError/onAborted）一个都没触发：
+                // 服务端异常断流（崩溃、代理截断等）。此时占位消息仍处于
+                // sending 状态 —— 回归修复：收尾为 aborted，避免僵尸消息。
+                // 正常终态不命中 findSendingAssistantId，此守卫为 no-op。
+                const leftoverMessages = get().messagesCache[realSessionId] || [];
+                if (findSendingAssistantId(leftoverMessages)) {
+                    transition('stream_aborted');
+                    markSendingAssistantAborted(realSessionId);
+                }
             } catch (error) {
-                if (abortController.signal.aborted) return;
+                if (abortController.signal.aborted) {
+                    // 用户主动停止：fetch 被 abort 后抛错。收尾占位消息与
+                    // optimistic user 消息（回归修复：修复前直接 return，
+                    // 占位消息永远停留在 sending）。
+                    markSendingAssistantAborted(realSessionId);
+                    const cachedUser = get().messagesCache[realSessionId]?.find(
+                        (message) => message.id === userMessage.id,
+                    );
+                    if (cachedUser?.status === 'sending') {
+                        updateMessage(realSessionId, userMessage.id, { status: 'aborted' });
+                    }
+                    return;
+                }
                 // 流建立失败或 SSE 解析抛错：与 onError 一致进入 error 终态
                 transition('stream_error');
                 console.error('Send message failed:', error);
@@ -582,6 +729,11 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                 abortController.abort();
                 // 本地 abort 后进入 cancelled 终态
                 transition('stream_aborted');
+                // 收尾占位消息：SSE aborted 事件不会到达（连接已断），
+                // 本地直接标记，避免僵尸 sending 消息。
+                if (selectedSessionId && selectedSessionId !== NEW_SESSION_SENTINEL) {
+                    markSendingAssistantAborted(selectedSessionId);
+                }
                 // Also notify server
                 api.stopStream(selectedSessionId).catch(() => {});
                 set({ abortController: null, isSending: false });
