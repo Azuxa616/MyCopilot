@@ -281,3 +281,38 @@ export const DEFAULT_PLUGIN_BUDGET: PluginPerformanceBudget = {
   lifecycleHookTimeoutMs: 5000,
   startupTimeoutMs: 10000,
 };
+
+// ---------------------------------------------------------------------------
+// 插件注册表（repo 层的 shared 镜像）
+// ---------------------------------------------------------------------------
+
+/**
+ * 插件注册表行记录（repo/plugin.ts 的 shared 镜像）。
+ *
+ * 对应数据库 `plugins` 表的完整行结构，包括插件元数据、状态、
+ * 清单快照和错误信息。由 `apps/server/src/repo/plugin.ts` 定义并使用。
+ */
+export interface PluginRecord {
+  /** 插件标识符（清单 name）*/
+  id: string;
+  /** 语义化版本 */
+  version: string;
+  /** 来源层级 */
+  source: PluginSource;
+  /** 生命周期状态 */
+  state: LifecycleState;
+  /** 可选的插件类型 */
+  type?: PluginType;
+  /** 安装时的完整清单快照 */
+  manifest: PluginManifest;
+  /** 内容摘要（verify 阶段写入）*/
+  digest?: string;
+  /** 插件目录路径 */
+  directory: string;
+  /** 错误信息（状态转换失败时）*/
+  error?: string;
+  /** 创建时间（毫秒时间戳）*/
+  createdAt: number;
+  /** 更新时间（毫秒时间戳）*/
+  updatedAt: number;
+}
