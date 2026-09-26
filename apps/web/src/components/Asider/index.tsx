@@ -10,6 +10,7 @@ import EmptyState from '../EmptyState'
 import IconCollapsedLeft from '../../assets/icon/collapsed-left.svg?react'
 import IconCollapsedRight from '../../assets/icon/collapsed-right.svg?react'
 import IconPlus from '../../assets/icon/plus.svg?react'
+import { Settings as IconSettings } from 'lucide-react'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
 import { useConfigStore } from '../../store/configStore'
@@ -61,16 +62,6 @@ export default function Asider({
     if (location.pathname !== '/') {
       navigate('/');
     }
-  };
-
-  // Navigate to a settings sub-page
-  const goToSettings = (section: string) => {
-    navigate(`/settings/${section}`);
-  };
-
-  // Check whether a settings section is the current route (for highlight)
-  const isSettingsActive = (section: string) => {
-    return location.pathname === `/settings/${section}`;
   };
 
   return (
@@ -133,37 +124,17 @@ export default function Asider({
         </div>
       </main>
 
-      {/* footer: settings nav + app version */}
+      {/* footer: settings entry + app version */}
       <footer className="flex flex-col shrink-0 border-t border-border-base bg-bg-secondary">
         {role !== 'demo' && (
-          <div className="flex flex-col">
-            <span className={`px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-text-tertiary ${isCollapsed ? 'hidden' : ''}`}>
-              设置
-            </span>
-            {([
-              { key: 'providers', label: 'Providers', icon: '🤖' },
-              { key: 'tools', label: 'Tools', icon: '🔧' },
-              { key: 'skills', label: 'Skills', icon: '📜' },
-              { key: 'mcps', label: 'MCPs', icon: '🔌' },
-            ] as const).map((item) => {
-              const active = isSettingsActive(item.key);
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => goToSettings(item.key)}
-                  className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-2'} ${isCollapsed ? 'px-2' : 'px-4'} py-2 text-sm transition-colors ${
-                    active
-                      ? 'text-primary-500 bg-primary-50'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
-                  }`}
-                  title={isCollapsed ? item.label : undefined}
-                >
-                  <span>{item.icon}</span>
-                  {!isCollapsed && <span>{item.label}</span>}
-                </button>
-              );
-            })}
-          </div>
+          <button
+            onClick={() => navigate('/settings')}
+            className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-start gap-2'} ${isCollapsed ? 'px-2' : 'px-4'} py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors`}
+            title={isCollapsed ? '设置' : undefined}
+          >
+            <IconSettings className="w-5 h-5 shrink-0" />
+            {!isCollapsed && <span>设置</span>}
+          </button>
         )}
         {!isCollapsed && (
           <div className="w-full text-center text-xs py-2 text-text-tertiary bg-bg-tertiary flex flex-col items-center">
