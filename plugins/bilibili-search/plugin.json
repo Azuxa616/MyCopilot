@@ -1,0 +1,33 @@
+{
+  "name": "bilibili-search",
+  "version": "0.1.0",
+  "description": "搜索 B 站视频：agent 调用 bilibili_search_videos 工具，在对话中返回带封面与链接的视频卡片",
+  "author": {
+    "name": "Azuxa616"
+  },
+  "license": "MIT",
+  "engineCompatibility": {
+    "minVersion": "0.1.0"
+  },
+  "source": "official",
+  "type": "mcp-server-only",
+  "permissions": {
+    "network": true,
+    "childProcess": true
+  },
+  "provides": {
+    "mcpServers": [
+      {
+        "id": "search",
+        "transport": "stdio",
+        "command": "node",
+        "args": ["F:\\MyProjects\\MyCopilot\\plugins\\bilibili-search\\server\\index.ts"]
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/bilibili-search.md"
+      }
+    ]
+  }
+}
