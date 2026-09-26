@@ -12,6 +12,7 @@ import type {
   Tool, UpdateToolParams,
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
   Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
+  PluginRecord, PluginLifecycleEvent,
 } from '@my-copilot/shared';
 import { enhancedFetch, fetchWithAuth } from './request';
 import { StreamError } from './errors';
@@ -618,6 +619,85 @@ export async function cancelJob(id: string): Promise<unknown> {
     const response = await enhancedFetch<{ data: unknown }>(`/api/jobs/${id}/cancel`, {
         method: 'POST',
         timeout: 30000,
+    });
+    return response.data;
+}
+
+// ─── Plugins API ───
+
+/**
+ * List all plugins
+ * GET /api/plugins
+ */
+export async function fetchPlugins(): Promise<PluginRecord[]> {
+    const response = await enhancedFetch<{ data: PluginRecord[] }>('/api/plugins', {
+        method: 'GET',
+        timeout: 30000,
+        retry: true,
+        maxRetries: 3,
+    });
+    return response.data;
+}
+
+/**
+ * Install a plugin from a directory
+ * POST /api/plugins/install
+ */
+export async function installPlugin(params: { directory: string }): Promise<PluginRecord> {
+    const response = await enhancedFetch<{ data: PluginRecord }>('/api/plugins/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+        timeout: 60000,
+    });
+    return response.data;
+}
+
+/**
+ * Enable a plugin
+ * PATCH /api/plugins/:id/enable
+ */
+export async function enablePlugin(id: string): Promise<PluginRecord> {
+    const response = await enhancedFetch<{ data: PluginRecord }>(`/api/plugins/${id}/enable`, {
+        method: 'PATCH',
+        timeout: 30000,
+    });
+    return response.data;
+}
+
+/**
+ * Disable a plugin
+ * PATCH /api/plugins/:id/disable
+ */
+export async function disablePlugin(id: string): Promise<PluginRecord> {
+    const response = await enhancedFetch<{ data: PluginRecord }>(`/api/plugins/${id}/disable`, {
+        method: 'PATCH',
+        timeout: 30000,
+    });
+    return response.data;
+}
+
+/**
+ * Uninstall a plugin
+ * DELETE /api/plugins/:id
+ */
+export async function uninstallPlugin(id: string): Promise<void> {
+    await enhancedFetch<{ data: unknown }>(`/api/plugins/${id}`, {
+        method: 'DELETE',
+        timeout: 30000,
+    });
+}
+
+/**
+ * Fetch lifecycle events for a plugin
+ * GET /api/plugins/:id/events
+ */
+export async function fetchPluginEvents(id: string): Promise<PluginLifecycleEvent[]> {
+    const response = await enhancedFetch<{ data: PluginLifecycleEvent[] }>(`/api/plugins/${id}/events`, {
+        method: 'GET',
+        timeout: 30000,
+        retry: true,
+        maxRetries: 3,
     });
     return response.data;
 }
