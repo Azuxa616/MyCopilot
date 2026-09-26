@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import type { PluginManifest } from '@my-copilot/shared';
 import { initDatabase, getDb } from '../../db/index.js';
 import { getPlugin } from '../../repo/plugin.js';
@@ -189,8 +189,34 @@ describe('mcpCapabilities（MCP 能力桥）', () => {
     expect(rows[0].source_plugin_id).toBe('plugin-y');
   });
 
-  it('unregister：同步进 tools 表的 mcp-provided 行一并清理（不留孤儿工具）', () => {
-    writePlugin('plugin-x', baseManifest('plugin-x'));
+  it('register：相对 args 解析为插件目录下的绝对路径，绝对 args 原样保留', () => {
+    writePlugin(
+      'plugin-x',
+      baseManifest('plugin-x', {
+        provides: {
+          mcpServers: [
+            {
+              id: 'acme-mcp',
+              transport: 'stdio' as const,
+              command: 'node',
+              args: ['server/index.mjs', 'C:\\abs\\fixed.mjs'],
+            },
+          ],
+        },
+      }),
+    );
+    installFromDirectory('plugin-x');
+
+    const row = mcpRows()[0];
+    const args = JSON.parse(row.args) as string[];
+    // 相对路径以「插件安装目录」为锚解析为绝对路径（包可移植：同一 ZIP 在任意宿主可用）
+    expect(args[0]).toBe(join(pluginsDir, 'plugin-x', 'server', 'index.mjs'));
+    expect(isAbsolute(args[0])).toBe(true);
+    // 已是绝对路径的不动
+    expect(args[1]).toBe('C:\\abs\\fixed.mjs');
+  });
+
+  it('unregister：同步进 tools 表的 mcp-provided 行一并清理（不留孤儿工具）', () => {    writePlugin('plugin-x', baseManifest('plugin-x'));
     installFromDirectory('plugin-x');
 
     // 模拟工具同步：为该插件的 MCP 写入两行 mcp-provided 工具

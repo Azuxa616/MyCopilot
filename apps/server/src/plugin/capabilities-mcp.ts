@@ -16,6 +16,7 @@
  */
 import type { PluginCapabilities } from './capabilities.js';
 import { PluginLifecycleError } from './loader.js';
+import { isAbsolute, resolve } from 'node:path';
 import {
   createMcp,
   deleteMcpsByPlugin,
@@ -27,7 +28,7 @@ import { deleteToolsByMcp } from '../repo/tool.js';
 import { disconnect } from '../mcp/manager.js';
 
 export const mcpCapabilities: PluginCapabilities = {
-  register(plugin) {
+  register(plugin, pluginDir) {
     const servers = plugin.manifest.provides.mcpServers;
     if (!servers) return;
 
@@ -58,7 +59,9 @@ export const mcpCapabilities: PluginCapabilities = {
         config: {
           transport: 'stdio',
           command: serverDef.command,
-          args: serverDef.args,
+          // 可移植包：manifest 中的相对 args 以插件安装目录为锚解析为绝对路径，
+          // 同一 ZIP 在 Windows dev 与 Docker 容器内均可用；绝对路径原样保留。
+          args: serverDef.args?.map((arg) => (isAbsolute(arg) ? arg : resolve(pluginDir, arg))),
         },
         enabled: willEnable,
         sourcePluginId: plugin.id,
