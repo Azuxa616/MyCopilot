@@ -8,6 +8,8 @@
 
 import { useState } from 'react'
 import type { TimelineEntry } from '../../types/timeline'
+import { BilibiliCardBlock } from '../BilibiliVideoCard'
+import { extractBilibiliCardPayload } from '../BilibiliVideoCard/parse'
 
 /** 折叠指示箭头（与 ToolCallsBlock 的 chevron 同款，旋转过渡）。 */
 function Chevron({ expanded }: { expanded: boolean }) {
@@ -96,8 +98,13 @@ function truncateResult(result: string): string {
 function ToolEntry({ entry, live }: { entry: Extract<TimelineEntry, { kind: 'tool' }>; live: boolean }) {
   const isRunning = entry.status === 'running'
   const hasDetail = entry.args !== undefined || entry.result !== undefined
-  // live 且仍在执行且确有详情 → 默认展开；历史回放默认折叠
-  const [expanded, setExpanded] = useState(live && isRunning && hasDetail)
+  // 工具结果内含 bilibili-card 围栏块时，结果区改为卡片网格（历史回放也默认展开，
+  // 卡片即结果本体，不依赖 agent 是否把围栏块抄进回复）。
+  const cardPayload =
+    entry.result !== undefined && !entry.isError ? extractBilibiliCardPayload(entry.result) : null
+  const hasCards = cardPayload !== null
+  // live 且仍在执行且确有详情 → 默认展开；历史回放默认折叠（卡片除外）
+  const [expanded, setExpanded] = useState((live && isRunning && hasDetail) || hasCards)
 
   const duration = entry.endedAt !== undefined
     ? formatDuration(entry.startedAt, entry.endedAt)
@@ -142,12 +149,19 @@ function ToolEntry({ entry, live }: { entry: Extract<TimelineEntry, { kind: 'too
           )}
           {entry.result !== undefined && (
             <div className={`flex flex-col gap-1 rounded-md p-1.5 ${entry.isError ? 'border border-error-200 bg-error-50' : ''}`}>
-              <span className={`text-[10px] ${entry.isError ? 'text-error-700' : 'text-text-tertiary'}`}>
-                {entry.isError ? '结果（错误）' : '结果'}
-              </span>
-              <pre className={`m-0 max-h-[200px] overflow-auto font-mono text-[11px] leading-relaxed ${entry.isError ? 'text-error-700' : 'text-text-secondary'}`}>
-                {truncateResult(entry.result)}
-              </pre>
+              {hasCards ? (
+                // 卡片网格即结果本体（封面/时长/播放数据，整卡可点跳转 B 站）
+                <BilibiliCardBlock payload={cardPayload} />
+              ) : (
+                <>
+                  <span className={`text-[10px] ${entry.isError ? 'text-error-700' : 'text-text-tertiary'}`}>
+                    {entry.isError ? '结果（错误）' : '结果'}
+                  </span>
+                  <pre className={`m-0 max-h-[200px] overflow-auto font-mono text-[11px] leading-relaxed ${entry.isError ? 'text-error-700' : 'text-text-secondary'}`}>
+                    {truncateResult(entry.result)}
+                  </pre>
+                </>
+              )}
             </div>
           )}
         </div>

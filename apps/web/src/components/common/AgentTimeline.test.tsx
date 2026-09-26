@@ -148,4 +148,37 @@ describe('AgentTimeline', () => {
     expect(header.getAttribute('aria-expanded')).toBe('false')
     unmount()
   })
+
+  it('结果含 bilibili-card 围栏块：历史回放也默认展开并渲染卡片网格', () => {
+    const cards = JSON.stringify({
+      cards: [
+        {
+          bvid: 'BV1Rm421N7Jy', title: 'Go语言教程', cover: 'https://i2.hdslb.com/bfs/archive/x.jpg',
+          author: 'IT营大地', play: 431000, danmaku: 5720, duration: '37:02:32',
+          pubdate: '2024-06-05', url: 'https://www.bilibili.com/video/BV1Rm421N7Jy',
+        },
+      ],
+    })
+    const result = JSON.stringify([
+      { type: 'text', text: `「Golang 教程」的搜索结果\n\`\`\`bilibili-card\n${cards}\n\`\`\`` },
+    ])
+    const { container, unmount } = renderTimeline([
+      tool({ name: 'bilibili_search_videos', status: 'done', args: '{"keyword":"Golang"}', result, endedAt: 2100 }),
+    ])
+
+    // 历史回放（live=false）也默认展开
+    const header = screen.getByText('bilibili_search_videos').closest('button') as HTMLButtonElement
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+
+    // 卡片网格渲染：封面 no-referrer、时长、播放短格式；不再显示原始 JSON 文本块
+    const grid = container.querySelector('[data-testid="bilibili-card-grid"]')
+    expect(grid).not.toBeNull()
+    const img = container.querySelector('img')
+    expect(img?.getAttribute('referrerpolicy')).toBe('no-referrer')
+    expect(container.textContent).toContain('37:02:32')
+    expect(container.textContent).toContain('43.1万')
+    // 只剩参数区的 <pre>（原始结果文本块不再渲染）
+    expect(container.querySelectorAll('pre')).toHaveLength(1)
+    unmount()
+  })
 })
