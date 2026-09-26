@@ -701,3 +701,30 @@ export async function fetchPluginEvents(id: string): Promise<PluginLifecycleEven
     });
     return response.data;
 }
+
+/**
+ * Fetch a plugin's card renderer entry HTML (enabled plugins with frontendEntry only)
+ * GET /api/plugins/:id/frontend
+ */
+export async function fetchPluginFrontend(id: string): Promise<string> {
+    const response = await enhancedFetch<{ data: string }>(`/api/plugins/${id}/frontend`, {
+        method: 'GET',
+        timeout: 30000,
+    });
+    return response.data;
+}
+
+/**
+ * Upload a plugin ZIP and install it
+ * POST /api/plugins/upload
+ */
+export async function uploadPlugin(file: File): Promise<PluginRecord> {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await enhancedFetch<{ data: PluginRecord }>('/api/plugins/upload', {
+        method: 'POST',
+        body: form,
+        timeout: 120000,
+    });
+    return response.data;
+}
