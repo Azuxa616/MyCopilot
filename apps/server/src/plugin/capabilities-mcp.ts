@@ -16,7 +16,7 @@
  */
 import type { PluginCapabilities } from './capabilities.js';
 import { PluginLifecycleError } from './loader.js';
-import { isAbsolute, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import {
   createMcp,
   deleteMcpsByPlugin,

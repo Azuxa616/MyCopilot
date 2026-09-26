@@ -10,13 +10,18 @@
  * 装配依赖 index.ts 挂载本模块（import 即触发）。
  */
 import { Hono } from 'hono';
+import { readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   setCapabilities,
+  getPluginsDir,
   installFromDirectory,
   enablePlugin,
   disablePlugin,
   uninstallPlugin,
 } from '../plugin/loader.js';
+import { extractPluginZip } from '../plugin/upload.js';
 import { combinedCapabilities } from '../plugin/capabilities-combined.js';
 import { assertNoNamespaceConflict } from '../plugin/namespace.js';
 import { listPlugins, getPlugin } from '../repo/plugin.js';
@@ -42,12 +47,16 @@ export const pluginsApp = new Hono();
  * | engine_incompatible | 400 | 宿主版本低于清单 minVersion |
  * | mcp_transport_unsupported | 400 | 清单声明的 MCP transport 不可用 |
  * | skill_not_found | 400 | 清单声明的 Skill 文件缺失 |
- * | plugin_not_found | 404 | 插件不存在（enable/disable/uninstall） |
- * | namespace_conflict | 409 | 与其他已启用插件命名空间冲突（T7 断言 / 清单内部重复） |
- * | community_enable_forbidden | 403 | 社区插件禁止直接启用（应走市场流程） |
- * | official_uninstall_forbidden | 403 | 官方插件禁止卸载 |
- * | invalid_transition | 409 | 七态状态机非法源状态 |
- * | 其他 | 原样抛出 | errorMiddleware 兜底 500（如重复 install 的主键冲突） |
+  * | plugin_not_found | 404 | 插件不存在（enable/disable/uninstall/frontend） |
+  * | plugin_already_installed | 409 | 上传安装时同 id 插件已存在（升级流程另议） |
+  * | zip_invalid | 400 | 上传 ZIP 解压失败 / 条目路径非法 / 条目超限 |
+  * | upload_too_large | 400 | 上传解压后总量超 PLUGIN_UPLOAD_MAX_MB |
+  * | plugin_not_enabled | 409 | 拉取插件渲染器时插件未启用 |
+  * | frontend_entry_* | 404/400 | 渲染器未声明 / 文件缺失 / 超 1MB |
+  * | namespace_conflict | 409 | 与其他已启用插件命名空间冲突（T7 断言 / 清单内部重复） |
+  * | official_uninstall_forbidden | 403 | 官方插件禁止卸载 |
+  * | invalid_transition | 409 | 七态状态机非法源状态 |
+  * | 其他 | 原样抛出 | errorMiddleware 兜底 500（如重复 install 的主键冲突） |
  */
 const CODE_TO_STATUS: ReadonlyArray<readonly [string, number]> = [
   ['plugins_dir_not_configured', 500],
@@ -57,8 +66,14 @@ const CODE_TO_STATUS: ReadonlyArray<readonly [string, number]> = [
   ['mcp_transport_unsupported', 400],
   ['skill_not_found', 400],
   ['plugin_not_found', 404],
+  ['plugin_already_installed', 409],
+  ['zip_invalid', 400],
+  ['upload_too_large', 400],
+  ['plugin_not_enabled', 409],
+  ['frontend_entry_not_declared', 404],
+  ['frontend_entry_missing', 404],
+  ['frontend_entry_too_large', 400],
   ['namespace_conflict', 409],
-  ['community_enable_forbidden', 403],
   ['official_uninstall_forbidden', 403],
   ['invalid_transition', 409],
 ];
@@ -131,6 +146,96 @@ pluginsApp.post('/install', async (c) => {
     }
     throwMapped(err);
   }
+});
+
+/**
+ * 页面上传安装（插件外部化 §3）：multipart ZIP → 内存解压校验 →
+ * 落盘到 PLUGINS_DIR/<manifest.name>/ → 复用 installFromDirectory 事务。
+ */
+pluginsApp.post('/upload', async (c) => {
+  const pluginsDir = getPluginsDir();
+  if (!pluginsDir) {
+    throw new HttpError(500, 'plugins_dir_not_configured: 未配置 PLUGINS_DIR 环境变量，无法安装插件');
+  }
+
+  const body = await c.req.parseBody();
+  const file = body['file'];
+  if (!(file instanceof File)) {
+    throw new HttpError(400, 'Missing required field: file (multipart ZIP)');
+  }
+
+  const result = extractPluginZip(new Uint8Array(await file.arrayBuffer()));
+  if (!result.ok || !result.plugin) {
+    const message = result.error ?? 'zip_invalid: ZIP 解析失败';
+    if (message.includes('manifest_invalid')) {
+      return errorResponse(c, 400, message, { errors: result.errors ?? extractManifestErrors(message) });
+    }
+    throwMapped(new Error(message));
+  }
+
+  const { manifest, files } = result.plugin!;
+  if (getPlugin(manifest.name)) {
+    throw new HttpError(
+      409,
+      `plugin_already_installed: 插件「${manifest.name}」已安装（升级流程暂未提供，请先清理后重装）`,
+    );
+  }
+
+  // 落盘（目录名强制取自 manifest.name，杜绝任意路径写入）
+  const targetDir = join(pluginsDir, manifest.name);
+  mkdirSync(targetDir, { recursive: true });
+  for (const [path, data] of files) {
+    const target = join(targetDir, path);
+    mkdirSync(join(target, '..'), { recursive: true });
+    writeFileSync(target, data);
+  }
+
+  try {
+    const record = installFromDirectory(manifest.name);
+    return successResponse(c, record, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('manifest_invalid')) {
+      return errorResponse(c, 400, message, { errors: extractManifestErrors(message) });
+    }
+    throwMapped(err);
+  }
+});
+
+/**
+ * 插件卡片渲染器入口（插件外部化 §2）：返回声明的 frontend/index.html 内容，
+ * 供前端 PluginCardHost 以 srcdoc 注入沙箱 iframe。要求插件已启用。
+ */
+pluginsApp.get('/:id/frontend', (c) => {
+  const id = c.req.param('id');
+  const record = getPlugin(id);
+  if (!record) {
+    throw new HttpError(404, `plugin_not_found: 插件不存在：${id}`);
+  }
+  if (record.state !== 'enabled') {
+    throw new HttpError(409, `plugin_not_enabled: 插件「${id}」未启用，渲染器不可用`);
+  }
+  const entry = record.manifest.provides.frontendEntry;
+  if (!entry) {
+    throw new HttpError(404, `frontend_entry_not_declared: 插件「${id}」未声明 provides.frontendEntry`);
+  }
+
+  const pluginsDir = getPluginsDir();
+  if (!pluginsDir) {
+    throw new HttpError(500, 'plugins_dir_not_configured: 未配置 PLUGINS_DIR 环境变量');
+  }
+
+  let html: Buffer;
+  try {
+    html = readFileSync(join(pluginsDir, record.directory, entry.entry));
+  } catch {
+    throw new HttpError(404, `frontend_entry_missing: 渲染器文件缺失：${entry.entry}`);
+  }
+  if (html.byteLength > 1024 * 1024) {
+    throw new HttpError(400, 'frontend_entry_too_large: 渲染器入口超过 1 MB 上限');
+  }
+
+  return successResponse(c, html.toString('utf-8'));
 });
 
 pluginsApp.patch('/:id/enable', (c) => {

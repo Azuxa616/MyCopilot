@@ -8,10 +8,11 @@
  * mcps/skills 命名空间行即是对装配生效的直接验证（noop 默认下不会有行）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { zipSync } from 'fflate';
 import type { PluginManifest } from '@my-copilot/shared';
 import { initDatabase, getDb } from '../../db/index.js';
 import { errorMiddleware } from '../../middleware/error.js';
@@ -239,14 +240,13 @@ describe('plugins route', () => {
       expect(countRows('skills', "WHERE source_plugin_id = 'official-toolkit'")).toBe(1);
     });
 
-    it('community 插件 → 403（community_enable_forbidden）', async () => {
+    it('community 插件可启用（插件外部化 §5：信任决策由页面确认框承担）', async () => {
       writePlugin('community-greeter', baseManifest('community-greeter', { source: 'community' }));
       await postJson(app, '/install', { directory: 'community-greeter' });
 
       const { status, body } = await patch(app, '/community-greeter/enable');
-      expect(status).toBe(403);
-      expect(body.msg).toContain('community_enable_forbidden');
-      expect((await request(app, '/community-greeter')).status).toBe(200);
+      expect(status).toBe(200);
+      expect((body.data as { state: string }).state).toBe('enabled');
     });
 
     it('不存在的插件 → 404', async () => {
@@ -407,5 +407,219 @@ describe('plugins route', () => {
       const missing = await request(app, '/nope/events');
       expect(missing.status).toBe(404);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 插件外部化：页面上传安装（POST /upload）与渲染器入口（GET /:id/frontend）
+// ---------------------------------------------------------------------------
+
+describe('plugins upload/frontend（插件外部化）', () => {
+  const originalPluginsDir = process.env.PLUGINS_DIR;
+  let testDir: string;
+  let pluginsDir: string;
+  let app: ReturnType<typeof createTestApp>;
+
+  function extManifest(name: string, overrides: Partial<PluginManifest> = {}): PluginManifest {
+    return {
+      version: '1.0.0',
+      description: 'A test plugin',
+      author: { name: 'Tester' },
+      license: 'MIT',
+      engineCompatibility: { minVersion: '0.1.0' },
+      source: 'community',
+      permissions: {},
+      provides: {
+        mcpServers: [
+          { id: 'acme-mcp', transport: 'stdio' as const, command: 'node', args: ['./server/index.mjs'] },
+        ],
+      },
+      ...overrides,
+      name,
+    };
+  }
+
+  function makeZip(entries: Record<string, Uint8Array | string>): FormData {
+    const encoded: Record<string, Uint8Array> = {};
+    for (const [path, data] of Object.entries(entries)) {
+      encoded[path] = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+    }
+    const zipped = zipSync(encoded);
+    const form = new FormData();
+    form.append('file', new File([zipped], 'plugin.zip', { type: 'application/zip' }));
+    return form;
+  }
+
+  function manifestJson(manifest: PluginManifest): string {
+    return JSON.stringify(manifest, null, 2);
+  }
+
+  beforeEach(() => {
+    testDir = mkdtempSync(join(tmpdir(), 'plugins-ext-'));
+    initDatabase(testDir);
+    pluginsDir = join(testDir, 'plugins');
+    mkdirSync(pluginsDir, { recursive: true });
+    process.env.PLUGINS_DIR = pluginsDir;
+    setCapabilities(combinedCapabilities);
+    app = createTestApp();
+  });
+
+  afterEach(() => {
+    try {
+      getDb().close();
+    } catch {
+      // ignore
+    }
+    rmSync(testDir, { recursive: true, force: true });
+    if (originalPluginsDir === undefined) delete process.env.PLUGINS_DIR;
+    else process.env.PLUGINS_DIR = originalPluginsDir;
+    setCapabilities(noopCapabilities);
+  });
+
+  it('POST /upload：合法 ZIP → 201 installed，落盘且 ./ args 改写为绝对路径', async () => {
+    const res = await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({
+        'plugin.json': manifestJson(extManifest('demo-plugin')),
+        'server/index.mjs': 'console.log("hi")',
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as ApiResponse & { data: { id: string; state: string } };
+    expect(body.data.id).toBe('demo-plugin');
+    expect(body.data.state).toBe('installed');
+
+    // 文件落盘（目录名强制 = manifest.name）
+    expect(existsSync(join(pluginsDir, 'demo-plugin', 'plugin.json'))).toBe(true);
+    expect(existsSync(join(pluginsDir, 'demo-plugin', 'server', 'index.mjs'))).toBe(true);
+
+    // MCP 行已注册，./server/index.mjs 锚定为绝对路径
+    const row = getDb()
+      .prepare("SELECT args FROM mcps WHERE source_plugin_id = 'demo-plugin'")
+      .get() as { args: string };
+    const args = JSON.parse(row.args) as string[];
+    expect(args[0]).toBe(join(pluginsDir, 'demo-plugin', 'server', 'index.mjs'));
+  });
+
+  it('POST /upload：单一根目录包裹形态归一化安装', async () => {
+    const res = await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({
+        'wrapped-dir/plugin.json': manifestJson(extManifest('wrapped-plugin')),
+        'wrapped-dir/server/index.mjs': '// ok',
+      }),
+    });
+    expect(res.status).toBe(201);
+    expect(existsSync(join(pluginsDir, 'wrapped-plugin', 'plugin.json'))).toBe(true);
+  });
+
+  it('POST /upload：zip-slip 条目 → 400，且无逃逸文件', async () => {
+    const res = await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({
+        'plugin.json': manifestJson(extManifest('evil-plugin')),
+        '../escape.txt': 'boom',
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.msg).toContain('zip_invalid');
+    expect(existsSync(join(testDir, 'escape.txt'))).toBe(false);
+  });
+
+  it('POST /upload：缺 plugin.json → 400 manifest_invalid', async () => {
+    const res = await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({ 'readme.txt': 'no manifest here' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.msg).toContain('manifest_invalid');
+  });
+
+  it('POST /upload：同 id 重复上传 → 409 plugin_already_installed', async () => {
+    await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({ 'plugin.json': manifestJson(extManifest('dup-plugin')) }),
+    });
+    const res = await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({ 'plugin.json': manifestJson(extManifest('dup-plugin')) }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.msg).toContain('plugin_already_installed');
+  });
+
+  it('POST /upload：缺 file 字段 / 非 ZIP 内容 → 400', async () => {
+    const noFile = await app.request('/upload', { method: 'POST', body: new FormData() });
+    expect(noFile.status).toBe(400);
+
+    const notZip = new FormData();
+    notZip.append('file', new File([new TextEncoder().encode('not a zip')], 'x.zip'));
+    const bad = await app.request('/upload', { method: 'POST', body: notZip });
+    expect(bad.status).toBe(400);
+  });
+
+  it('GET /:id/frontend：未启用 409 → 启用后 200 html → 未声明 404', async () => {
+    const withRenderer = extManifest('renderer-plugin', {
+      provides: {
+        mcpServers: [
+          { id: 'acme-mcp', transport: 'stdio' as const, command: 'node', args: ['./server/index.mjs'] },
+        ],
+        frontendEntry: { entry: 'frontend/index.html' },
+      },
+    });
+    await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({
+        'plugin.json': manifestJson(withRenderer),
+        'server/index.mjs': '// mcp',
+        'frontend/index.html': '<!doctype html><html><body>renderer</body></html>',
+      }),
+    });
+
+    const before = await app.request('/renderer-plugin/frontend');
+    expect(before.status).toBe(409);
+
+    await patch(app, '/renderer-plugin/enable');
+    const res = await app.request('/renderer-plugin/frontend');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ApiResponse & { data: string };
+    expect(body.data).toContain('renderer');
+
+    // 未声明 frontendEntry → 404
+    await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({ 'plugin.json': manifestJson(extManifest('plain-plugin')) }),
+    });
+    await patch(app, '/plain-plugin/enable');
+    const res2 = await app.request('/plain-plugin/frontend');
+    expect(res2.status).toBe(404);
+    const body2 = (await res2.json()) as ApiResponse;
+    expect(body2.msg).toContain('frontend_entry_not_declared');
+  });
+
+  it('GET /:id/frontend：声明但文件缺失 → 404 frontend_entry_missing；插件不存在 → 404', async () => {
+    const ghost = extManifest('ghost-renderer', {
+      provides: {
+        mcpServers: [
+          { id: 'acme-mcp', transport: 'stdio' as const, command: 'node', args: ['./server/index.mjs'] },
+        ],
+        frontendEntry: { entry: 'frontend/index.html' },
+      },
+    });
+    await app.request('/upload', {
+      method: 'POST',
+      body: makeZip({ 'plugin.json': manifestJson(ghost), 'server/index.mjs': '// mcp' }),
+    });
+    await patch(app, '/ghost-renderer/enable');
+
+    const res = await app.request('/ghost-renderer/frontend');
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.msg).toContain('frontend_entry_missing');
+
+    expect((await app.request('/nope/frontend')).status).toBe(404);
   });
 });
