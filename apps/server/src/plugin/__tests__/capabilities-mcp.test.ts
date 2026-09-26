@@ -189,7 +189,7 @@ describe('mcpCapabilities（MCP 能力桥）', () => {
     expect(rows[0].source_plugin_id).toBe('plugin-y');
   });
 
-  it('register：相对 args 解析为插件目录下的绝对路径，绝对 args 原样保留', () => {
+  it('register：./ 前缀 args 解析为插件目录下的绝对路径，其余原样保留', () => {
     writePlugin(
       'plugin-x',
       baseManifest('plugin-x', {
@@ -199,7 +199,7 @@ describe('mcpCapabilities（MCP 能力桥）', () => {
               id: 'acme-mcp',
               transport: 'stdio' as const,
               command: 'node',
-              args: ['server/index.mjs', 'C:\\abs\\fixed.mjs'],
+              args: ['./server/index.mjs', '--stdio', 'C:\\abs\\fixed.mjs'],
             },
           ],
         },
@@ -209,11 +209,12 @@ describe('mcpCapabilities（MCP 能力桥）', () => {
 
     const row = mcpRows()[0];
     const args = JSON.parse(row.args) as string[];
-    // 相对路径以「插件安装目录」为锚解析为绝对路径（包可移植：同一 ZIP 在任意宿主可用）
+    // "./" 前缀 → 以插件安装目录为锚的绝对路径（包可移植）
     expect(args[0]).toBe(join(pluginsDir, 'plugin-x', 'server', 'index.mjs'));
     expect(isAbsolute(args[0])).toBe(true);
-    // 已是绝对路径的不动
-    expect(args[1]).toBe('C:\\abs\\fixed.mjs');
+    // flag 与绝对路径原样保留
+    expect(args[1]).toBe('--stdio');
+    expect(args[2]).toBe('C:\\abs\\fixed.mjs');
   });
 
   it('unregister：同步进 tools 表的 mcp-provided 行一并清理（不留孤儿工具）', () => {    writePlugin('plugin-x', baseManifest('plugin-x'));

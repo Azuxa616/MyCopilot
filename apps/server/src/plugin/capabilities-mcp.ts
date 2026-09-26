@@ -59,9 +59,12 @@ export const mcpCapabilities: PluginCapabilities = {
         config: {
           transport: 'stdio',
           command: serverDef.command,
-          // 可移植包：manifest 中的相对 args 以插件安装目录为锚解析为绝对路径，
-          // 同一 ZIP 在 Windows dev 与 Docker 容器内均可用；绝对路径原样保留。
-          args: serverDef.args?.map((arg) => (isAbsolute(arg) ? arg : resolve(pluginDir, arg))),
+          // 可移植包约定：以 "./" 开头的 args 视为插件目录内的相对路径，注册时
+          // 解析为绝对路径（同一 ZIP 在 Windows dev 与 Docker 均可用）；其余 args
+          // （flag、绝对路径等）原样保留。
+          args: serverDef.args?.map((arg) =>
+            arg.startsWith('./') ? resolve(pluginDir, arg) : arg,
+          ),
         },
         enabled: willEnable,
         sourcePluginId: plugin.id,
