@@ -224,7 +224,24 @@ describe('skills route', () => {
     expect(res.status).toBe(404);
   });
 
+  it('PATCH /:id returns 403 for plugin-sourced skill', async () => {
+    const meta = { ...mockSkillMeta, source: 'plugin' as const };
+    vi.mocked(getSkillMeta).mockReturnValue(meta);
+
+    const app = createTestApp();
+    const res = await app.request('/s1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Changed' }),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.msg).toContain('插件');
+    expect(updateSkill).not.toHaveBeenCalled();
+  });
+
   it('DELETE /:id deletes skill', async () => {
+    vi.mocked(getSkillMeta).mockReturnValue({ ...mockSkillMeta, source: 'upload' as const });
     vi.mocked(deleteSkill).mockReturnValue(true);
 
     const app = createTestApp();
@@ -234,7 +251,17 @@ describe('skills route', () => {
     expect(body.data.deleted).toBe(true);
   });
 
+  it('DELETE /:id returns 403 for plugin-sourced skill', async () => {
+    vi.mocked(getSkillMeta).mockReturnValue({ ...mockSkillMeta, source: 'plugin' as const });
+
+    const app = createTestApp();
+    const res = await app.request('/s1', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+    expect(deleteSkill).not.toHaveBeenCalled();
+  });
+
   it('DELETE /:id returns 404 when not found', async () => {
+    vi.mocked(getSkillMeta).mockReturnValue(undefined);
     vi.mocked(deleteSkill).mockReturnValue(false);
 
     const app = createTestApp();

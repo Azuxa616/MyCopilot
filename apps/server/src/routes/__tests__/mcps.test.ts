@@ -73,14 +73,17 @@ function mockMcp(overrides: Partial<Record<string, unknown>> = {}) {
 describe('mcps route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
     vi.mocked(synchronizeMcpTools).mockResolvedValue({
       created: 0,
       updated: 0,
       disabled: 0,
       tools: [],
     });
-  });
 
+    // PATCH/DELETE 现在先经 getMcp 做存在性与插件归属检查，默认放行普通 MCP。
+    vi.mocked(getMcp).mockReturnValue(mockMcp());
+  });
   it('GET / returns list of mcps', async () => {
     const mockList = [mockMcp()];
     vi.mocked(listMcps).mockReturnValue(mockList);
@@ -285,6 +288,7 @@ describe('mcps route', () => {
   });
 
   it('PATCH /:id returns 404 when not found', async () => {
+    vi.mocked(getMcp).mockReturnValue(undefined);
     vi.mocked(updateMcp).mockReturnValue(undefined);
 
     const app = createTestApp();
@@ -294,6 +298,21 @@ describe('mcps route', () => {
       body: JSON.stringify({ name: 'x' }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it('PATCH /:id returns 403 for plugin-owned mcp', async () => {
+    vi.mocked(getMcp).mockReturnValue(mockMcp({ sourcePluginId: 'bilibili-search' }));
+
+    const app = createTestApp();
+    const res = await app.request('/m1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'x' }),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.msg).toContain('bilibili-search');
+    expect(updateMcp).not.toHaveBeenCalled();
   });
 
   it('DELETE /:id deletes mcp', async () => {
@@ -307,7 +326,18 @@ describe('mcps route', () => {
     expect(deleteToolsByMcp).toHaveBeenCalledWith('m1');
   });
 
+  it('DELETE /:id returns 403 for plugin-owned mcp', async () => {
+    vi.mocked(getMcp).mockReturnValue(mockMcp({ sourcePluginId: 'bilibili-search' }));
+
+    const app = createTestApp();
+    const res = await app.request('/m1', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+    expect(deleteMcp).not.toHaveBeenCalled();
+    expect(deleteToolsByMcp).not.toHaveBeenCalled();
+  });
+
   it('DELETE /:id returns 404 when not found', async () => {
+    vi.mocked(getMcp).mockReturnValue(undefined);
     vi.mocked(deleteMcp).mockReturnValue(false);
 
     const app = createTestApp();

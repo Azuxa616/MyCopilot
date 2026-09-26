@@ -97,6 +97,18 @@ mcpsApp.get('/:id', (c) => {
 
 mcpsApp.patch('/:id', async (c) => {
   const id = c.req.param('id');
+  const existing = getMcp(id);
+  if (!existing) {
+    throw new HttpError(404, 'MCP not found');
+  }
+  // 插件贡献的 MCP 由插件生命周期管理（enable/disable 时桥接重建/反注册），
+  // 直接编辑会被下一次插件状态转换覆盖，因此拒绝。
+  if (existing.sourcePluginId) {
+    throw new HttpError(
+      403,
+      `该 MCP 由插件「${existing.sourcePluginId}」提供，请通过插件管理页禁用或卸载对应插件`,
+    );
+  }
   const body = await c.req.json();
   if (body && body.config !== undefined) {
     validateMcpConfig(body.config);
@@ -113,6 +125,17 @@ mcpsApp.patch('/:id', async (c) => {
 
 mcpsApp.delete('/:id', async (c) => {
   const id = c.req.param('id');
+  const existing = getMcp(id);
+  if (!existing) {
+    throw new HttpError(404, 'MCP not found');
+  }
+  // 同 PATCH：插件贡献的 MCP 不允许直接删除（disable 插件即反注册）。
+  if (existing.sourcePluginId) {
+    throw new HttpError(
+      403,
+      `该 MCP 由插件「${existing.sourcePluginId}」提供，请通过插件管理页禁用或卸载对应插件`,
+    );
+  }
   // Drop any live subprocess connection before removing the row.
   try {
     await disconnect(id);

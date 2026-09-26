@@ -203,7 +203,7 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
     return successResponse(c, data);
   });
 
-  // PATCH /:id — update skill. Directory-sourced skills are read-only.
+  // PATCH /:id — update skill. Directory/plugin-sourced skills are read-only.
   app.patch('/:id', async (c) => {
     const id = c.req.param('id');
     const meta = getSkillMeta(id);
@@ -214,6 +214,12 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
       throw new HttpError(
         403,
         'Directory-sourced skills cannot be edited; modify the source file and rescan',
+      );
+    }
+    if (meta.source === 'plugin') {
+      throw new HttpError(
+        403,
+        '该 Skill 由插件提供，请通过插件管理页禁用或卸载对应插件',
       );
     }
 
@@ -236,8 +242,20 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
 
   // DELETE /:id — delete a skill. Directory-sourced skills are deleted from
   // DB only (the file remains on disk; a rescan would re-create the row).
+  // Plugin-sourced skills are owned by the plugin lifecycle and cannot be
+  // deleted directly (disable/uninstall the plugin instead).
   app.delete('/:id', (c) => {
     const id = c.req.param('id');
+    const meta = getSkillMeta(id);
+    if (!meta) {
+      throw new HttpError(404, 'Skill not found');
+    }
+    if (meta.source === 'plugin') {
+      throw new HttpError(
+        403,
+        '该 Skill 由插件提供，请通过插件管理页禁用或卸载对应插件',
+      );
+    }
     const deleted = deleteSkill(id);
     if (!deleted) {
       throw new HttpError(404, 'Skill not found');
