@@ -64,3 +64,8 @@ apps/server/src/build-info.generated.json
 docker/demo-data/
 docker/.env.demo
 docker/.env.personal
+
+# Unified env (single source of truth at repo root; see .env.example)
+.env
+apps/server/.env
+apps/web/.env

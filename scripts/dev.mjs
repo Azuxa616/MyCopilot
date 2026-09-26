@@ -5,13 +5,69 @@
  * /api/health, then starts the web dev server.  Press Ctrl+C to kill both.
  *
  * Usage: node scripts/dev.mjs
+ *
+ * Environment: the repo-root `.env` file is the single source of truth for
+ * both server vars and VITE_* vars (see .env.example). It is loaded here and
+ * injected into both children — values already exported in the shell win.
+ * Relative PLUGINS_DIR / SKILLS_DIR values are resolved against the repo
+ * root (NOT the server's cwd), so `.env` stays portable across machines.
  */
 
 import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ENV_FILE = resolve(REPO_ROOT, '.env');
 const HEALTH_URL = 'http://localhost:3000/api/health';
 const MAX_WAIT_MS = 30_000;
 const POLL_MS = 500;
+
+/**
+ * Minimal .env parser: KEY=VALUE lines, `#` comments, blank lines, optional
+ * single/double quotes. Returns a Map; malformed lines are skipped silently.
+ */
+function parseEnvFile(text) {
+  const result = new Map();
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim().replace(/^export\s+/, '');
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    result.set(key, value);
+  }
+  return result;
+}
+
+// Load root .env with shell-priority: only fill keys not already in process.env.
+if (existsSync(ENV_FILE)) {
+  for (const [key, value] of parseEnvFile(readFileSync(ENV_FILE, 'utf-8'))) {
+    if (process.env[key] === undefined && value !== '') {
+      process.env[key] = value;
+    }
+  }
+  console.log('[dev] Loaded .env from repo root');
+} else {
+  console.log('[dev] No .env found at repo root (see .env.example) — using shell env only');
+}
+
+// Path vars in the unified .env are repo-root-relative; anchor them before the
+// server child (whose cwd is apps/server) sees them. Absolute values pass through.
+for (const key of ['PLUGINS_DIR', 'SKILLS_DIR']) {
+  const raw = process.env[key];
+  if (raw && !isAbsolute(raw)) {
+    process.env[key] = resolve(REPO_ROOT, raw);
+  }
+}
 
 async function waitForServer() {
   const deadline = Date.now() + MAX_WAIT_MS;
@@ -56,6 +112,8 @@ if (!(await waitForServer())) {
 console.log('[dev] Server ready — starting web...');
 
 // ── Start web ──
+// Vite reads VITE_* vars from the repo-root .env itself (envDir in
+// vite.config.ts), so no per-var injection is needed here.
 const web = spawn('pnpm', ['--filter', 'web', 'dev'], {
   stdio: 'inherit',
   shell: true,

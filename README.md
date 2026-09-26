@@ -67,7 +67,7 @@ pnpm build
 
 ## 配置
 
-复制并按需修改 `apps/server/.env.example`。常用配置如下：
+复制根目录 `.env.example` 为 `.env`（仓库根的 `.env` 是前后端唯一的环境变量文件，`pnpm dev` 启动器会加载它；Docker 部署则使用 `docker/.env.personal` 或 `docker/.env.demo`）。常用配置如下：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -77,7 +77,9 @@ pnpm build
 | `CORS_ORIGIN` | `http://localhost:5173` | 允许访问 API 的来源，多个来源用逗号分隔 |
 | `MAX_ATTACHMENT_SIZE_MB` | `10` | 单个附件大小上限 |
 | `SERVER_PUBLIC_DIR` | 空 | 设置后由 Server 同时托管 Web 构建产物 |
-| `SKILLS_DIR` | 空 | 可选的目录 Skills 来源 |
+| `SKILLS_DIR` | 空 | 可选的目录 Skills 来源（相对仓库根） |
+| `PLUGINS_DIR` | 空 | 插件根目录（相对仓库根），配合 `POST /api/plugins/install` 使用 |
+| `VITE_API_BASE_URL` | 空 | 前端 API 地址；留空走 dev 代理/生产同源 |
 | `LOG_LEVEL` | `info` | `debug`、`info`、`warn` 或 `error` |
 
 Provider 的 `base_url`、API Key 和模型名称在 Web 界面的设置页中配置，而不是写入前端环境变量。
