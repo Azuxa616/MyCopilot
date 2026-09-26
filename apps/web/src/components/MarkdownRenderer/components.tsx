@@ -6,9 +6,11 @@ import type React from 'react'
 import type { Components } from 'react-markdown'
 // Utils
 import { headingClasses } from './constants'
-import { cx, extractLanguage } from './utils'
+import { cx, extractLanguage, childrenToText } from './utils'
 // Assets
 import IconCopy from '../../assets/icon/copy.svg?react'
+// 扩展块：```bilibili-card {...}``` 围栏块渲染为视频卡片网格
+import { BilibiliCardBlock } from '../BilibiliVideoCard'
 
 /**
  * Pre 组件 - 代码块容器，包含复制功能
@@ -17,6 +19,17 @@ import IconCopy from '../../assets/icon/copy.svg?react'
 function PreComponent({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) {
   const child = Array.isArray(children) ? children[0] : children
   const [copied, setCopied] = useState(false)
+
+  // ```bilibili-card 围栏块：卡片网格直通渲染，不包代码框（无复制按钮/深色容器）。
+  // 注：react-markdown 自顶向下建树，此处的 child 是尚未调用的 code 组件元素，
+  // 其 className 即围栏块语言标识。
+  const passThroughClassName =
+    isValidElement(child)
+      ? ((child.props as { className?: string })?.className ?? '')
+      : ''
+  if (passThroughClassName.includes('language-bilibili-card')) {
+    return <>{child}</>
+  }
 
   if (!isValidElement(child)) {
     return (
@@ -220,6 +233,9 @@ export const markdownComponents: Components = {
       {...props}
       alt={alt}
       loading="lazy"
+      // 外链图床（如 B 站 hdslb.com）有 Referer 防盗链：带本站 Referer 会被 403。
+      // no-referrer 让图片请求不带 Referer，绝大多数图床放行。
+      referrerPolicy="no-referrer"
       className={cx(
         'my-3 max-h-[360px] w-full rounded-lg object-cover',
         props.className,
@@ -285,6 +301,11 @@ export const markdownComponents: Components = {
           {children}
         </code>
       )
+    }
+    // ```bilibili-card 围栏块 → 视频卡片网格（非法载荷由组件内部回退为代码块）。
+    // children 经 rehype/prism 管线可能是嵌套元素，用递归提取器取纯文本。
+    if (extractLanguage(className) === 'bilibili-card') {
+      return <BilibiliCardBlock payload={childrenToText(children)} />
     }
     return (
       <code {...props} className={className}>
