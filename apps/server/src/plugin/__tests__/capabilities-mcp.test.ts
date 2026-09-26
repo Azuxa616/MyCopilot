@@ -188,4 +188,30 @@ describe('mcpCapabilities（MCP 能力桥）', () => {
     expect(rows[0].id).toBe('plugin-y:acme-mcp');
     expect(rows[0].source_plugin_id).toBe('plugin-y');
   });
+
+  it('unregister：同步进 tools 表的 mcp-provided 行一并清理（不留孤儿工具）', () => {
+    writePlugin('plugin-x', baseManifest('plugin-x'));
+    installFromDirectory('plugin-x');
+
+    // 模拟工具同步：为该插件的 MCP 写入两行 mcp-provided 工具
+    const mcpId = 'plugin-x:acme-mcp';
+    const db = getDb();
+    const insert = db.prepare(
+      `INSERT INTO tools (id, name, description, input_schema, type, safety_level,
+         source_mcp_id, policy_version, enabled, created_at, updated_at)
+       VALUES (?, ?, '', '{}', 'mcp-provided', 'restricted', ?, 'v1', 1, 0, 0)`,
+    );
+    insert.run('t1', 'tool_a', mcpId);
+    insert.run('t2', 'tool_b', mcpId);
+    // 另一个 MCP（非本插件）的工具行，不应被清理
+    insert.run('t3', 'tool_other', 'other-mcp');
+    expect(countRows('tools')).toBe(3);
+
+    mcpCapabilities.unregister('plugin-x');
+
+    expect(mcpRows()).toHaveLength(0);
+    expect(countRows('tools')).toBe(1);
+    const remaining = db.prepare('SELECT name FROM tools').get() as { name: string };
+    expect(remaining.name).toBe('tool_other');
+  });
 });

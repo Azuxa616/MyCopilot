@@ -23,6 +23,7 @@ import {
   listMcpsByPlugin,
   updateMcp,
 } from '../repo/mcp.js';
+import { deleteToolsByMcp } from '../repo/tool.js';
 import { disconnect } from '../mcp/manager.js';
 
 export const mcpCapabilities: PluginCapabilities = {
@@ -67,6 +68,11 @@ export const mcpCapabilities: PluginCapabilities = {
 
   unregister(pluginId) {
     const owned = listMcpsByPlugin(pluginId);
+    // 先清理每个 MCP 同步进 tools 表的行（mcp-provided），再删 mcps 行——
+    // 否则禁用插件后残留启用的孤儿工具（executor 解析不到 MCP 配置）。
+    for (const mcp of owned) {
+      deleteToolsByMcp(mcp.id);
+    }
     deleteMcpsByPlugin(pluginId);
     for (const mcp of owned) {
       void disconnect(mcp.id).catch(() => undefined);
