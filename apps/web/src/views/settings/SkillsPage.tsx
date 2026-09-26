@@ -178,8 +178,9 @@ export function SkillsPage() {
         </div>
        ) : (
          <div className="flex flex-col gap-3">
-           {skills.map((skill) => {
-             const isDirectory = skill.source === 'directory'
+            {skills.map((skill) => {
+              // directory 只读（文件为源）；plugin 由插件生命周期管理（禁用/卸载插件时反注册）
+              const isManaged = skill.source === 'directory' || skill.source === 'plugin'
              return (
                <div key={skill.id} className="flex flex-col gap-2">
                  <div className="flex items-center justify-between p-4 bg-bg-secondary border border-border-base rounded-lg hover:border-primary-400 transition-colors">
@@ -202,11 +203,16 @@ export function SkillsPage() {
                         {skill.fileCount} 个附属文件
                       </button>
                     )}
-                    {isDirectory && (
-                      <span className="text-xs text-text-tertiary italic">
-                        （只读）
-                      </span>
-                    )}
+                     {skill.source === 'directory' && (
+                       <span className="text-xs text-text-tertiary italic">
+                         （只读）
+                       </span>
+                     )}
+                     {skill.source === 'plugin' && (
+                       <span className="text-xs text-text-tertiary italic">
+                         （由插件提供，随插件启停）
+                       </span>
+                     )}
                   </div>
                   <span className="text-xs text-text-secondary truncate">
                     {skill.description || '—'}
@@ -218,22 +224,22 @@ export function SkillsPage() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0 pl-4">
-                  <button
-                    onClick={() => handleEdit(skill)}
-                    disabled={isDirectory}
-                    className="px-3 py-1.5 text-xs bg-bg-elevated border border-border-base text-text-primary rounded-lg hover:border-primary-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => handleDelete(skill)}
-                    disabled={isDirectory}
-                    className="px-3 py-1.5 text-xs bg-error-50 border border-error-200 text-error-600 rounded-lg hover:bg-error-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    删除
-                  </button>
-                </div>
+                 <div className="flex items-center gap-3 shrink-0 pl-4">
+                   <button
+                     onClick={() => handleEdit(skill)}
+                     disabled={isManaged}
+                     className="px-3 py-1.5 text-xs bg-bg-elevated border border-border-base text-text-primary rounded-lg hover:border-primary-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                   >
+                     编辑
+                   </button>
+                   <button
+                     onClick={() => handleDelete(skill)}
+                     disabled={isManaged}
+                     className="px-3 py-1.5 text-xs bg-error-50 border border-error-200 text-error-600 rounded-lg hover:bg-error-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                   >
+                     删除
+                   </button>
+                 </div>
               </div>
               {expandedSkill === skill.id && (
                 <SkillFilesPanel skillId={skill.id} onOpen={handlePreviewFile} />
