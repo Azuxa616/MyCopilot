@@ -15,6 +15,8 @@ export interface Mcp {
   config: McpConfig;
   enabled: boolean;
   lastConnectedAt?: number;
+  /** 非空表示该 MCP 由插件贡献（值为插件 id），其增删改由插件生命周期管理。 */
+  sourcePluginId?: string;
   createdAt: number;
   updatedAt: number;
 }
