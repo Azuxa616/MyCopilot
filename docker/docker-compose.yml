@@ -12,6 +12,8 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - ./data:/app/data
+      # 插件持久化卷：页面上传安装的插件包落在这里，容器重建后保留
+      - ./plugins:/app/plugins
     environment:
       - AUTH_TOKEN=${AUTH_TOKEN:?set in docker/.env.personal}
       - DATA_DIR=/app/data
@@ -20,6 +22,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB:-10}
       - SERVER_PUBLIC_DIR=/app/apps/web/dist
+      - PLUGINS_DIR=/app/plugins
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]

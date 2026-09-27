@@ -95,6 +95,8 @@ pnpm docker:up
 
 默认会把服务暴露在 `http://localhost:3000`，并将 `docker/data` 挂载到容器的 `/app/data`。部署到其他环境前，请至少设置 `AUTH_TOKEN`，并根据实际域名调整 `CORS_ORIGIN`。
 
+插件通过设置页上传 ZIP 安装，持久化在 `docker/plugins` 卷（容器重建后保留）；上传的插件若携带 stdio MCP 服务，其 `command`（如 `node`）需在容器内可用。
+
 ## 项目结构
 
 ```text
