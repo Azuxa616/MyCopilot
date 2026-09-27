@@ -1,7 +1,7 @@
 {
   "name": "bilibili-search",
-  "version": "0.1.0",
-  "description": "搜索 B 站视频：agent 调用 bilibili_search_videos 工具，在对话中返回带封面与链接的视频卡片",
+  "version": "0.2.0",
+  "description": "搜索 B 站视频：agent 调用 bilibili_search_videos 工具，界面以插件自带渲染器展示视频卡片",
   "author": {
     "name": "Azuxa616"
   },
@@ -21,13 +21,16 @@
         "id": "search",
         "transport": "stdio",
         "command": "node",
-        "args": ["F:\\MyProjects\\MyCopilot\\plugins\\bilibili-search\\server\\index.ts"]
+        "args": ["./server/index.mjs"]
       }
     ],
     "skills": [
       {
         "path": "skills/bilibili-search.md"
       }
-    ]
+    ],
+    "frontendEntry": {
+      "entry": "frontend/index.html"
+    }
   }
 }
