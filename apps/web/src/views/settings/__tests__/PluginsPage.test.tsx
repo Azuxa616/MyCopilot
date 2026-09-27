@@ -142,14 +142,11 @@ describe('PluginsPage', () => {
     expect(getButton(enabledRow, '卸载')).toBeNull()
     expect(getButton(enabledRow, '事件')).not.toBeNull()
 
-    // installed community：「启用」按钮 disabled 且带说明 title；「卸载」可用
+    // installed community：「启用」可用（插件外部化 §5：信任决策交给确认框）；「卸载」可用
     const communityRow = getRow(container, 'p-community')
     const enableBtn = getButton(communityRow, '启用')
     expect(enableBtn).not.toBeNull()
-    expect(enableBtn!.disabled).toBe(true)
-    expect(enableBtn!.title).toBe(
-      '社区插件暂不可启用（需子进程运行时，下轮支持）',
-    )
+    expect(enableBtn!.disabled).toBe(false)
     const uninstallBtn = getButton(communityRow, '卸载')
     expect(uninstallBtn).not.toBeNull()
     expect(uninstallBtn!.disabled).toBe(false)

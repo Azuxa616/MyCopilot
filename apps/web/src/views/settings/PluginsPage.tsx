@@ -43,7 +43,7 @@ const actionButtonClass =
 const dangerButtonClass =
   'px-3 py-1.5 text-xs bg-error-50 border border-error-200 text-error-600 rounded-lg hover:bg-error-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
 
-// ─── 安装 Modal ───
+// ─── 安装 Modal（目录 / 上传 ZIP 双模式）───
 
 interface InstallModalProps {
   open: boolean
@@ -52,33 +52,43 @@ interface InstallModalProps {
   onInstalled: () => void
 }
 
+type InstallMode = 'directory' | 'upload'
+
 function InstallModal({ open, onClose, onInstalled }: InstallModalProps) {
+  const [mode, setMode] = useState<InstallMode>('upload')
   const [directory, setDirectory] = useState('')
+  const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // 每次打开时重置表单与错误状态。
   useEffect(() => {
     if (open) {
+      setMode('upload')
       setDirectory('')
+      setFile(null)
       setSubmitting(false)
       setError(null)
     }
   }, [open])
 
-  const canSubmit = directory.trim().length > 0 && !submitting
+  const canSubmit = !submitting && (mode === 'directory' ? directory.trim().length > 0 : file !== null)
 
   const handleSubmit = async () => {
-    const dir = directory.trim()
-    if (!dir || submitting) return
+    if (submitting || !canSubmit) return
     setSubmitting(true)
     setError(null)
     try {
-      await api.installPlugin({ directory: dir })
+      if (mode === 'directory') {
+        await api.installPlugin({ directory: directory.trim() })
+      } else {
+        await api.uploadPlugin(file!)
+      }
       showMessageAlert.success('插件安装成功')
       onInstalled()
     } catch (err) {
-      // server 返回的 msg 已含中文详情，直接在 Modal 内展示。
+      // server 返回的 msg 已含中文详情（zip_invalid / manifest_invalid / 409 等），
+      // 直接在 Modal 内展示。
       setError(err instanceof Error ? err.message : '安装失败')
     } finally {
       setSubmitting(false)
@@ -93,18 +103,61 @@ function InstallModal({ open, onClose, onInstalled }: InstallModalProps) {
       width="480px"
     >
       <div className="flex flex-col gap-4">
-        <FormField label="目录名" required>
-          <input
-            type="text"
-            value={directory}
-            onChange={(e) => setDirectory(e.target.value)}
-            className={formControlClassName}
-            placeholder="例如：my-plugin"
-          />
-          <span className="text-xs text-text-tertiary">
-            输入 PLUGINS_DIR 下的子目录名
-          </span>
-        </FormField>
+        {/* 模式切换 */}
+        <div className="flex gap-1 p-1 bg-bg-tertiary rounded-lg text-sm">
+          {(
+            [
+              { key: 'upload', label: '上传 ZIP' },
+              { key: 'directory', label: '服务器目录' },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => {
+                setMode(tab.key)
+                setError(null)
+              }}
+              className={`flex-1 px-3 py-1.5 rounded-md transition-colors ${
+                mode === tab.key
+                  ? 'bg-bg-elevated text-text-primary font-medium shadow-sm'
+                  : 'text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'upload' ? (
+          <FormField label="插件包（.zip）" required>
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null)
+                setError(null)
+              }}
+              className="text-sm text-text-secondary file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-bg-elevated file:text-text-primary file:text-xs hover:file:bg-bg-hover"
+            />
+            <span className="text-xs text-text-tertiary">
+              ZIP 内含 plugin.json（根目录或单一顶层目录），大小 ≤ 20MB
+            </span>
+          </FormField>
+        ) : (
+          <FormField label="目录名" required>
+            <input
+              type="text"
+              value={directory}
+              onChange={(e) => setDirectory(e.target.value)}
+              className={formControlClassName}
+              placeholder="例如：my-plugin"
+            />
+            <span className="text-xs text-text-tertiary">
+              输入服务器 PLUGINS_DIR 下已存在的子目录名
+            </span>
+          </FormField>
+        )}
 
         {error && (
           <div className="px-3 py-2 rounded-lg text-xs border bg-error-50 border-error-200 text-error-600">
@@ -281,6 +334,31 @@ export function PluginsPage() {
     runAction(plugin.id, () => api.uninstallPlugin(plugin.id), '插件已卸载')
   }
 
+  /**
+   * community 插件启用前的信任确认（插件外部化 §5）：明示声明的权限与
+   * MCP 命令——上传包本质是 admin 授权的代码执行，必须让用户看清在放行什么。
+   */
+  const handleEnable = (plugin: PluginRecord) => {
+    if (plugin.source === 'community') {
+      const perms = plugin.manifest.permissions ?? {}
+      const permBits = [
+        perms.network ? '网络访问' : null,
+        perms.childProcess ? '子进程' : null,
+        perms.filesystem ? '文件读写' : null,
+      ].filter(Boolean)
+      const mcpCommands = (plugin.manifest.provides.mcpServers ?? [])
+        .map((s) => `${s.command} ${(s.args ?? []).join(' ')}`.trim())
+      const summary = [
+        `即将启用 community 插件「${plugin.id}」v${plugin.version}。`,
+        permBits.length > 0 ? `\n声明权限：${permBits.join('、')}` : '\n未声明特殊权限。',
+        mcpCommands.length > 0 ? `\n将运行的外部命令：\n${mcpCommands.map((c) => `  · ${c}`).join('\n')}` : '',
+        '\n确认信任该插件吗？',
+      ].join('')
+      if (!window.confirm(summary)) return
+    }
+    runAction(plugin.id, () => api.enablePlugin(plugin.id), '插件已启用')
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -299,7 +377,7 @@ export function PluginsPage() {
         <div className="text-sm text-text-secondary">加载中...</div>
       ) : plugins.length === 0 ? (
         <div className="text-sm text-text-secondary">
-          暂无插件。点击「安装插件」导入 PLUGINS_DIR 下的插件目录。
+          暂无插件。点击「安装插件」上传 ZIP 包或导入 PLUGINS_DIR 下的插件目录。
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -368,19 +446,8 @@ export function PluginsPage() {
                   )}
                   {canEnable && (
                     <button
-                      onClick={() =>
-                        runAction(
-                          plugin.id,
-                          () => api.enablePlugin(plugin.id),
-                          '插件已启用',
-                        )
-                      }
-                      disabled={isBusy || plugin.source === 'community'}
-                      title={
-                        plugin.source === 'community'
-                          ? '社区插件暂不可启用（需子进程运行时，下轮支持）'
-                          : undefined
-                      }
+                      onClick={() => handleEnable(plugin)}
+                      disabled={isBusy}
                       className={actionButtonClass}
                     >
                       启用
