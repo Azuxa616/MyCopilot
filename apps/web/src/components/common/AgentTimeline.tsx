@@ -8,8 +8,8 @@
 
 import { useState } from 'react'
 import type { TimelineEntry } from '../../types/timeline'
-import { BilibiliCardBlock } from '../BilibiliVideoCard'
-import { extractBilibiliCardPayload } from '../BilibiliVideoCard/parse'
+import PluginCardHost from '../PluginCardHost'
+import { extractCardPayload } from '../PluginCardHost/parse'
 
 /** 折叠指示箭头（与 ToolCallsBlock 的 chevron 同款，旋转过渡）。 */
 function Chevron({ expanded }: { expanded: boolean }) {
@@ -98,11 +98,11 @@ function truncateResult(result: string): string {
 function ToolEntry({ entry, live }: { entry: Extract<TimelineEntry, { kind: 'tool' }>; live: boolean }) {
   const isRunning = entry.status === 'running'
   const hasDetail = entry.args !== undefined || entry.result !== undefined
-  // 工具结果内含 bilibili-card 围栏块时，结果区改为卡片网格（历史回放也默认展开，
-  // 卡片即结果本体，不依赖 agent 是否把围栏块抄进回复）。
-  const cardPayload =
-    entry.result !== undefined && !entry.isError ? extractBilibiliCardPayload(entry.result) : null
-  const hasCards = cardPayload !== null
+  // 工具结果内含 ```<pluginId>:card 围栏块时，结果区改为插件沙箱卡片（历史
+  // 回放也默认展开——卡片即结果本体，不依赖 agent 是否把围栏块抄进回复）。
+  const cardBlock =
+    entry.result !== undefined && !entry.isError ? extractCardPayload(entry.result) : null
+  const hasCards = cardBlock !== null
   // live 且仍在执行且确有详情 → 默认展开；历史回放默认折叠（卡片除外）
   const [expanded, setExpanded] = useState((live && isRunning && hasDetail) || hasCards)
 
@@ -149,9 +149,9 @@ function ToolEntry({ entry, live }: { entry: Extract<TimelineEntry, { kind: 'too
           )}
           {entry.result !== undefined && (
             <div className={`flex flex-col gap-1 rounded-md p-1.5 ${entry.isError ? 'border border-error-200 bg-error-50' : ''}`}>
-              {hasCards ? (
-                // 卡片网格即结果本体（封面/时长/播放数据，整卡可点跳转 B 站）
-                <BilibiliCardBlock payload={cardPayload} />
+              {hasCards && cardBlock ? (
+                // 插件沙箱卡片（渲染器由插件提供，宿主不含插件特化逻辑）
+                <PluginCardHost pluginId={cardBlock.pluginId} payload={cardBlock.payload} />
               ) : (
                 <>
                   <span className={`text-[10px] ${entry.isError ? 'text-error-700' : 'text-text-tertiary'}`}>

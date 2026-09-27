@@ -1,4 +1,4 @@
-// PluginCardHost - 通用插件卡片渲染宿主（插件外部化 §2，RFC B7 最小实现）。
+﻿// PluginCardHost - 通用插件卡片渲染宿主（插件外部化 §2，RFC B7 最小实现）。
 //
 // 加载「已启用插件」自带的 frontend/index.html（经认证 API 拉取，srcdoc 注入
 // iframe），以 postMessage 驱动 render/rendered 协议；渲染器运行在
@@ -45,14 +45,22 @@ export default function PluginCardHost({ pluginId, payload }: PluginCardHostProp
   const [failed, setFailed] = useState(false)
   const [height, setHeight] = useState(FALLBACK_HEIGHT)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const requestIdRef = useRef(`pch-${Math.random().toString(36).slice(2)}`)
+  // 惰性初始化：整个挂载周期稳定不变（既是 data 属性也是消息协议标识）
+  const [requestId] = useState(() => `pch-${crypto.randomUUID()}`)
+  const [loadedFor, setLoadedFor] = useState(pluginId)
 
-  // 拉取渲染器入口（启用中插件才有；失败 → 兜底）
+  // 复用组件实例切换插件时在渲染期重置派生状态（react-docs「render-time
+  // state adjust」模式，规避 effect 内同步 setState 的级联渲染）。
+  if (loadedFor !== pluginId) {
+    setLoadedFor(pluginId)
+    setHtml(htmlCache.get(pluginId) ?? null)
+    setFailed(false)
+    setHeight(FALLBACK_HEIGHT)
+  }
+
+  // 拉取渲染器入口（缓存命中时 html 非 null，effect 直接跳过；失败 → 兜底）
   useEffect(() => {
-    if (htmlCache.has(pluginId)) {
-      setHtml(htmlCache.get(pluginId)!)
-      return
-    }
+    if (html !== null) return
     let cancelled = false
     api
       .fetchPluginFrontend(pluginId)
@@ -67,20 +75,19 @@ export default function PluginCardHost({ pluginId, payload }: PluginCardHostProp
     return () => {
       cancelled = true
     }
-  }, [pluginId])
+  }, [pluginId, html])
 
   // postMessage 握手：render → rendered/error/open；超时兜底
   useEffect(() => {
     if (!html || failed) return
-    const requestId = requestIdRef.current
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let handshakeDone = false
 
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return
       const data = event.data as RendererMessage
       if (!data || typeof data !== 'object' || data.requestId !== requestId) return
       if (data.type === 'rendered') {
-        if (timer) clearTimeout(timer)
+        handshakeDone = true
         const next = typeof data.height === 'number' && data.height > 0 ? data.height : null
         if (next !== null) {
           setHeight((prev) => (Math.abs(next - prev) > HEIGHT_EPSILON ? next : prev))
@@ -95,21 +102,23 @@ export default function PluginCardHost({ pluginId, payload }: PluginCardHostProp
       }
     }
     window.addEventListener('message', onMessage)
-    timer = setTimeout(() => setFailed(true), RENDER_TIMEOUT_MS)
+    const timer = setTimeout(() => {
+      if (!handshakeDone) setFailed(true)
+    }, RENDER_TIMEOUT_MS)
 
     return () => {
       window.removeEventListener('message', onMessage)
-      if (timer) clearTimeout(timer)
+      clearTimeout(timer)
     }
-  }, [html, failed])
+  }, [html, failed, requestId])
 
-  const sendRender = useCallback((frame: HTMLIFrameElement | null) => {
-    iframeRef.current = frame
-    frame?.contentWindow?.postMessage(
-      { type: 'render', requestId: requestIdRef.current, payload },
-      '*',
-    )
-  }, [payload])
+  const sendRender = useCallback(
+    (frame: HTMLIFrameElement | null) => {
+      iframeRef.current = frame
+      frame?.contentWindow?.postMessage({ type: 'render', requestId, payload }, '*')
+    },
+    [requestId, payload],
+  )
 
   if (failed) {
     return (
@@ -136,7 +145,7 @@ export default function PluginCardHost({ pluginId, payload }: PluginCardHostProp
       className="my-3"
       data-testid="plugin-card-host"
       data-plugin-id={pluginId}
-      data-request-id={requestIdRef.current}
+      data-request-id={requestId}
       aria-label={`插件卡片 · ${pluginId}`}
     >
       {html ? (

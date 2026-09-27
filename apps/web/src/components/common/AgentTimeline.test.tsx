@@ -1,12 +1,17 @@
 // AgentTimeline.test.tsx — Tests for AgentTimeline (过程时间线渲染).
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import AgentTimeline from './AgentTimeline'
 import type { TimelineEntry } from '../../types/timeline'
+
+// PluginCardHost 经 api 拉取插件渲染器；此处 mock 让宿主直接渲染 iframe。
+vi.mock('../../api', () => ({
+  api: { fetchPluginFrontend: vi.fn().mockResolvedValue('<!doctype html><html><body>r</body></html>') },
+}))
 
 // React 19 requires this flag for act() to work correctly.
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -149,34 +154,23 @@ describe('AgentTimeline', () => {
     unmount()
   })
 
-  it('结果含 bilibili-card 围栏块：历史回放也默认展开并渲染卡片网格', () => {
-    const cards = JSON.stringify({
-      cards: [
-        {
-          bvid: 'BV1Rm421N7Jy', title: 'Go语言教程', cover: 'https://i2.hdslb.com/bfs/archive/x.jpg',
-          author: 'IT营大地', play: 431000, danmaku: 5720, duration: '37:02:32',
-          pubdate: '2024-06-05', url: 'https://www.bilibili.com/video/BV1Rm421N7Jy',
-        },
-      ],
-    })
+  it('结果含 <pluginId>:card 围栏块：历史回放也默认展开并渲染插件卡片宿主', async () => {
+    const payload = JSON.stringify({ cards: [{ bvid: 'BV1', title: 't' }] })
     const result = JSON.stringify([
-      { type: 'text', text: `「Golang 教程」的搜索结果\n\`\`\`bilibili-card\n${cards}\n\`\`\`` },
+      { type: 'text', text: `「Golang 教程」的搜索结果\n\`\`\`demo-plugin:card\n${payload}\n\`\`\`` },
     ])
     const { container, unmount } = renderTimeline([
-      tool({ name: 'bilibili_search_videos', status: 'done', args: '{"keyword":"Golang"}', result, endedAt: 2100 }),
+      tool({ name: 'search_videos', status: 'done', args: '{"keyword":"Golang"}', result, endedAt: 2100 }),
     ])
 
     // 历史回放（live=false）也默认展开
-    const header = screen.getByText('bilibili_search_videos').closest('button') as HTMLButtonElement
+    const header = screen.getByText('search_videos').closest('button') as HTMLButtonElement
     expect(header.getAttribute('aria-expanded')).toBe('true')
 
-    // 卡片网格渲染：封面 no-referrer、时长、播放短格式；不再显示原始 JSON 文本块
-    const grid = container.querySelector('[data-testid="bilibili-card-grid"]')
-    expect(grid).not.toBeNull()
-    const img = container.querySelector('img')
-    expect(img?.getAttribute('referrerpolicy')).toBe('no-referrer')
-    expect(container.textContent).toContain('37:02:32')
-    expect(container.textContent).toContain('43.1万')
+    // 插件卡片宿主已渲染（渲染握手细节归 PluginCardHost 自身测试）
+    const host = container.querySelector('[data-testid="plugin-card-host"]')
+    expect(host).not.toBeNull()
+    expect(host?.getAttribute('data-plugin-id')).toBe('demo-plugin')
     // 只剩参数区的 <pre>（原始结果文本块不再渲染）
     expect(container.querySelectorAll('pre')).toHaveLength(1)
     unmount()

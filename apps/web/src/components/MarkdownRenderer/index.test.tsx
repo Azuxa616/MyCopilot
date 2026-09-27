@@ -1,11 +1,22 @@
-// MarkdownRenderer 测试：img 元素必须带 referrerPolicy="no-referrer"
-// （外链图床如 B 站 hdslb.com 有 Referer 防盗链，带本站 Referer 会 403 图裂）。
+// MarkdownRenderer 测试：img referrerPolicy + 通用插件卡片围栏块拦截。
+// PluginCardHost 的渲染握手细节由其自身测试覆盖；此处 mock api 让宿主渲染 iframe。
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { ReactElement } from 'react'
 import MarkdownRenderer from './index'
+
+const { fetchPluginFrontendMock } = vi.hoisted(() => ({
+  fetchPluginFrontendMock: vi.fn(),
+}))
+
+vi.mock('../../api', () => ({
+  api: { fetchPluginFrontend: fetchPluginFrontendMock },
+}))
+
+// svgr 的 ?react 资产在 jsdom 下无法解析，mock 为空组件（旧语言回退代码框时用到复制按钮图标）。
+vi.mock('../../assets/icon/copy.svg?react', () => ({ default: () => null }))
 
 // React 19 requires this flag for act() to work correctly.
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -47,42 +58,48 @@ describe('MarkdownRenderer img', () => {
   })
 })
 
-describe('MarkdownRenderer bilibili-card 围栏块', () => {
-  const cardPayload = JSON.stringify({
-    cards: [
-      {
-        bvid: 'BV1Rm421N7Jy',
-        title: 'Go语言教程',
-        cover: 'https://i2.hdslb.com/bfs/archive/1539eda0.jpg',
-        author: 'IT营大地',
-        play: 431000,
-        danmaku: 5720,
-        duration: '37:02:32',
-        pubdate: '2024-05-01',
-        url: 'https://www.bilibili.com/video/BV1Rm421N7Jy',
-      },
-    ],
+describe('MarkdownRenderer 插件卡片围栏块（<pluginId>:card）', () => {
+  beforeEach(() => {
+    fetchPluginFrontendMock.mockReset()
+    fetchPluginFrontendMock.mockResolvedValue('<!doctype html><html><body>r</body></html>')
   })
 
-  it('合法围栏块渲染为卡片网格，且不包代码框', async () => {
+  it('合法围栏块渲染为插件卡片宿主，且不包代码框', async () => {
     const { container, unmount } = await renderAsync(
-      <MarkdownRenderer content={`\`\`\`bilibili-card\n${cardPayload}\n\`\`\``} />,
+      <MarkdownRenderer content={'```demo-plugin:card\n{"cards":[{"bvid":"BV1"}]}\n```'} />,
     )
-    const grid = container.querySelector('[data-testid="bilibili-card-grid"]')
-    expect(grid).not.toBeNull()
-    expect(container.querySelector('[data-testid="bilibili-video-card"]')).not.toBeNull()
+    const host = container.querySelector('[data-testid="plugin-card-host"]')
+    expect(host).not.toBeNull()
+    expect(host?.getAttribute('data-plugin-id')).toBe('demo-plugin')
     // 不应出现代码框（复制按钮 / data-language 头）
     expect(container.querySelector('[data-language]')).toBeNull()
     expect(container.querySelector('button[aria-label="复制代码"]')).toBeNull()
     unmount()
   })
 
-  it('非法 JSON 回退为代码块展示', async () => {
+  it('载荷非法 JSON 仍交给渲染器；旧 bilibili-card 语言不拦截（无兼容垫片）', async () => {
     const { container, unmount } = await renderAsync(
-      <MarkdownRenderer content={'```bilibili-card\n{oops\n```'} />,
+      <MarkdownRenderer content={'```demo-plugin:card\nnot-json\n```'} />,
     )
-    expect(container.querySelector('[data-testid="bilibili-card-fallback"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="bilibili-card-grid"]')).toBeNull()
+    expect(container.querySelector('[data-testid="plugin-card-host"]')).not.toBeNull()
+    unmount()
+
+    const { container: c2, unmount: u2 } = await renderAsync(
+      <MarkdownRenderer content={'```bilibili-card\n{}\n```'} />,
+    )
+    expect(c2.querySelector('[data-testid="plugin-card-host"]')).toBeNull()
+    expect(c2.querySelector('code')).not.toBeNull()
+    u2()
+  })
+
+  it('入口拉取失败时渲染兜底卡片', async () => {
+    fetchPluginFrontendMock.mockRejectedValue(new Error('409'))
+    // 用独立插件 id，避免撞上模块级渲染器缓存（demo-plugin 已在前序用例缓存成功）
+    const { container, unmount } = await renderAsync(
+      <MarkdownRenderer content={'```ghost-plugin:card\n{}\n```'} />,
+    )
+    expect(container.querySelector('[data-testid="plugin-card-fallback"]')).not.toBeNull()
     unmount()
   })
 })
+

@@ -9,8 +9,8 @@ import { headingClasses } from './constants'
 import { cx, extractLanguage, childrenToText } from './utils'
 // Assets
 import IconCopy from '../../assets/icon/copy.svg?react'
-// 扩展块：```bilibili-card {...}``` 围栏块渲染为视频卡片网格
-import { BilibiliCardBlock } from '../BilibiliVideoCard'
+// 扩展块：```<pluginId>:card {...}``` 围栏块 → 插件沙箱渲染器（PluginCardHost）
+import PluginCardHost from '../PluginCardHost'
 
 /**
  * Pre 组件 - 代码块容器，包含复制功能
@@ -20,14 +20,14 @@ function PreComponent({ children, ...props }: { children: React.ReactNode; [key:
   const child = Array.isArray(children) ? children[0] : children
   const [copied, setCopied] = useState(false)
 
-  // ```bilibili-card 围栏块：卡片网格直通渲染，不包代码框（无复制按钮/深色容器）。
+  // ```<pluginId>:card 围栏块：卡片直通渲染，不包代码框（无复制按钮/深色容器）。
   // 注：react-markdown 自顶向下建树，此处的 child 是尚未调用的 code 组件元素，
   // 其 className 即围栏块语言标识。
   const passThroughClassName =
     isValidElement(child)
       ? ((child.props as { className?: string })?.className ?? '')
       : ''
-  if (passThroughClassName.includes('language-bilibili-card')) {
+  if (/[a-z0-9-]+:card/.test(passThroughClassName.replace('language-', ''))) {
     return <>{child}</>
   }
 
@@ -302,10 +302,12 @@ export const markdownComponents: Components = {
         </code>
       )
     }
-    // ```bilibili-card 围栏块 → 视频卡片网格（非法载荷由组件内部回退为代码块）。
-    // children 经 rehype/prism 管线可能是嵌套元素，用递归提取器取纯文本。
-    if (extractLanguage(className) === 'bilibili-card') {
-      return <BilibiliCardBlock payload={childrenToText(children)} />
+    // ```<pluginId>:card 围栏块 → 插件沙箱渲染器。注意不能用 extractLanguage
+    // （[\w-]+ 不含冒号会截断），且 prism 会在 className 后追加 " code-highlight"，
+    // 故用词边界而非行尾锚定。
+    const cardLang = /^language-([a-z][a-z0-9-]{1,63}):card\b/.exec(className ?? '')
+    if (cardLang) {
+      return <PluginCardHost pluginId={cardLang[1]} payload={childrenToText(children)} />
     }
     return (
       <code {...props} className={className}>
