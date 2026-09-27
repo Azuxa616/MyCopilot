@@ -163,6 +163,10 @@
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(reportHeight);
   }
+
+  // 就绪通知：宿主的初始 render 消息可能早于本脚本执行（srcdoc 异步加载），
+  // 主动告知宿主可以（重）发 render。
+  window.parent.postMessage({ type: 'ready' }, '*');
 })();
 </script>
 </body>

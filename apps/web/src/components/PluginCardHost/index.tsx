@@ -29,6 +29,7 @@ interface OpenRequest {
 }
 
 type RendererMessage =
+  | { type: 'ready' }
   | { type: 'rendered'; requestId: string; height?: number }
   | { type: 'error'; requestId: string; message?: string }
   | OpenRequest
@@ -85,7 +86,17 @@ export default function PluginCardHost({ pluginId, payload }: PluginCardHostProp
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return
       const data = event.data as RendererMessage
-      if (!data || typeof data !== 'object' || data.requestId !== requestId) return
+      if (!data || typeof data !== 'object') return
+      if (data.type === 'ready') {
+        // 渲染器就绪（srcdoc 脚本异步加载，初始 render 消息可能在监听器
+        // 注册前发出而丢失）——就绪通知到达时重发一次 render。
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: 'render', requestId, payload },
+          '*',
+        )
+        return
+      }
+      if (data.requestId !== requestId) return
       if (data.type === 'rendered') {
         handshakeDone = true
         const next = typeof data.height === 'number' && data.height > 0 ? data.height : null
