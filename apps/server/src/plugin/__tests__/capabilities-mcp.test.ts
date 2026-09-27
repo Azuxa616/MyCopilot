@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import type { PluginManifest } from '@my-copilot/shared';
 import { initDatabase, getDb } from '../../db/index.js';
 import { getPlugin } from '../../repo/plugin.js';
@@ -187,5 +187,58 @@ describe('mcpCapabilities（MCP 能力桥）', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe('plugin-y:acme-mcp');
     expect(rows[0].source_plugin_id).toBe('plugin-y');
+  });
+
+  it('register：./ 前缀 args 解析为插件目录下的绝对路径，其余原样保留', () => {
+    writePlugin(
+      'plugin-x',
+      baseManifest('plugin-x', {
+        provides: {
+          mcpServers: [
+            {
+              id: 'acme-mcp',
+              transport: 'stdio' as const,
+              command: 'node',
+              args: ['./server/index.mjs', '--stdio', 'C:\\abs\\fixed.mjs'],
+            },
+          ],
+        },
+      }),
+    );
+    installFromDirectory('plugin-x');
+
+    const row = mcpRows()[0];
+    const args = JSON.parse(row.args) as string[];
+    // "./" 前缀 → 以插件安装目录为锚的绝对路径（包可移植）
+    expect(args[0]).toBe(join(pluginsDir, 'plugin-x', 'server', 'index.mjs'));
+    expect(isAbsolute(args[0])).toBe(true);
+    // flag 与绝对路径原样保留
+    expect(args[1]).toBe('--stdio');
+    expect(args[2]).toBe('C:\\abs\\fixed.mjs');
+  });
+
+  it('unregister：同步进 tools 表的 mcp-provided 行一并清理（不留孤儿工具）', () => {    writePlugin('plugin-x', baseManifest('plugin-x'));
+    installFromDirectory('plugin-x');
+
+    // 模拟工具同步：为该插件的 MCP 写入两行 mcp-provided 工具
+    const mcpId = 'plugin-x:acme-mcp';
+    const db = getDb();
+    const insert = db.prepare(
+      `INSERT INTO tools (id, name, description, input_schema, type, safety_level,
+         source_mcp_id, policy_version, enabled, created_at, updated_at)
+       VALUES (?, ?, '', '{}', 'mcp-provided', 'restricted', ?, 'v1', 1, 0, 0)`,
+    );
+    insert.run('t1', 'tool_a', mcpId);
+    insert.run('t2', 'tool_b', mcpId);
+    // 另一个 MCP（非本插件）的工具行，不应被清理
+    insert.run('t3', 'tool_other', 'other-mcp');
+    expect(countRows('tools')).toBe(3);
+
+    mcpCapabilities.unregister('plugin-x');
+
+    expect(mcpRows()).toHaveLength(0);
+    expect(countRows('tools')).toBe(1);
+    const remaining = db.prepare('SELECT name FROM tools').get() as { name: string };
+    expect(remaining.name).toBe('tool_other');
   });
 });

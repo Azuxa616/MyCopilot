@@ -196,6 +196,8 @@ export function McpsPage() {
           {mcps.map((mcp) => {
             const test = tests[mcp.id]
             const hasPreview = test && !test.loading
+            // 插件贡献的 MCP 由插件生命周期管理：只读（可测试同步），不可编辑/删除
+            const isPluginOwned = Boolean(mcp.sourcePluginId)
             return (
               <div
                 key={mcp.id}
@@ -208,6 +210,11 @@ export function McpsPage() {
                         {mcp.name}
                       </span>
                       <TransportBadge transport={mcp.config.transport} />
+                      {isPluginOwned && (
+                        <Badge colorClass="bg-violet-100 text-violet-700">
+                          插件 · {mcp.sourcePluginId}
+                        </Badge>
+                      )}
                       <Badge
                         colorClass={
                           mcp.enabled
@@ -240,18 +247,22 @@ export function McpsPage() {
                     >
                       {test?.loading ? '同步中...' : '测试并同步'}
                     </button>
-                    <button
-                      onClick={() => openEdit(mcp)}
-                      className="px-3 py-1.5 text-xs bg-bg-elevated border border-border-base text-text-primary rounded-lg hover:bg-bg-hover transition-colors"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      onClick={() => handleDelete(mcp)}
-                      className="px-3 py-1.5 text-xs bg-error-50 border border-error-200 text-error-600 rounded-lg hover:bg-error-100 transition-colors"
-                    >
-                      删除
-                    </button>
+                    {!isPluginOwned && (
+                      <button
+                        onClick={() => openEdit(mcp)}
+                        className="px-3 py-1.5 text-xs bg-bg-elevated border border-border-base text-text-primary rounded-lg hover:bg-bg-hover transition-colors"
+                      >
+                        编辑
+                      </button>
+                    )}
+                    {!isPluginOwned && (
+                      <button
+                        onClick={() => handleDelete(mcp)}
+                        className="px-3 py-1.5 text-xs bg-error-50 border border-error-200 text-error-600 rounded-lg hover:bg-error-100 transition-colors"
+                      >
+                        删除
+                      </button>
+                    )}
                   </div>
                 </div>
 

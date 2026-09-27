@@ -252,19 +252,14 @@ export function installFromDirectory(dirName: string): PluginRecord {
 }
 
 /**
- * 启用插件（仅 official；community 禁止走该入口）。合法源状态：
- * installed/disabled。装配能力 → 置 enabled → 记 user 触发的成功事件。
- */
+  * 启用插件（official / community 均可——community 的信任决策由前端确认框
+  * 与 demo 路由白名单承担，见 spec 2026-09-26-plugin-externalization §5）。
+  * 合法源状态：installed/disabled。装配能力 → 置 enabled → 记 user 触发的成功事件。
+  */
 export function enablePlugin(pluginId: string): PluginRecord {
   const plugin = getPlugin(pluginId);
   if (!plugin) {
     throw new PluginLifecycleError('plugin_not_found', `插件不存在：${pluginId}`);
-  }
-  if (plugin.source === 'community') {
-    throw new PluginLifecycleError(
-      'community_enable_forbidden',
-      `社区插件不允许直接启用：${pluginId}（应经市场安装流程）`,
-    );
   }
   if (!USER_TRANSITIONS.enable.includes(plugin.state)) {
     throw new PluginLifecycleError(

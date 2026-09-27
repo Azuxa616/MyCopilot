@@ -6,9 +6,11 @@ import type React from 'react'
 import type { Components } from 'react-markdown'
 // Utils
 import { headingClasses } from './constants'
-import { cx, extractLanguage } from './utils'
+import { cx, extractLanguage, childrenToText } from './utils'
 // Assets
 import IconCopy from '../../assets/icon/copy.svg?react'
+// 扩展块：```<pluginId>:card {...}``` 围栏块 → 插件沙箱渲染器（PluginCardHost）
+import PluginCardHost from '../PluginCardHost'
 
 /**
  * Pre 组件 - 代码块容器，包含复制功能
@@ -17,6 +19,17 @@ import IconCopy from '../../assets/icon/copy.svg?react'
 function PreComponent({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) {
   const child = Array.isArray(children) ? children[0] : children
   const [copied, setCopied] = useState(false)
+
+  // ```<pluginId>:card 围栏块：卡片直通渲染，不包代码框（无复制按钮/深色容器）。
+  // 注：react-markdown 自顶向下建树，此处的 child 是尚未调用的 code 组件元素，
+  // 其 className 即围栏块语言标识。
+  const passThroughClassName =
+    isValidElement(child)
+      ? ((child.props as { className?: string })?.className ?? '')
+      : ''
+  if (/[a-z0-9-]+:card/.test(passThroughClassName.replace('language-', ''))) {
+    return <>{child}</>
+  }
 
   if (!isValidElement(child)) {
     return (
@@ -220,6 +233,9 @@ export const markdownComponents: Components = {
       {...props}
       alt={alt}
       loading="lazy"
+      // 外链图床（如 B 站 hdslb.com）有 Referer 防盗链：带本站 Referer 会被 403。
+      // no-referrer 让图片请求不带 Referer，绝大多数图床放行。
+      referrerPolicy="no-referrer"
       className={cx(
         'my-3 max-h-[360px] w-full rounded-lg object-cover',
         props.className,
@@ -285,6 +301,13 @@ export const markdownComponents: Components = {
           {children}
         </code>
       )
+    }
+    // ```<pluginId>:card 围栏块 → 插件沙箱渲染器。注意不能用 extractLanguage
+    // （[\w-]+ 不含冒号会截断），且 prism 会在 className 后追加 " code-highlight"，
+    // 故用词边界而非行尾锚定。
+    const cardLang = /^language-([a-z][a-z0-9-]{1,63}):card\b/.exec(className ?? '')
+    if (cardLang) {
+      return <PluginCardHost pluginId={cardLang[1]} payload={childrenToText(children)} />
     }
     return (
       <code {...props} className={className}>

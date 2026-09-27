@@ -156,11 +156,11 @@ describe('PluginLoader 生命周期', () => {
     expect((JSON.parse(rows[2].payload!) as { digest: string }).digest).toBe(record.digest);
   });
 
-  it('community 禁止 enable；official enable 成功并记 user 事件', () => {
+  it('community 可 enable（插件外部化 §5：信任决策移交页面确认框）；official enable 成功并记 user 事件', () => {
     writePlugin('demo-plugin', baseManifest('demo-plugin'));
     installFromDirectory('demo-plugin');
-    expect(() => enablePlugin('demo-plugin')).toThrow('community_enable_forbidden');
-    expect(getPlugin('demo-plugin')!.state).toBe('installed');
+    const communityEnabled = enablePlugin('demo-plugin');
+    expect(communityEnabled.state).toBe('enabled');
 
     writePlugin('official-plugin', baseManifest('official-plugin', { source: 'official' }));
     installFromDirectory('official-plugin');

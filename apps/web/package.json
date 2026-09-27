@@ -16,6 +16,7 @@
     "@tailwindcss/vite": "^4.1.17",
     "@tanstack/react-virtual": "^3.13.12",
     "eventsource-parser": "^1.0.0",
+    "lucide-react": "^1.48.0",
     "prismjs": "^1.30.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

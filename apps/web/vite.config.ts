@@ -40,6 +40,8 @@ function buildInfoPlugin(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  // 统一 env：VITE_* 变量从仓库根 .env 读取（与 server 共用同一份文件）
+  envDir: '../../',
   plugins: [
     react(),
     tailwindcss(),

@@ -16,6 +16,7 @@
  */
 import type { PluginCapabilities } from './capabilities.js';
 import { PluginLifecycleError } from './loader.js';
+import { resolve } from 'node:path';
 import {
   createMcp,
   deleteMcpsByPlugin,
@@ -23,10 +24,11 @@ import {
   listMcpsByPlugin,
   updateMcp,
 } from '../repo/mcp.js';
+import { deleteToolsByMcp } from '../repo/tool.js';
 import { disconnect } from '../mcp/manager.js';
 
 export const mcpCapabilities: PluginCapabilities = {
-  register(plugin) {
+  register(plugin, pluginDir) {
     const servers = plugin.manifest.provides.mcpServers;
     if (!servers) return;
 
@@ -57,7 +59,12 @@ export const mcpCapabilities: PluginCapabilities = {
         config: {
           transport: 'stdio',
           command: serverDef.command,
-          args: serverDef.args,
+          // 可移植包约定：以 "./" 开头的 args 视为插件目录内的相对路径，注册时
+          // 解析为绝对路径（同一 ZIP 在 Windows dev 与 Docker 均可用）；其余 args
+          // （flag、绝对路径等）原样保留。
+          args: serverDef.args?.map((arg) =>
+            arg.startsWith('./') ? resolve(pluginDir, arg) : arg,
+          ),
         },
         enabled: willEnable,
         sourcePluginId: plugin.id,
@@ -67,6 +74,11 @@ export const mcpCapabilities: PluginCapabilities = {
 
   unregister(pluginId) {
     const owned = listMcpsByPlugin(pluginId);
+    // 先清理每个 MCP 同步进 tools 表的行（mcp-provided），再删 mcps 行——
+    // 否则禁用插件后残留启用的孤儿工具（executor 解析不到 MCP 配置）。
+    for (const mcp of owned) {
+      deleteToolsByMcp(mcp.id);
+    }
     deleteMcpsByPlugin(pluginId);
     for (const mcp of owned) {
       void disconnect(mcp.id).catch(() => undefined);

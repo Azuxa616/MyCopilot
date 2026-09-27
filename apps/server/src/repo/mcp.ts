@@ -42,6 +42,7 @@ function rowToMcp(row: McpRow): Mcp {
     config,
     enabled: Boolean(row.enabled),
     lastConnectedAt: row.last_connected_at ?? undefined,
+    sourcePluginId: row.source_plugin_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
