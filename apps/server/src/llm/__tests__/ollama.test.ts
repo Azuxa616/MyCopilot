@@ -143,3 +143,41 @@ describe('OllamaAdapter', () => {
     expect(chunks).toEqual(['Hi']);
   });
 });
+
+describe('OllamaAdapter multimodal serialization', () => {
+  it('images → base64 数组（剥掉 data: 前缀），content 保持字符串', async () => {
+    let captured: { messages: Array<Record<string, unknown>> } | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body)) as { messages: Array<Record<string, unknown>> };
+      return createNDJSONResponse(['{"model":"llama3","done":true}']);
+    });
+
+    const adapter = new OllamaAdapter();
+    const multimodal: ChatMessage[] = [
+      {
+        role: 'user',
+        content: '看图',
+        images: [{ url: 'data:image/png;base64,AAA' }, { url: 'data:image/jpeg;base64,BBB' }],
+      },
+    ];
+    await collectEvents(adapter.chatCompletionStream(multimodal, createConfig()));
+
+    const userMsg = captured!.messages.find((m) => m.role === 'user')!;
+    expect(userMsg.content).toBe('看图');
+    expect(userMsg.images).toEqual(['AAA', 'BBB']);
+  });
+
+  it('无 images 时不产生 images 字段（零回归）', async () => {
+    let captured: { messages: Array<Record<string, unknown>> } | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body)) as { messages: Array<Record<string, unknown>> };
+      return createNDJSONResponse(['{"model":"llama3","done":true}']);
+    });
+
+    const adapter = new OllamaAdapter();
+    await collectEvents(adapter.chatCompletionStream(messages, createConfig()));
+
+    const userMsg = captured!.messages.find((m) => m.role === 'user')!;
+    expect(userMsg.images).toBeUndefined();
+  });
+});

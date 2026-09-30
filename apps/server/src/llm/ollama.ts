@@ -131,6 +131,10 @@ export class OllamaAdapter implements ProviderAdapter {
 function serializeMessage(msg: ChatMessage): Record<string, unknown> {
   const base: Record<string, unknown> = { role: msg.role };
   if (msg.content !== null) base.content = msg.content;
+  // 多模态：Ollama /api/chat 的 message.images 为 base64 数组（无 data: 前缀）。
+  if (msg.images && msg.images.length > 0) {
+    base.images = msg.images.map((img) => img.url.replace(/^data:[^,]+,/, ''));
+  }
   if (msg.toolCalls) {
     // OpenAI-compatible tool_calls require nested function wrapper + type discriminator.
     base.tool_calls = msg.toolCalls.map((tc) => ({

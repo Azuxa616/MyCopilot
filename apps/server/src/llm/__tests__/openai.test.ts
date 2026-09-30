@@ -167,3 +167,67 @@ describe('OpenAIAdapter', () => {
     expect(capturedUrl).toBe('https://custom.api.com/v1/chat/completions');
   });
 });
+
+describe('OpenAIAdapter multimodal serialization', () => {
+  it('images → OpenAI content blocks（含 detail）', async () => {
+    let captured: { messages: Array<Record<string, unknown>> } | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body)) as { messages: Array<Record<string, unknown>> };
+      return createSSEResponse(['data: [DONE]']);
+    });
+
+    const adapter = new OpenAIAdapter();
+    const multimodal: ChatMessage[] = [
+      { role: 'system', content: 'sys' },
+      {
+        role: 'user',
+        content: '看图',
+        images: [{ url: 'data:image/png;base64,AAA', detail: 'low' }],
+      },
+    ];
+    await collectEvents(adapter.chatCompletionStream(multimodal, createConfig()));
+
+    const userMsg = captured!.messages.find((m) => m.role === 'user')!;
+    expect(Array.isArray(userMsg.content)).toBe(true);
+    const blocks = userMsg.content as Array<Record<string, unknown>>;
+    expect(blocks[0]).toEqual({ type: 'text', text: '看图' });
+    expect(blocks[1]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,AAA', detail: 'low' },
+    });
+  });
+
+  it('images 缺省 detail 时序列化体不含 detail 字段', async () => {
+    let captured: { messages: Array<Record<string, unknown>> } | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body)) as { messages: Array<Record<string, unknown>> };
+      return createSSEResponse(['data: [DONE]']);
+    });
+
+    const adapter = new OpenAIAdapter();
+    const multimodal: ChatMessage[] = [
+      { role: 'user', content: '', images: [{ url: 'data:image/png;base64,BBB' }] },
+    ];
+    await collectEvents(adapter.chatCompletionStream(multimodal, createConfig()));
+
+    const userMsg = captured!.messages.find((m) => m.role === 'user')!;
+    const blocks = userMsg.content as Array<Record<string, unknown>>;
+    // 空 text 不产生 text block；仅一个 image block 且无 detail 键
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toEqual({ type: 'image_url', image_url: { url: 'data:image/png;base64,BBB' } });
+  });
+
+  it('无 images 时 content 保持纯字符串（零回归）', async () => {
+    let captured: { messages: Array<Record<string, unknown>> } | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body)) as { messages: Array<Record<string, unknown>> };
+      return createSSEResponse(['data: [DONE]']);
+    });
+
+    const adapter = new OpenAIAdapter();
+    await collectEvents(adapter.chatCompletionStream(messages, createConfig()));
+
+    const userMsg = captured!.messages.find((m) => m.role === 'user')!;
+    expect(userMsg.content).toBe('Hello');
+  });
+});
