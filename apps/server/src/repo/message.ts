@@ -1,4 +1,4 @@
-import type { Message, MessageRole, MessageStatus, AttachmentMeta, ToolCall } from '@my-copilot/shared';
+import type { Message, MessagePart, MessageRole, MessageStatus, AttachmentMeta, ToolCall } from '@my-copilot/shared';
 import { getDb } from '../db/index.js';
 import { generateId, now } from './base.js';
 
@@ -8,6 +8,7 @@ interface MessageRow {
   role: string;
   content: string;
   attachments: string;
+  parts: string | null;
   tool_calls: string | null;
   tool_call_id: string | null;
   status: string;
@@ -22,6 +23,7 @@ function rowToMessage(row: MessageRow): Message {
     role: row.role as MessageRole,
     content: row.content,
     attachments: JSON.parse(row.attachments) as AttachmentMeta[],
+    parts: row.parts ? (JSON.parse(row.parts) as MessagePart[]) : undefined,
     toolCalls: row.tool_calls ? (JSON.parse(row.tool_calls) as ToolCall[]) : undefined,
     toolCallId: row.tool_call_id ?? undefined,
     status: row.status as MessageStatus,
@@ -49,6 +51,7 @@ export function createMessage(params: {
   role: MessageRole;
   content: string;
   attachments?: AttachmentMeta[];
+  parts?: MessagePart[];
   toolCalls?: ToolCall[];
   toolCallId?: string;
   status: MessageStatus;
@@ -58,17 +61,19 @@ export function createMessage(params: {
   const ts = now();
   const attachments = params.attachments ?? [];
   const attachmentsJson = JSON.stringify(attachments);
+  const partsJson = params.parts ? JSON.stringify(params.parts) : null;
   const toolCallsJson = params.toolCalls ? JSON.stringify(params.toolCalls) : null;
 
   db.prepare(
-    `INSERT INTO messages (id, session_id, role, content, attachments, tool_calls, tool_call_id, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO messages (id, session_id, role, content, attachments, parts, tool_calls, tool_call_id, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     params.sessionId,
     params.role,
     params.content,
     attachmentsJson,
+    partsJson,
     toolCallsJson,
     params.toolCallId ?? null,
     params.status,
@@ -81,6 +86,7 @@ export function createMessage(params: {
     role: params.role,
     content: params.content,
     attachments,
+    ...(params.parts ? { parts: params.parts } : {}),
     ...(params.toolCalls ? { toolCalls: params.toolCalls } : {}),
     ...(params.toolCallId ? { toolCallId: params.toolCallId } : {}),
     status: params.status,
@@ -117,6 +123,7 @@ export function updateMessage(
     role: existing.role as MessageRole,
     content,
     attachments: JSON.parse(existing.attachments),
+    parts: existing.parts ? (JSON.parse(existing.parts) as MessagePart[]) : undefined,
     toolCalls: toolCalls ? (JSON.parse(toolCalls) as ToolCall[]) : undefined,
     toolCallId: existing.tool_call_id ?? undefined,
     status: status as MessageStatus,

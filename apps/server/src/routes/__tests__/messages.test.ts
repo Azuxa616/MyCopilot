@@ -21,8 +21,9 @@ vi.mock('../../repo/message.js', () => ({
   deleteMessage: vi.fn(),
 }));
 
-vi.mock('../../attachment/index.js', () => ({
-  parseAllAttachments: vi.fn(),
+vi.mock('../../attachment/send-pipeline.js', () => ({
+  resolveAssetsFromFiles: vi.fn(),
+  resolveAssetsFromIds: vi.fn(),
 }));
 
 vi.mock('../../streaming/lifecycle.js', () => ({
@@ -37,9 +38,14 @@ import { getSession } from '../../repo/session.js';
 import { getModel } from '../../repo/model.js';
 import { getProvider } from '../../repo/provider.js';
 import { listMessagesBySession, deleteMessage } from '../../repo/message.js';
-import { parseAllAttachments } from '../../attachment/index.js';
+import { resolveAssetsFromFiles, resolveAssetsFromIds } from '../../attachment/send-pipeline.js';
 import { streamMessageHandler } from '../../streaming/lifecycle.js';
 import { stopStreamHandler } from '../../streaming/stop.js';
+import type { SendAttachmentOutcome } from '../../attachment/send-pipeline.js';
+
+function emptyOutcome(): SendAttachmentOutcome {
+  return { attachmentsMeta: [], attachmentTexts: [], imageParts: [], warnings: [] };
+}
 
 type ApiResponse = {
   code: number;
@@ -57,7 +63,8 @@ function createTestApp() {
 describe('messages route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(parseAllAttachments).mockResolvedValue({ results: [], warnings: [] });
+    vi.mocked(resolveAssetsFromFiles).mockResolvedValue(emptyOutcome());
+    vi.mocked(resolveAssetsFromIds).mockResolvedValue(emptyOutcome());
   });
 
   it('POST / returns SSE response', async () => {
@@ -69,7 +76,6 @@ describe('messages route', () => {
     vi.mocked(getModel).mockReturnValue(mockModel);
     vi.mocked(getProvider).mockReturnValue(mockProvider);
     vi.mocked(listMessagesBySession).mockReturnValue([]);
-    vi.mocked(parseAllAttachments).mockResolvedValue({ results: [], warnings: [] });
 
     const sseResponse = new Response('sse-stream', { headers: { 'content-type': 'text/event-stream' } });
     vi.mocked(streamMessageHandler).mockReturnValue(sseResponse);
@@ -84,6 +90,72 @@ describe('messages route', () => {
     expect(streamMessageHandler).toHaveBeenCalled();
   });
 
+  it('POST / JSON body：assetIds 引用图片资产 → content 投影 + parts + 附件注入', async () => {
+    const mockSession = { id: 's1', title: 'Test', modelId: 'm1', createdAt: 1, updatedAt: 1 };
+    const mockModel = { id: 'm1', providerId: 'p1', name: 'gpt-4o', enabled: true, createdAt: 1, updatedAt: 1 };
+    const mockProvider = { id: 'p1', name: 'OpenAI', type: 'openai' as const, baseUrl: 'https://api.openai.com', apiKey: 'sk-test', enabled: true, createdAt: 1, updatedAt: 1 };
+    vi.mocked(getSession).mockReturnValue(mockSession);
+    vi.mocked(getModel).mockReturnValue(mockModel);
+    vi.mocked(getProvider).mockReturnValue(mockProvider);
+    vi.mocked(listMessagesBySession).mockReturnValue([]);
+    vi.mocked(streamMessageHandler).mockReturnValue(
+      new Response('sse', { headers: { 'content-type': 'text/event-stream' } }),
+    );
+    vi.mocked(resolveAssetsFromIds).mockResolvedValue({
+      attachmentsMeta: [
+        { assetId: 'a1', name: 'photo.png', type: 'image/png', size: 8 },
+        { assetId: 'a2', name: 'note.txt', type: 'text/plain', size: 3 },
+      ],
+      attachmentTexts: [{ name: 'note.txt', content: 'NOTE' }],
+      imageParts: [{ type: 'image', assetId: 'a1' }],
+      warnings: [],
+    });
+
+    const app = createTestApp();
+    const res = await app.request('/sessions/s1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '看图', assetIds: ['a1', 'a2'] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(resolveAssetsFromIds).toHaveBeenCalledWith(['a1', 'a2']);
+    const params = vi.mocked(streamMessageHandler).mock.calls[0]![1]!;
+    expect(params.userMessage.parts).toEqual([{ type: 'image', assetId: 'a1' }]);
+    expect(params.userMessage.content).toBe('[图片: photo.png]\n看图');
+    expect(params.userMessage.attachments).toHaveLength(2);
+    expect(params.attachments).toEqual([{ name: 'note.txt', content: 'NOTE' }]);
+  });
+
+  it('POST / JSON body：缺少 content → 400', async () => {
+    vi.mocked(getSession).mockReturnValue({ id: 's1', title: 'T', modelId: 'm1', createdAt: 1, updatedAt: 1 });
+    const app = createTestApp();
+    const res = await app.request('/sessions/s1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assetIds: [] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST / JSON body：未知资产 → 422（保持既有契约）', async () => {
+    vi.mocked(getSession).mockReturnValue({ id: 's1', title: 'T', modelId: 'm1', createdAt: 1, updatedAt: 1 });
+    vi.mocked(resolveAssetsFromIds).mockResolvedValue({
+      ...emptyOutcome(),
+      warnings: ['资产不存在: ghost'],
+    });
+    const app = createTestApp();
+    const res = await app.request('/sessions/s1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'hi', assetIds: ['ghost'] }),
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.msg).toContain('ghost');
+    expect(streamMessageHandler).not.toHaveBeenCalled();
+  });
+
   it('POST / rejects attachment parse failures before starting the model', async () => {
     const mockSession = { id: 's1', title: 'Test', modelId: 'm1', createdAt: 1, updatedAt: 1 };
     const mockModel = { id: 'm1', providerId: 'p1', name: 'gpt-4', enabled: true, createdAt: 1, updatedAt: 1 };
@@ -92,9 +164,9 @@ describe('messages route', () => {
     vi.mocked(getSession).mockReturnValue(mockSession);
     vi.mocked(getModel).mockReturnValue(mockModel);
     vi.mocked(getProvider).mockReturnValue(mockProvider);
-    vi.mocked(parseAllAttachments).mockResolvedValue({
-      results: [{ success: false, error: 'Unsupported file type: .doc' }],
-      warnings: ['Failed to parse legacy.doc: Unsupported file type: .doc'],
+    vi.mocked(resolveAssetsFromFiles).mockResolvedValue({
+      ...emptyOutcome(),
+      warnings: ['legacy.doc: Unsupported file type: .doc'],
     });
 
     const app = createTestApp();

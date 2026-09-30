@@ -24,6 +24,7 @@
 import type {
   Job,
   Message,
+  MessagePart,
   StopReason,
   StreamEvent,
   Tool,
@@ -108,6 +109,8 @@ export interface RunAgentLoopParams {
   /** The user's message text. */
   userContent: string;
   attachments?: AttachmentText[];
+  /** 当前轮用户消息的多模态 parts（图片；经 assembler 解析为 wire images）。 */
+  currentUserParts?: MessagePart[];
   skills?: SkillInjection[];
   /** Enabled tools to advertise to the LLM. */
   tools: Tool[];
@@ -348,6 +351,7 @@ export async function runAgentLoop(
     history,
     userContent,
     attachments,
+    currentUserParts,
     skills,
     tools,
     adapter,
@@ -464,6 +468,7 @@ export async function runAgentLoop(
         history,
         userContent,
         attachments,
+        currentUserParts,
         skills,
         sessionId,
         adapter,
@@ -486,6 +491,7 @@ export async function runAgentLoop(
         content: m.content,
         ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
         ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
+        ...(m.images ? { images: m.images } : {}),
       }));
 
       // 2b. 迭代感知收敛提醒（buildIterationReminder）：临时 system 消息
@@ -816,6 +822,8 @@ export interface AgentLoopJobContext {
   history: Message[];
   userContent: string;
   attachments?: AttachmentText[];
+  /** 当前轮用户消息的多模态 parts（图片）。 */
+  currentUserParts?: MessagePart[];
   skills?: SkillInjection[];
   tools: Tool[];
   adapter: ProviderAdapter;

@@ -41,6 +41,7 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
     role: 'user',
     content: userMessage.content,
     attachments: userMessage.attachments as AttachmentMeta[] | undefined,
+    parts: userMessage.parts,
     status: 'sent',
   });
 
@@ -91,6 +92,7 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         // History is JSON-serialised by createJob; plain message objects.
         history,
         attachments: attachments ?? [],
+        currentUserParts: userMessage.parts ?? [],
         adapterType: provider.type,
         adapterConfig,
         enabledTools,
@@ -142,6 +144,7 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         history: [...history],
         userContent: userMessage.content,
         attachments,
+        currentUserParts: userMessage.parts,
         // Skills 注入（修复死路径）：enabled skills 在执行期从 DB 解析进 prompt。
         skills: buildSkillInjections(),
         tools: enabledTools,
