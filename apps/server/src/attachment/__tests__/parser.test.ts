@@ -9,9 +9,30 @@ vi.mock('mammoth', () => ({
   extractRawText: vi.fn(),
 }));
 
+// ---------------------------------------------------------------------------
+// Mock pdf-parse（v2 class API）
+// ---------------------------------------------------------------------------
+interface PdfParseMockControls {
+  getText: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+}
+vi.mock('pdf-parse', () => {
+  const getText = vi.fn(async () => ({ text: 'PDF 全文内容' }));
+  const destroy = vi.fn(async () => {});
+  class PDFParseMock {
+    constructor(public options: unknown) {}
+    getText = getText;
+    destroy = destroy;
+    static __controls: PdfParseMockControls = { getText, destroy };
+  }
+  return { PDFParse: PDFParseMock };
+});
+
 import { extractRawText } from 'mammoth';
+import { PDFParse } from 'pdf-parse';
 
 const mockedExtractRawText = extractRawText as ReturnType<typeof vi.fn>;
+const pdfControls = (PDFParse as unknown as { __controls: PdfParseMockControls }).__controls;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -109,6 +130,56 @@ describe('parseAttachment', () => {
     expect(result.text).toBe(longContent);
     expect(result.meta!.textExcerpt!.length).toBeLessThanOrEqual(200);
     expect(result.meta!.textExcerpt).toBe(longContent.slice(0, 200));
+  });
+
+  // 7. image: magic-number detection wins, no text, real mime in meta
+  it('parses a png image via magic numbers (no text)', async () => {
+    const file = {
+      name: 'photo.dat',
+      type: 'application/octet-stream',
+      data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    };
+    const result = await parseAttachment(file);
+
+    expect(result.success).toBe(true);
+    expect(result.text).toBeUndefined();
+    expect(result.meta).toMatchObject({ name: 'photo.dat', type: 'image/png', size: 8 });
+  });
+
+  it('parses a jpeg image', async () => {
+    const file = {
+      name: 'pic.jpg',
+      type: 'image/jpeg',
+      data: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]),
+    };
+    const result = await parseAttachment(file);
+
+    expect(result.success).toBe(true);
+    expect(result.meta?.type).toBe('image/jpeg');
+  });
+
+  // 8. pdf: extracted via pdf-parse v2, destroy called, excerpt truncated
+  it('parses a .pdf file via pdf-parse', async () => {
+    const file = { name: 'doc.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.7 fake') };
+    const result = await parseAttachment(file);
+
+    expect(result.success).toBe(true);
+    expect(result.text).toBe('PDF 全文内容');
+    expect(result.meta).toMatchObject({
+      name: 'doc.pdf',
+      type: 'application/pdf',
+      textExcerpt: 'PDF 全文内容',
+    });
+    expect(pdfControls.destroy).toHaveBeenCalled();
+  });
+
+  it('pdf parse failure is fail-soft (no throw)', async () => {
+    pdfControls.getText.mockRejectedValueOnce(new Error('bad xref'));
+    const file = { name: 'broken.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.7') };
+    const result = await parseAttachment(file);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('bad xref');
   });
 });
 
