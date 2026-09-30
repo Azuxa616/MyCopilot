@@ -27,7 +27,7 @@ export default function FileUploadModal({
 }: FileUploadModalProps) {
     const handleFileSelect = (file: File) => {
         if (!isSupportedAttachmentName(file.name)) {
-            showMessageAlert.warning('不支持该文件格式，仅支持 MD、TXT、CSV 和 DOCX')
+            showMessageAlert.warning('不支持该文件格式，仅支持 MD、TXT、CSV、DOCX、PDF 与图片（PNG/JPG/GIF/WebP）')
             return
         }
         onFileSelect(file);
@@ -39,7 +39,7 @@ export default function FileUploadModal({
         <Modal open={open} onOpenChange={onOpenChange} title="上传文件">
             <div className="flex flex-col gap-4 items-center justify-center py-4">
                 <Uploader accept={ATTACHMENT_ACCEPT} onFileSelect={handleFileSelect} />
-                <div className="text-xs text-text-tertiary">支持 MD、TXT、CSV 和 DOCX</div>
+                <div className="text-xs text-text-tertiary">支持 MD、TXT、CSV、DOCX、PDF 与图片（PNG/JPG/GIF/WebP）</div>
                 {attachments.length > 0 && (
                     <div className="w-full max-w-md">
                         <div className="text-sm text-text-secondary mb-2">已选择的附件：</div>
