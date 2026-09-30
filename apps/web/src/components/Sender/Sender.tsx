@@ -13,7 +13,7 @@ import { useSessionStore, NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 import { useDraftStore } from '../../store/draftStore'
 // Utils
 import { showMessageAlert } from '../common/Alert/alertUtils'
-import { getErrorMessage } from '../../api'
+import { api, getErrorMessage } from '../../api'
 // Assets
 import IconAttachement from '../../assets/icon/attachment.svg?react'
 import IconSender from '../../assets/icon/sender.svg?react'
@@ -84,17 +84,29 @@ export default function Sender() {
         }
 
         const messageContent = trimmedContent;
-        const messageFiles: File[] = attachments.map(a => a.file);
-
-        // Clear input and attachments
+        // 捕获当前附件后立即重置输入（Task 10 将改为"选择即上传"）
+        const pending = attachments;
         resetSender();
+
+        // 过渡实现：发送时上传资产（assetIds 引用）；失败不阻断文本发送
+        const assetIds: string[] = [];
+        for (const att of pending) {
+            try {
+                const asset = await api.uploadAsset(att.file);
+                assetIds.push(asset.id);
+            } catch (error) {
+                console.error('Failed to upload attachment:', error);
+                showMessageAlert.error(`${att.name}: ${getErrorMessage(error)}`);
+            }
+        }
 
         try {
             // Send message via server SSE
             await sendMessage({
                 sessionId: selectedSessionId,
                 content: messageContent,
-                files: messageFiles.length > 0 ? messageFiles : undefined,
+                assetIds: assetIds.length > 0 ? assetIds : undefined,
+                attachments: pending.map(a => ({ name: a.name, type: a.type, size: a.size })),
             });
         } catch (error) {
             console.error('Failed to send message:', error);

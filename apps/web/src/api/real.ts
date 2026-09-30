@@ -7,7 +7,7 @@
 import type {
   Session, SessionSummary, CreateSessionParams,
   Provider, CreateProviderParams, Model, CreateModelParams,
-  Message,
+  Message, Asset,
   AuthInfo,
   Tool, UpdateToolParams,
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
@@ -62,6 +62,46 @@ export async function createSession(params?: CreateSessionParams): Promise<Sessi
     return response.data;
 }
 
+// ─── Assets API（附件资产层） ───
+
+/**
+ * Upload a file as a persistent asset.
+ * POST /api/assets (multipart/form-data)
+ */
+export async function uploadAsset(file: File): Promise<Asset> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetchWithAuth('/api/assets', {
+        method: 'POST',
+        body: formData,
+    });
+    if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { msg?: string } | null;
+        throw new Error(body?.msg ?? `上传失败（HTTP ${response.status}）`);
+    }
+    const body = (await response.json()) as { data: Asset };
+    return body.data;
+}
+
+/**
+ * List recent assets (candidate source for @file picker & asset library).
+ * GET /api/assets?name=&limit=
+ */
+export async function fetchAssets(params?: {
+    name?: string;
+    limit?: number;
+}): Promise<Asset[]> {
+    const search = new URLSearchParams();
+    if (params?.name) search.set('name', params.name);
+    if (params?.limit) search.set('limit', String(params.limit));
+    const qs = search.toString();
+    const response = await enhancedFetch<{ data: Asset[] }>(
+        `/api/assets${qs ? `?${qs}` : ''}`,
+        { method: 'GET', timeout: 30000, retry: true, maxRetries: 2 },
+    );
+    return response.data;
+}
+
 /**
  * Result of sending a message. The server either streams the assistant reply
  * back immediately (sync mode, `text/event-stream`) or accepts it as a
@@ -75,7 +115,9 @@ export type SendMessageResult =
  * Send a message and receive either an SSE stream or a background job id.
  * POST /api/sessions/:sessionId/messages
  *
- * Body: FormData with `content` field and `files[]` entries.
+ * Body: JSON `{ content, assetIds? }` — attachments are referenced by
+ * pre-uploaded asset ids (see {@link uploadAsset}); the server resolves
+ * text kinds into context injection and image kinds into multimodal parts.
  *
  * Sync mode: returns `{ mode: 'stream', stream }` — an SSE stream to parse.
  * Async mode: returns `{ mode: 'async', jobId }` — the server deferred
@@ -87,21 +129,14 @@ export type SendMessageResult =
 export async function sendMessage(params: {
     sessionId: string;
     content: string;
-    files?: File[];
+    assetIds?: string[];
 }): Promise<SendMessageResult> {
-    const { sessionId, content, files } = params;
-
-    const formData = new FormData();
-    formData.append('content', content);
-    if (files) {
-        for (const file of files) {
-            formData.append('files[]', file);
-        }
-    }
+    const { sessionId, content, assetIds } = params;
 
     const response = await fetchWithAuth(`/api/sessions/${sessionId}/messages`, {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, ...(assetIds && assetIds.length > 0 ? { assetIds } : {}) }),
         timeout: 120000,
     });
 
@@ -126,8 +161,7 @@ export async function sendMessage(params: {
 /**
  * Stop an ongoing stream
  * POST /api/sessions/:sessionId/messages/:msgId/stop
- */
-export async function stopStream(sessionId: string, msgId?: string): Promise<void> {
+ */export async function stopStream(sessionId: string, msgId?: string): Promise<void> {
     const url = msgId
         ? `/api/sessions/${sessionId}/messages/${msgId}/stop`
         : `/api/sessions/${sessionId}/messages/stop`;

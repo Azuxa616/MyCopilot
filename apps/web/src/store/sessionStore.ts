@@ -150,7 +150,14 @@ interface SessionStore {
     // Actions - business methods
     createSession: (params?: CreateSessionParams) => Promise<Session>;
     updateSession: (id: string, updates: Partial<CreateSessionParams>) => Promise<void>;
-    sendMessage: (params: { sessionId: string; content: string; files?: File[] }) => Promise<void>;
+    sendMessage: (params: {
+        sessionId: string;
+        content: string;
+        /** 引用已上传资产的 id（服务端解析注入）。 */
+        assetIds?: string[];
+        /** 仅用于乐观渲染本地用户消息的附件卡片（可选）。 */
+        attachments?: Message['attachments'];
+    }) => Promise<void>;
     cancelStream: () => void;
     /** Resolve a pending tool confirmation (user clicked allow/deny). */
     resolveConfirmation: (approvalId: string, approved: boolean) => Promise<void>;
@@ -437,7 +444,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
 
         // Send message via server SSE
         // If sessionId is the sentinel, lazily create the session first.
-        sendMessage: async ({ sessionId, content, files }) => {
+        sendMessage: async ({ sessionId, content, assetIds, attachments }) => {
             transition('send');
             const { addMessage, updateMessage, updateSessionSummary, createSession, pendingModelId } = get();
 
@@ -458,7 +465,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                 sessionId: realSessionId,
                 role: 'user',
                 content,
-                attachments: files?.map(f => ({ id: `att-${Date.now()}-${f.name}`, name: f.name, type: f.type, size: f.size })) || [],
+                attachments: attachments ?? [],
                 status: 'sending',
                 createdAt: Date.now(),
             };
@@ -469,7 +476,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
             set({ abortController, isSending: true });
 
             try {
-                const result = await api.sendMessage({ sessionId: realSessionId, content, files });
+                const result = await api.sendMessage({ sessionId: realSessionId, content, assetIds });
                 updateMessage(realSessionId, userMessage.id, { status: 'sent' });
 
                 // Async mode: the server accepted the message as a background job
