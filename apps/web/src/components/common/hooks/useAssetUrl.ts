@@ -6,13 +6,10 @@ import { useEffect, useState } from 'react'
 import { fetchWithAuth } from '../../../api'
 
 export function useAssetUrl(assetId: string | undefined): string | undefined {
-    const [url, setUrl] = useState<string | undefined>(undefined)
+    const [state, setState] = useState<{ id: string; url: string } | null>(null)
 
     useEffect(() => {
-        if (!assetId) {
-            setUrl(undefined)
-            return
-        }
+        if (!assetId) return
         let objectUrl: string | undefined
         let cancelled = false
         void (async () => {
@@ -22,7 +19,7 @@ export function useAssetUrl(assetId: string | undefined): string | undefined {
                 const blob = await res.blob()
                 if (cancelled) return
                 objectUrl = URL.createObjectURL(blob)
-                setUrl(objectUrl)
+                setState({ id: assetId, url: objectUrl })
             } catch {
                 // fail-soft：加载失败不渲染预览
             }
@@ -33,5 +30,6 @@ export function useAssetUrl(assetId: string | undefined): string | undefined {
         }
     }, [assetId])
 
-    return url
+    // id 配对返回：assetId 缺失/切换时立即回退 undefined（旧 state 不外泄）
+    return state && state.id === assetId ? state.url : undefined
 }

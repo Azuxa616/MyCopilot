@@ -15,15 +15,23 @@ export const HISTORY_IMAGE_WINDOW = 5;
  * 文本 part 恒原样透传。
  */
 export function applyImagePolicy(parts: MessagePart[], userTurnAge: number): MessagePart[] {
-  return parts.flatMap((p) => {
-    if (p.type !== 'image') return [p];
-    if (userTurnAge <= 0) return [p];
+  const out: MessagePart[] = [];
+  for (const p of parts) {
+    if (p.type !== 'image') {
+      out.push(p);
+      continue;
+    }
+    if (userTurnAge <= 0) {
+      out.push(p);
+      continue;
+    }
     if (userTurnAge <= HISTORY_IMAGE_WINDOW) {
       const detail: ImageDetail = 'low';
-      return [{ ...p, detail }];
+      out.push({ ...p, detail });
     }
-    return [];
-  });
+    // userTurnAge > HISTORY_IMAGE_WINDOW：丢弃（投影已含占位）
+  }
+  return out;
 }
 
 /** 解析为 wire 图片（读资产字节 → data URL）。资产缺失或非图片时跳过（fail-soft）。 */

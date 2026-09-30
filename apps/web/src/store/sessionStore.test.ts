@@ -46,14 +46,11 @@ describe('sessionStore attachment send failures', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const error = new Error('Attachment parsing failed: broken.docx: Corrupted ZIP archive')
     vi.mocked(api.sendMessage).mockRejectedValue(error)
-    const file = new File(['broken'], 'broken.docx', {
-      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    })
 
     await expect(useSessionStore.getState().sendMessage({
       sessionId: 's1',
       content: 'read this',
-      files: [file],
+      assetIds: ['a1'],
     })).rejects.toThrow(error.message)
 
     const [message] = useSessionStore.getState().messagesCache.s1

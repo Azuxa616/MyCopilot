@@ -57,12 +57,13 @@ export async function resolveAssetsFromFiles(
     }
 
     const parsed = await parseAttachment(file);
-    if (!parsed.success || parsed.text === undefined) {
+    const meta = parsed.meta;
+    if (!parsed.success || !meta || parsed.text === undefined) {
       outcome.warnings.push(`${file.name}: ${parsed.error ?? '文本提取失败'}`);
       continue;
     }
-    outcome.attachmentsMeta.push({ ...parsed.meta, assetId: asset.id });
-    outcome.attachmentTexts.push({ name: parsed.meta.name, content: parsed.text });
+    outcome.attachmentsMeta.push({ ...meta, assetId: asset.id });
+    outcome.attachmentTexts.push({ name: meta.name, content: parsed.text });
   }
   return outcome;
 }
@@ -95,12 +96,13 @@ export async function resolveAssetsFromIds(assetIds: string[]): Promise<SendAtta
       continue;
     }
     const parsed = await parseAttachment({ name: asset.name, type: asset.mimeType, data });
-    if (!parsed.success || parsed.text === undefined) {
+    const meta = parsed.meta;
+    if (!parsed.success || !meta || parsed.text === undefined) {
       outcome.warnings.push(`${asset.name}: ${parsed.error ?? '文本提取失败'}`);
       continue;
     }
-    outcome.attachmentsMeta.push({ ...parsed.meta, assetId: asset.id });
-    outcome.attachmentTexts.push({ name: parsed.meta.name, content: parsed.text });
+    outcome.attachmentsMeta.push({ ...meta, assetId: asset.id });
+    outcome.attachmentTexts.push({ name: meta.name, content: parsed.text });
   }
   return outcome;
 }

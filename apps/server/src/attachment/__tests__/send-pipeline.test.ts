@@ -47,8 +47,9 @@ describe('send-pipeline', () => {
       expect(outcome.attachmentTexts).toEqual([{ name: 'n.txt', content: 'NOTE' }]);
 
       // 资产真实落库 + 落盘
-      const imageAssetId = outcome.imageParts[0]!.assetId;
-      const asset = getAsset(imageAssetId);
+      const firstPart = outcome.imageParts[0]!;
+      if (firstPart.type !== 'image') throw new Error('expected image part');
+      const asset = getAsset(firstPart.assetId);
       expect(asset?.kind).toBe('image');
       expect(asset?.name).toBe('a.png');
     });

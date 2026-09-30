@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { errorMiddleware } from '../../middleware/error.js';
 import { assetsApp } from '../assets.js';
@@ -60,7 +60,7 @@ describe('assets route', () => {
       const res = await app.request('/assets', { method: 'POST', body: pngForm() });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = (await res.json()) as { data: Asset; };
       expect(body.data.kind).toBe('image');
       expect(createAsset).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'a.png', mimeType: 'image/png', size: 8, kind: 'image' }),
@@ -94,16 +94,16 @@ describe('assets route', () => {
       ]);
       const app = createTestApp();
       const res = await app.request('/assets?name=alp');
-      const body = await res.json();
+      const body = (await res.json()) as { data: Asset[] };
       expect(body.data).toHaveLength(1);
-      expect(body.data[0].name).toBe('alpha.png');
+      expect(body.data[0]!.name).toBe('alpha.png');
     });
 
     it('无 name → 全量', async () => {
       vi.mocked(listRecentAssets).mockReturnValue([makeAsset()]);
       const app = createTestApp();
       const res = await app.request('/assets');
-      const body = await res.json();
+      const body = (await res.json()) as { data: Asset[] };
       expect(body.data).toHaveLength(1);
     });
   });

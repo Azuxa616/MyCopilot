@@ -20,7 +20,10 @@ vi.mock('pdf-parse', () => {
   const getText = vi.fn(async () => ({ text: 'PDF 全文内容' }));
   const destroy = vi.fn(async () => {});
   class PDFParseMock {
-    constructor(public options: unknown) {}
+    options: unknown;
+    constructor(options: unknown) {
+      this.options = options;
+    }
     getText = getText;
     destroy = destroy;
     static __controls: PdfParseMockControls = { getText, destroy };

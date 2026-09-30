@@ -268,8 +268,8 @@ describe('Stream Message Lifecycle', () => {
     const parts = [{ type: 'image' as const, assetId: 'a1' }];
 
     const c = makeContext();
-    const params = makeParams();
-    params.userMessage = { ...params.userMessage, parts };
+    const base = makeParams();
+    const params = makeParams({ userMessage: { ...base.userMessage, parts } });
     streamMessageHandler(c, params);
     await flushMicrotasks();
 
