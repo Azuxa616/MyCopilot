@@ -1,7 +1,7 @@
 // ChatShell - Chat interface
 // Contains message input area and conversation display area
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 // Components
 import Sender from '../Sender'
 import EmptyChatView from './EmptyChatView'
@@ -10,18 +10,15 @@ import MessageList from './MessageList'
 // Hooks
 import { useMessageVirtualizer } from './hooks/useMessageVirtualizer'
 import { useAutoScroll } from './hooks/useAutoScroll'
+import { useEntryReveal } from './hooks/useEntryReveal'
 import { useMessageRegenerate } from './hooks/useMessageRegenerate'
 import { useJobStream, TERMINAL_JOB_STATUSES } from './hooks/useJobStream'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
-import { useConfigStore } from '../../store/configStore'
 import { NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 // Utils
 import { attachTimelines, asTimelineMessages } from '../../utils/timeline'
-// API
-import { api } from '../../api'
-import type { Model, Provider } from '@my-copilot/shared'
-import { showMessageAlert } from '../common/Alert/alertUtils'
+
 
 export default function ChatShell() {
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId)
@@ -29,9 +26,7 @@ export default function ChatShell() {
   const messagesCache = useSessionStore((state) => state.messagesCache)
   const isLoadingMessages = useSessionStore((state) => state.isLoadingMessages)
   const loadSessionMessages = useSessionStore((state) => state.loadSessionMessages)
-  const updateSession = useSessionStore((state) => state.updateSession)
   const pendingModelId = useSessionStore((state) => state.pendingModelId)
-  const setPendingModelId = useSessionStore((state) => state.setPendingModelId)
   const activeJobId = useSessionStore((state) => state.activeJobId)
   const setActiveJobId = useSessionStore((state) => state.setActiveJobId)
 
@@ -66,78 +61,20 @@ export default function ChatShell() {
     containerRef: messagesContainerRef,
   })
 
+  // 进入会话的就绪门控：布局稳定前隐藏消息列并钉底，稳定后淡入
+  const { revealed: entryRevealed, showLoading: entryLoading } = useEntryReveal({
+    containerRef: messagesContainerRef,
+    sessionId: currentSession?.id,
+    hasMessages: messages.length > 0,
+    lastMessageId: messages[messages.length - 1]?.id,
+    virtualizer,
+  })
+
   // Message regeneration logic
   const { handleRegenerate } = useMessageRegenerate()
 
   // Background job progress (async send mode) — subscribes via SSE while activeJobId is set.
   const { job, isConnected, error } = useJobStream(activeJobId)
-
-  // Model selector state
-  const [allModels, setAllModels] = useState<Model[]>([])
-  const [providersMap, setProvidersMap] = useState<Record<string, Provider>>({})
-  const [isLoadingModels, setIsLoadingModels] = useState(false)
-
-  const authToken = useConfigStore((state) => state.authToken)
-
-  const loadModels = useCallback(async () => {
-    setIsLoadingModels(true)
-    try {
-      // demo 角色（DEMO_TOKEN）访问 /api/providers 会返回 403；模型列表是聊天的关键路径，
-      // 不能因 providers 拉取失败而整体失败——失败时降级为空列表，下拉框仅显示模型名。
-      const [models, providers] = await Promise.all([
-        api.fetchAllModels(),
-        api.fetchProviders().catch(() => [] as Provider[]),
-      ])
-      setAllModels(models)
-      const map: Record<string, Provider> = {}
-      for (const p of providers) {
-        map[p.id] = p
-      }
-      setProvidersMap(map)
-    } catch (error) {
-      console.error('Failed to load models:', error)
-    } finally {
-      setIsLoadingModels(false)
-    }
-  }, [])
-
-  // Load models when authToken becomes available (same pattern as Layout session loading).
-  // On first visit, authToken is null on mount → loadModels would fail. After token entry,
-  // this effect re-fires and populates the model dropdown.
-  useEffect(() => {
-    if (!authToken) return
-    loadModels()
-  }, [authToken, loadModels])
-
-  // Auto-select first model when models load and no model is selected
-  useEffect(() => {
-    if (allModels.length > 0 && !currentSession?.modelId && !pendingModelId) {
-      const firstModelId = allModels[0].id
-      if (selectedSessionId === NEW_SESSION_SENTINEL) {
-        setPendingModelId(firstModelId)
-      } else if (selectedSessionId) {
-        updateSession(selectedSessionId, { modelId: firstModelId })
-      }
-    }
-  }, [allModels, currentSession?.modelId, pendingModelId, selectedSessionId, setPendingModelId, updateSession])
-
-  // Effective model ID: pending for new session, bound model for existing session
-  const effectiveModelId = selectedSessionId === NEW_SESSION_SENTINEL
-    ? pendingModelId
-    : currentSession?.modelId
-
-  const handleModelChange = async (modelId: string) => {
-    try {
-      if (selectedSessionId === NEW_SESSION_SENTINEL) {
-        setPendingModelId(modelId || null)
-      } else if (selectedSessionId) {
-        await updateSession(selectedSessionId, { modelId: modelId || null })
-      }
-    } catch (error) {
-      console.error('Failed to update session model:', error)
-      showMessageAlert.error('切换模型失败')
-    }
-  }
 
   // Load messages when selected session changes (skip pending session)
   useEffect(() => {
@@ -188,46 +125,6 @@ export default function ChatShell() {
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* Model selector bar */}
-      <div className="shrink-0 px-4 py-2 border-b border-border-base bg-bg-elevated flex items-center gap-3">
-        <span className="text-sm text-text-secondary shrink-0">模型</span>
-        {import.meta.env.DEV && currentSession?.id && (
-          <span className="text-[10px] text-text-tertiary font-mono ml-2">
-            sid:{currentSession.id.slice(0, 8)}
-          </span>
-        )}
-        {isLoadingModels ? (
-          <span className="text-sm text-text-tertiary">加载中...</span>
-        ) : (
-          <select
-            value={effectiveModelId || ''}
-            onChange={(e) => handleModelChange(e.target.value)}
-            className="flex-1 min-w-0 max-w-xs px-3 py-1.5 text-sm text-text-primary bg-bg-primary border border-border-base rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-          >
-            <option value="">请选择模型</option>
-            {allModels.map((model) => {
-              const provider = providersMap[model.providerId]
-              const label = provider
-                ? `${provider.name} / ${model.displayName || model.name}`
-                : model.displayName || model.name
-              return (
-                <option key={model.id} value={model.id}>
-                  {label}
-                </option>
-              )
-            })}
-          </select>
-        )}
-      </div>
-
-      {/* Background job progress bar (async send mode) */}
-      {activeJobId && (
-        <div className="shrink-0 px-4 py-2 border-b border-border-base bg-primary-50 flex items-center gap-2 text-sm text-primary-700">
-          <span className="inline-block w-3.5 h-3.5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin shrink-0" />
-          <span>{jobStatusText}</span>
-        </div>
-      )}
-
       {/* Content area */}
       <div className="flex-1 overflow-hidden">
         {!selectedSessionId || !currentSession || messages.length === 0 ? (
@@ -247,7 +144,7 @@ export default function ChatShell() {
         ) : isLoadingMessages ? (
           <LoadingChatView />
         ) : (
-          <div className="flex flex-col h-full justify-between items-center gap-6 w-full pb-6">
+          <div className="flex flex-col h-full justify-between items-center gap-3 w-full pb-4">
             {hasNoModel && (
               <div className="shrink-0 px-4 py-3 w-full bg-warning-50 border-b border-warning-200 text-sm text-warning-700">
                 当前 session 未绑定模型，请选择或
@@ -256,12 +153,30 @@ export default function ChatShell() {
                 </a>
               </div>
             )}
-            <MessageList
-              messages={messages}
-              virtualizer={virtualizer}
-              containerRef={messagesContainerRef}
-              onRegenerate={handleRegenerate}
-            />
+            <div className="relative flex flex-col flex-1 w-full min-h-0">
+              <MessageList
+                revealed={entryRevealed}
+                messages={messages}
+                virtualizer={virtualizer}
+                containerRef={messagesContainerRef}
+                onRegenerate={handleRegenerate}
+              />
+              {/* 进入会话门控超过 300ms 时展示的轻量 Loading */}
+              {entryLoading && !entryRevealed && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="inline-block w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+            {/* Background job progress (async send mode)：置于输入框上方同列宽 */}
+            {activeJobId && (
+              <div className="w-full max-w-3xl mx-auto px-4">
+                <div className="flex items-center gap-2 px-4 py-2 text-sm text-primary-700 bg-primary-50 border border-primary-100 rounded-xl">
+                  <span className="inline-block w-3.5 h-3.5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <span>{jobStatusText}</span>
+                </div>
+              </div>
+            )}
             <Sender />
           </div>
         )}

@@ -251,12 +251,12 @@ export default function MessageCard({
   const timeLabel = getRelativeTime(message.createdAt)
 
   // 气泡样式
-  let bubbleClass = 'max-w-[80%] rounded-2xl  text-sm shadow-sm border border-border-light overflow-hidden'
+  let bubbleClass = 'rounded-2xl  text-sm shadow-sm border border-border-light overflow-hidden'
 
   if (isUser) {
-    bubbleClass += 'min-w-16  py-2 px-4 bg-primary-500 text-text-inverse rounded-tr-sm '
+    bubbleClass += 'max-w-[80%] min-w-16  py-2 px-4 bg-primary-500 text-text-inverse rounded-tr-sm '
   } else if (isAssistant) {
-    bubbleClass += ' bg-bg-elevated text-text-primary rounded-tl-sm border-l-5 border-b-5 border-border-base'
+    bubbleClass += ' w-full bg-bg-elevated text-text-primary rounded-tl-sm border-l-5 border-b-5 border-border-base'
   } else if (isSystem) {
     bubbleClass =
       'max-w-[70%] text-xs px-3 py-1 rounded-full bg-bg-tertiary text-text-tertiary border border-border-base'
@@ -348,7 +348,7 @@ export default function MessageCard({
           />
         </div>
       )}
-      <div className={`flex flex-col items-${isUser ? 'end' : 'start'} gap-1 w-[calc(100%-100px)] `}>
+      <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} gap-1 w-[calc(100%-56px)] `}>
         <RenderMeta
           isSystem={isSystem}
           isUser={isUser}
