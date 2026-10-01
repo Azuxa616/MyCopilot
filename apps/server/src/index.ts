@@ -13,7 +13,7 @@ import { tokenAuthMiddleware } from './middleware/tokenAuth.js';
 import { getActiveStreamCount } from './streaming/registry.js';
 import { healthApp } from './routes/health.js';
 import { providersApp } from './routes/providers.js';
-import { modelsApp } from './routes/models.js';
+import { modelsApp, modelCapabilitiesApp } from './routes/models.js';
 import { sessionsApp } from './routes/sessions.js';
 import { messagesApp } from './routes/messages.js';
 import { assetsApp } from './routes/assets.js';
@@ -97,6 +97,9 @@ app.get('/api/models', (c) => {
   const data = listAllEnabledModels();
   return c.json({ data });
 });
+
+// Model capability endpoints（probe / manual set）— 与上方内联 GET /api/models 不冲突
+app.route('/api/models', modelCapabilitiesApp);
 
 // ─── Startup hooks ───
 // Register built-in tool executors so they're available to the tool-calling
