@@ -1,5 +1,18 @@
+import type { SkillMeta } from '@my-copilot/shared';
 import { getSkill, listSkills } from '../repo/skill.js';
 import type { SkillInjection } from './assembler.js';
+
+/**
+ * / 命令面板与 read_skill 共用的有效 skill 元数据集合。
+ *
+ * 有效集语义（diy-agent 白名单落地前的现状）：全局启用集合
+ * `listSkills({ enabled: true })`。diy-agent 计划接入 agent_skills 白名单后，
+ * 本函数是唯一需要升级为「绑定 ∩ 全局启用」的入口——命令面板 /
+ * read_skill / buildSkillInjections 三方自动跟随，不另造集合。
+ */
+export function listEffectiveSkillMetas(): SkillMeta[] {
+  return listSkills({ enabled: true });
+}
 
 /**
  * 从 DB 构建注入对话 prompt 的 skills 列表。
@@ -17,9 +30,15 @@ import type { SkillInjection } from './assembler.js';
  *   prepared-statement 主键查询。
  * - 顺序保持 listSkills 的 created_at DESC，满足 assembler
  *   "skills 由调用方按 createdAt 预排序" 的约定。
+ *
+ * @param enforcedSkillIds / 命令携带的手动激活 skill 名（可选）。命中 name
+ *   的条目按 always 语义全文注入（用户点名 = 确定性意图，绕过渐进披露）。
+ *   仅在有效集内生效：未启用/不存在的名字静默忽略（enforced ∩ enabled，
+ *   与 read_skill 可见集一致——不另造集合）。
  */
-export function buildSkillInjections(): SkillInjection[] {
-  return listSkills({ enabled: true }).flatMap((meta) => {
+export function buildSkillInjections(enforcedSkillIds?: string[]): SkillInjection[] {
+  const enforced = new Set(enforcedSkillIds ?? []);
+  return listEffectiveSkillMetas().flatMap((meta) => {
     const detail = getSkill(meta.id);
     return detail
       ? [
@@ -28,7 +47,7 @@ export function buildSkillInjections(): SkillInjection[] {
             description: detail.description,
             triggers: detail.triggers,
             body: detail.content,
-            always: detail.always,
+            always: detail.always || enforced.has(detail.name),
           },
         ]
       : [];
