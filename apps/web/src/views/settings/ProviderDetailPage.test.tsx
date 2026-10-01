@@ -57,7 +57,13 @@ function renderPage(models: Model[]) {
   );
 }
 
-describe('ProviderDetailPage vision capability UI', () => {
+/** 打开某模型行的编辑弹窗。 */
+async function openEditModal() {
+  fireEvent.click(await screen.findByText('编辑'));
+  await screen.findByText('能力');
+}
+
+describe('ProviderDetailPage 模型行（正向能力 tag 形态）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -65,82 +71,107 @@ describe('ProviderDetailPage vision capability UI', () => {
     cleanup();
   });
 
-  it('renders the vision badge with state and source label', async () => {
+  it('vision=yes → 模型名下方第二行显示「视觉」tag（tooltip 含来源）', async () => {
     renderPage([
-      makeModel({ capabilities: { vision: 'yes', sources: { vision: 'probe' } } }),
+      makeModel({ capabilities: { vision: 'yes', sources: { vision: 'probe' }, probedAt: Date.now() } }),
     ]);
-    expect(await screen.findByText('图片 支持·探测')).toBeTruthy();
+    const tag = await screen.findByText('视觉');
+    expect(tag.getAttribute('title')).toContain('支持·探测');
   });
 
-  it('renders 未知 badge for models without capability records', async () => {
-    renderPage([makeModel()]);
-    expect(await screen.findByText('图片 未知')).toBeTruthy();
+  it('vision=no / unknown → 行内不显示任何能力标记（只标"有什么"）', async () => {
+    renderPage([
+      makeModel({ capabilities: { vision: 'no', sources: { vision: 'probe' } } }),
+      makeModel({ id: 'm2', name: 'other-model' }),
+    ]);
+    await screen.findByText('deepseek-flash');
+    expect(screen.queryByText('视觉')).toBeNull();
+    expect(screen.queryByText(/^图片 /)).toBeNull();
   });
 
-  it('probe button calls api.probeModelVision and refreshes the row', async () => {
+  it('行内不再有探测按钮与能力下拉（收进编辑弹窗）', async () => {
     renderPage([makeModel()]);
+    await screen.findByText('deepseek-flash');
+    expect(screen.queryByText('测试图片输入')).toBeNull();
+    expect(screen.queryByLabelText('deepseek-flash 图片输入能力')).toBeNull();
+  });
+});
+
+describe('编辑弹窗内的能力区块', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('探测成功 → api 调用 + onModelUpdated 驱动行内「视觉」tag 出现', async () => {
+    renderPage([makeModel()]);
+    await openEditModal();
+
     const probed = makeModel({
-      capabilities: { vision: 'yes', sources: { vision: 'probe' }, probedAt: 2 },
+      capabilities: { vision: 'yes', sources: { vision: 'probe' }, probedAt: Date.now() },
     });
     vi.mocked(api.probeModelVision).mockResolvedValue({
       model: probed,
       probe: { method: 'chat', vision: 'yes', source: 'probe' },
     });
 
-    fireEvent.click(await screen.findByText('测试图片输入'));
+    fireEvent.click(screen.getByText('测试图片输入'));
 
     await waitFor(() => {
       expect(api.probeModelVision).toHaveBeenCalledWith('m1');
-      expect(screen.getByText('图片 支持·探测')).toBeTruthy();
+      expect(screen.getByText('视觉')).toBeTruthy();
     });
     expect(showMessageAlert.success).toHaveBeenCalledWith('探测成功：该模型支持图片输入');
   });
 
-  it('probe result locked=true explains the manual lock', async () => {
+  it('探测 locked=true → 提示手动锁定', async () => {
     renderPage([
       makeModel({ capabilities: { vision: 'no', sources: { vision: 'manual' } } }),
     ]);
+    await openEditModal();
     vi.mocked(api.probeModelVision).mockResolvedValue({
       model: makeModel({ capabilities: { vision: 'no', sources: { vision: 'manual' } } }),
       probe: { method: 'skipped', vision: 'no', source: 'manual', locked: true },
     });
 
-    fireEvent.click(await screen.findByText('测试图片输入'));
+    fireEvent.click(screen.getByText('测试图片输入'));
 
     await waitFor(() => {
-      expect(showMessageAlert.error).toHaveBeenCalledWith(
-        expect.stringContaining('手动锁定'),
-      );
+      expect(showMessageAlert.error).toHaveBeenCalledWith(expect.stringContaining('手动锁定'));
     });
   });
 
-  it('selecting 支持 writes manual capability via api.setModelVision', async () => {
+  it('弹窗内选「支持」→ api.setModelVision 写手动锁并刷新 tag', async () => {
     renderPage([makeModel()]);
+    await openEditModal();
     vi.mocked(api.setModelVision).mockResolvedValue(
       makeModel({ capabilities: { vision: 'yes', sources: { vision: 'manual' } } }),
     );
 
-    const select = await screen.findByLabelText('deepseek-flash 图片输入能力');
+    const select = screen.getByLabelText('deepseek-flash 图片输入能力');
     fireEvent.change(select, { target: { value: 'yes' } });
 
     await waitFor(() => {
       expect(api.setModelVision).toHaveBeenCalledWith('m1', 'yes');
-      expect(screen.getByText('图片 支持·手动')).toBeTruthy();
+      expect(screen.getByText('视觉')).toBeTruthy();
     });
   });
 
-  it('selecting 未知 clears the manual lock (null)', async () => {
+  it('弹窗内选「自动」→ 清除手动锁（null）', async () => {
     renderPage([
       makeModel({ capabilities: { vision: 'no', sources: { vision: 'manual' } } }),
     ]);
+    await openEditModal();
     vi.mocked(api.setModelVision).mockResolvedValue(makeModel());
 
-    const select = await screen.findByLabelText('deepseek-flash 图片输入能力');
+    const select = screen.getByLabelText('deepseek-flash 图片输入能力');
     fireEvent.change(select, { target: { value: 'unknown' } });
 
     await waitFor(() => {
       expect(api.setModelVision).toHaveBeenCalledWith('m1', null);
-      expect(screen.getByText('图片 未知')).toBeTruthy();
+      expect(screen.queryByText('视觉')).toBeNull();
     });
   });
 });

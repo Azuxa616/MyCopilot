@@ -5,6 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import type { Provider, Model, ModelCapabilities } from '@my-copilot/shared'
 import { api } from '../../api'
 import { describeVisionCapability } from '../../utils/capability'
+import { getRelativeTime } from '../../utils/time'
 import ModelFormModal from '../../components/ModelFormModal'
 import { ProviderTypeBadge, StatusBadge } from '../../components/common/Badge'
 import { showMessageAlert } from '../../components/common/Alert/alertUtils'
@@ -19,7 +20,6 @@ export function ProviderDetailPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editModel, setEditModel] = useState<Model | undefined>()
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
-  const [probingId, setProbingId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     if (!id) return
@@ -67,38 +67,10 @@ export function ProviderDetailPage() {
     }
   }
 
-  const handleProbe = async (model: Model) => {
-    setProbingId(model.id)
-    try {
-      const { model: updated, probe } = await api.probeModelVision(model.id)
-      setModels((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
-      if (probe.locked) {
-        showMessageAlert.error('该模型能力已被手动锁定；如需改判，请先将"图片输入"选为"未知"清除锁定')
-      } else if (probe.vision === 'yes') {
-        showMessageAlert.success('探测成功：该模型支持图片输入')
-      } else if (probe.vision === 'no') {
-        showMessageAlert.success('探测完成：该模型不支持图片输入（已记录）')
-      } else {
-        showMessageAlert.success('探测完成：未能确定（保持未知）')
-      }
-    } catch (error) {
-      console.error('Failed to probe vision capability:', error)
-      showMessageAlert.error(error instanceof Error ? error.message : '探测失败')
-    } finally {
-      setProbingId(null)
-    }
-  }
-
-  const handleVisionChange = async (model: Model, vision: 'yes' | 'no' | 'unknown') => {
-    try {
-      const updated = await api.setModelVision(model.id, vision === 'unknown' ? null : vision)
-      setModels((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
-      showMessageAlert.success(vision === 'unknown' ? '已清除能力设置（回到未知）' : '已手动设置；此后不再被自动反写覆盖')
-    } catch (error) {
-      console.error('Failed to set vision capability:', error)
-      showMessageAlert.error('设置失败')
-    }
-  }
+  // 编辑弹窗内能力探测/手动设置成功后同步列表（驱动"视觉" tag 刷新）
+  const handleModelUpdated = useCallback((updated: Model) => {
+    setModels((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+  }, [])
 
   const handleModalSubmit = async (params: Parameters<typeof api.createModel>[1] | Partial<Parameters<typeof api.createModel>[1]>) => {
     if (!id) return
@@ -174,36 +146,20 @@ export function ProviderDetailPage() {
             {models.map((model) => (
               <div
                 key={model.id}
-                className="flex items-center justify-between p-3 bg-bg-secondary border border-border-base rounded-lg hover:border-primary-400 transition-colors"
+                className="flex items-start justify-between gap-3 p-3 bg-bg-secondary border border-border-base rounded-lg hover:border-primary-400 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-text-primary">{model.name}</span>
-                  {model.displayName && (
-                    <span className="text-xs text-text-secondary">({model.displayName})</span>
-                  )}
-                  <StatusBadge enabled={model.enabled} />
-                  <VisionBadge capabilities={model.capabilities} />
+                <div className="flex flex-col gap-1 min-w-0">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-text-primary truncate">{model.name}</span>
+                    {model.displayName && (
+                      <span className="text-xs text-text-secondary">({model.displayName})</span>
+                    )}
+                    <StatusBadge enabled={model.enabled} />
+                  </div>
+                  {/* 正向能力 tag：仅支持时显示；来源/时间在 tooltip 与编辑弹窗 */}
+                  <VisionTag capabilities={model.capabilities} />
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleProbe(model)}
-                    disabled={probingId === model.id}
-                    title={provider.type === 'ollama' ? '经 Ollama /api/show 查询原生能力信息' : '向该模型发送一张小图实测图片输入'}
-                    className="px-3 py-1.5 text-xs bg-bg-secondary border border-border-base text-text-primary rounded-lg hover:border-primary-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {probingId === model.id ? '探测中…' : '测试图片输入'}
-                  </button>
-                  <select
-                    aria-label={`${model.name} 图片输入能力`}
-                    value={describeVisionCapability(model.capabilities).vision}
-                    onChange={(e) => handleVisionChange(model, e.target.value as 'yes' | 'no' | 'unknown')}
-                    title="手动设置后成为最终判定，不再被自动反写覆盖；选「未知」清除设置"
-                    className="px-2 py-1.5 text-xs bg-bg-secondary border border-border-base text-text-primary rounded-lg"
-                  >
-                    <option value="unknown">图片输入：未知</option>
-                    <option value="yes">图片输入：支持</option>
-                    <option value="no">图片输入：不支持</option>
-                  </select>
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={() => handleEdit(model)}
                     className="px-3 py-1.5 text-xs bg-bg-primary border border-border-base text-text-primary rounded-lg hover:bg-bg-hover transition-colors"
@@ -229,23 +185,29 @@ export function ProviderDetailPage() {
         mode={modalMode}
         model={editModel}
         onSubmit={handleModalSubmit}
+        onModelUpdated={handleModelUpdated}
       />
     </div>
   )
 }
 
-/** 图片输入能力徽标：三态 × 来源（手动/探测/目录/服务方；未知无来源）。 */
-function VisionBadge({ capabilities }: { capabilities?: ModelCapabilities }) {
-  const { vision, label } = describeVisionCapability(capabilities)
-  const tone =
-    vision === 'yes'
-      ? 'text-primary-600 bg-bg-secondary border-primary-200'
-      : vision === 'no'
-        ? 'text-text-tertiary bg-bg-secondary border-border-base'
-        : 'text-text-secondary bg-bg-secondary border-border-base'
+/**
+ * 正向能力 tag（业界惯例：只标"有什么"）：仅 vision=yes 时渲染"视觉"，
+ * 来源与探测时间放 tooltip；不支持/未知在行内不显示（详情在编辑弹窗）。
+ */
+function VisionTag({ capabilities }: { capabilities?: ModelCapabilities }) {
+  const info = describeVisionCapability(capabilities)
+  if (info.vision !== 'yes') return null
+  const probedAt = capabilities?.probedAt
+  const title = probedAt
+    ? `图片输入：${info.label} · 更新于 ${getRelativeTime(probedAt)}（可在编辑中改判）`
+    : `图片输入：${info.label}（可在编辑中改判）`
   return (
-    <span className={`px-2 py-0.5 text-xs rounded-full border ${tone}`}>
-      图片 {label}
+    <span
+      title={title}
+      className="self-start px-2 py-0.5 text-xs rounded-full border text-primary-600 bg-bg-secondary border-primary-200"
+    >
+      视觉
     </span>
   )
 }

@@ -13,6 +13,8 @@
 > - **learning.ts 收紧**：成功出站不再升格 yes（删除升格分支），仅保留 400 能力性降级；升格只走探测（答案验证）与手动
 > - 端点/测试/文案同步：路由 verdict 直写；lifecycle 与 learning 测试改为"成功不写"断言；Sender 弱提示改为指向设置页实测
 > - 验证：定向 58/58 绿（capability + 路由 + lifecycle）
+>
+> **UI 改版（2026-10-01，用户提案 ①②③ 采纳）**：模型行改两行布局——第二行仅 vision=yes 显示「视觉」正向 tag（tooltip 含来源+时间）；「测试图片输入」与「图片输入」下拉（改「自动/支持/不支持」语义）移入 ModelFormModal 新增「能力」区块（经 `onModelUpdated` 回传刷新行内 tag）；行控件由 4 减为 2。④a（JSON 编辑）/④b（供应商级统一编辑）经评审不做。ProviderDetailPage.test 重写为 11 用例（行形态 3 + 弹窗区块 4 + 既有回归 4）。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
