@@ -13,6 +13,7 @@ import type {
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
   Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
   PluginRecord, PluginLifecycleEvent,
+  ProbeVisionResponse,
 } from '@my-copilot/shared';
 import { enhancedFetch, fetchWithAuth } from './request';
 import { StreamError } from './errors';
@@ -285,6 +286,34 @@ export async function deleteModel(id: string): Promise<void> {
         method: 'DELETE',
         timeout: 30000,
     });
+}
+
+/**
+ * Probe model vision capability with a tiny real image request
+ * POST /api/models/:id/probe-vision
+ *
+ * 服务端探测超时 20s，客户端放宽到 45s 容纳排队与代理。
+ */
+export async function probeModelVision(id: string): Promise<ProbeVisionResponse> {
+    const response = await enhancedFetch<{ data: ProbeVisionResponse }>(`/api/models/${id}/probe-vision`, {
+        method: 'POST',
+        timeout: 45000,
+    });
+    return response.data;
+}
+
+/**
+ * Manually set / clear model vision capability (writes the source=manual lock)
+ * PATCH /api/models/:id/capabilities — vision: 'yes' | 'no' | null（null = 清除，回到 unknown）
+ */
+export async function setModelVision(id: string, vision: 'yes' | 'no' | null): Promise<Model> {
+    const response = await enhancedFetch<{ data: Model }>(`/api/models/${id}/capabilities`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vision }),
+        timeout: 30000,
+    });
+    return response.data;
 }
 
 // ─── Session update API ───
