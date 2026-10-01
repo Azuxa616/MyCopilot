@@ -1,7 +1,7 @@
 # 模型能力探测（三态 + 学习闭环）设计
 
 **日期：** 2026-09-30
-**状态：** 设计定稿，已获用户批准，转入实施计划（`2026-09-30-model-capability-plan.md`）
+**状态：** 已实施（实施计划 `docs/2026-09-30-model-capability-plan.md`；学习闭环接线以附件资产层计划执行为前置）
 **分支：** main
 **来源：** 2026-09-30 产品形态讨论；DeepSeek vision 文档实证调研
 **关联文档：** `2026-09-30-attachment-assets-multimodal-design.md`（门控消费方）

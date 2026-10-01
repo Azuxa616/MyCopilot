@@ -1,6 +1,12 @@
 # 模型能力探测（三态 + 学习闭环）实施计划
 
-> **执行记录（执行时填写）：** 日期 / 分支 / 与原文的偏差 —— 格式参照 `2026-08-22-skill-system-upgrade-plan.md` 头部执行记录。
+> **执行记录（2026-10-01，分支 `model-capability`）：** 计划 Task 1-10 已执行完毕（Task 10.2 手动验收留待用户）。与原文的偏差：
+> - **probe.ts 走正式多模态通道**：计划撰写时 A 未落地故用受控 cast 借道序列化；执行时 A 已合并，`ChatMessage.images` 为正式类型，探测消息改用 `{ role:'user', content, images:[{url}] }`（零 cast），测试断言不变
+> - **学习闭环抽为共享单点 `capability/learning.ts`**：计划的异步接线点（worker handler）拿不到 `AgentLoopResult.cause`（`runAgentLoopAsJob` 返回可 JSON 化的 job record，cause 对象会丢）——改为 `applyVisionLearningLoop` 纯函数，lifecycle（同步）与 `runAgentLoopAsJob` 内部（异步，context 增 `modelId`）各接一次，并补 8 条单测（强于计划的 4 条 lifecycle 用例）
+> - **`learning.ts` 的 ProviderError 从 `llm/base.js` 导入**（非 index barrel）：instanceof 判定要求构造方与判定方共享类定义，也规避了 lifecycle.test 的 async-factory mock 提升问题（vi.mock 异步 factory 在顶层 const 初始化前执行 → TDZ）
+> - **分类器两处盲区修复**（计划正则的缺陷）：复数形 "Images" 不匹配 `\bimage\b` → 名词侧 `images?/modalit(y|ies)`；JSON details 的 snake_case（`unsupported_modality`）→ 匹配前下划线/连字符归一为空格
+> - **迁移计数测试 8→9**（0009 加入，house 惯例）；cache 测试的 mock 改 `mockImplementation`（Response body 单次消费）
+> - 全量验证：typecheck ✓ / server 928 tests ✓ / web 227 tests ✓ / lint 0 error（1 既有 warning：PluginCardHost，非本计划）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
