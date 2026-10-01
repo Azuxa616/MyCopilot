@@ -20,7 +20,7 @@ export default function EmptyChatView() {
   })
 
   return (
-    <div className="flex flex-col h-full justify-center items-start gap-10 w-full px-6">
+    <div className="flex flex-col h-full justify-center items-center gap-10 w-full px-4">
       <span className="text-3xl font-sans text-text-primary text-center self-center">
         {greetingPrefix}，用户，有什么可以帮你的吗？
       </span>

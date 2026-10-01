@@ -8,6 +8,7 @@ import FileUploadModal from './FileUploadModal'
 // Hooks
 import { useTextareaAutoHeight } from './hooks/useTextareaAutoHeight'
 import { useAttachments } from './hooks/useAttachments'
+import { useModelOptions } from './hooks/useModelOptions'
 // Store
 import { useSessionStore, NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 import { useDraftStore } from '../../store/draftStore'
@@ -16,6 +17,7 @@ import { showMessageAlert } from '../common/Alert/alertUtils'
 import { isSupportedAttachmentName } from '../../utils/file'
 import { getErrorMessage } from '../../api'
 // Assets
+import ModelSelector from './ModelSelector'
 import IconAttachement from '../../assets/icon/attachment.svg?react'
 import IconSender from '../../assets/icon/sender.svg?react'
 import IconGenerating from '../../assets/icon/generating.svg?react'
@@ -156,91 +158,111 @@ export default function Sender() {
         setContent(e.target.value);
     };
 
+    const { allModels, providersMap, isLoadingModels, effectiveModelId, handleModelChange } = useModelOptions();
+
     return (
-        <div
-            className="flex flex-col w-full min-w-sm border border-border-base rounded-2xl bg-bg-elevated shadow-sm"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-                e.preventDefault();
-                void addFiles(Array.from(e.dataTransfer?.files ?? []));
-            }}
-        >
-            {/* 能力未知弱提示（能力探测计划落地后接入三态判定） */}
-            {showVisionHint && (
-                <div className="flex items-start justify-between gap-2 px-4 pt-3 text-xs text-text-tertiary">
-                    <span>未确认当前模型支持图片输入，可在 设置 → 模型 中「测试图片输入」实测</span>
-                    <button
-                        type="button"
-                        onClick={() => setVisionHintDismissed(true)}
-                        className="shrink-0 text-text-tertiary hover:text-text-secondary"
-                        title="知道了"
-                    >
-                        ✕
-                    </button>
-                </div>
-            )}
-            {/* Attachment list */}
-            {attachments.length > 0 && (
-                <div className="px-4 pt-3 pb-2 border-b border-border-base">
-                    <div className="flex flex-wrap gap-2">
-                        {attachments.map((attachment) => (
-                            <AttachmentCard
-                                key={attachment.id}
-                                attachment={attachment}
-                                onRemove={removeAttachment}
-                            />
-                        ))}
+        // 列宽容器：与消息区内容列保持同一最大宽度，输入框不再顶满两侧
+        <div className="w-full max-w-3xl mx-auto px-4">
+            <div
+                className="flex flex-col w-full border border-border-base rounded-2xl bg-bg-elevated shadow-sm"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    void addFiles(Array.from(e.dataTransfer?.files ?? []));
+                }}
+            >
+                {/* 能力未知弱提示（能力探测计划落地后接入三态判定） */}
+                {showVisionHint && (
+                    <div className="flex items-start justify-between gap-2 px-4 pt-3 text-xs text-text-tertiary">
+                        <span>未确认当前模型支持图片输入，可在 设置 → 模型 中「测试图片输入」实测</span>
+                        <button
+                            type="button"
+                            onClick={() => setVisionHintDismissed(true)}
+                            className="shrink-0 text-text-tertiary hover:text-text-secondary"
+                            title="知道了"
+                        >
+                            ✕
+                        </button>
                     </div>
-                </div>
-            )}
-            {/* Input area */}
-            <div className="flex items-end justify-between px-4 py-3">
-                <div className="flex items-end gap-2 flex-1">
-                    <button
-                        title="Upload file"
-                        onClick={() => setIsModalOpen(true)}
-                        className="w-9 h-9 text-primary-500 rounded-full hover:bg-primary-500 hover:text-white transition-colors group flex items-center justify-center shrink-0 mb-1"
-                    >
-                        <IconAttachement className="w-5 h-5 text-primary-500 group-hover:text-white transition-colors" />
-                    </button>
-                    {/* File upload modal */}
-                    <FileUploadModal
-                        open={isModalOpen}
-                        onOpenChange={setIsModalOpen}
-                        attachments={attachments}
-                        onFileSelect={(file) => { void addFiles([file]); }}
-                        onRemoveAttachment={removeAttachment}
-                    />
+                )}
+                {/* Attachment list */}
+                {attachments.length > 0 && (
+                    <div className="px-4 pt-3 pb-2 border-b border-border-base">
+                        <div className="flex flex-wrap gap-2">
+                            {attachments.map((attachment) => (
+                                <AttachmentCard
+                                    key={attachment.id}
+                                    attachment={attachment}
+                                    onRemove={removeAttachment}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
+                {/* Input area */}
+                <div className="px-3 pt-3">
                     <textarea
                         ref={textareaRef}
                         value={content}
                         onChange={handleInput}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        className="flex-1 p-2 focus:outline-none bg-transparent text-text-primary placeholder:text-text-tertiary resize-none overflow-hidden min-h-[24px] max-h-[200px] transition-all duration-300"
+                        className="w-full px-2 py-1 focus:outline-none bg-transparent text-text-primary placeholder:text-text-tertiary resize-none overflow-hidden min-h-[24px] max-h-[200px] transition-all duration-300"
                         placeholder={selectedSessionId ? 'Enter your message' : '请先创建新对话'}
                         rows={1}
                         disabled={!selectedSessionId}
                     />
                 </div>
-                {isSending ? (
-                    <button
-                        title="Stop generating"
-                        onClick={cancelStream}
-                        className="px-4 py-2 bg-primary-500/20 text-primary-500 rounded-full hover:bg-primary-500/30 transition-colors trans font-medium shrink-0 ml-2 mb-1"
-                    >
-                        <IconGenerating className="w-5 h-5 text-white transition-colors animate-spin" />
-                    </button>
-                ) : (
-                    <button
-                        title="Send"
-                        onClick={handleSend}
-                        disabled={!content.trim() || !selectedSessionId || isJobActive}
-                        className="px-4 py-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors font-medium shrink-0 ml-2 mb-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <IconSender className="w-5 h-5 text-white transition-colors" />
-                    </button>
-                )}
+                {/* 底部工具行：附件 + 模型选择（左），发送/停止（右） */}
+                <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
+                    <div className="flex items-center gap-1 min-w-0">
+                        <button
+                            title="Upload file"
+                            onClick={() => setIsModalOpen(true)}
+                            className="w-9 h-9 text-primary-500 rounded-full hover:bg-primary-500 hover:text-white transition-colors group flex items-center justify-center shrink-0"
+                        >
+                            <IconAttachement className="w-5 h-5 text-primary-500 group-hover:text-white transition-colors" />
+                        </button>
+                        {/* File upload modal */}
+                        <FileUploadModal
+                            open={isModalOpen}
+                            onOpenChange={setIsModalOpen}
+                            attachments={attachments}
+                            onFileSelect={(file) => { void addFiles([file]); }}
+                            onRemoveAttachment={removeAttachment}
+                        />
+                        <ModelSelector
+                            models={allModels}
+                            providersMap={providersMap}
+                            isLoading={isLoadingModels}
+                            value={effectiveModelId}
+                            onChange={(modelId) => { void handleModelChange(modelId); }}
+                        />
+                        {import.meta.env.DEV && currentSession?.id && (
+                            <span className="text-[10px] text-text-tertiary font-mono shrink-0">
+                                sid:{currentSession.id.slice(0, 8)}
+                            </span>
+                        )}
+                    </div>
+                    {isSending ? (
+                        <button
+                            title="Stop generating"
+                            onClick={cancelStream}
+                            className="px-4 py-2 bg-primary-500/20 text-primary-500 rounded-full hover:bg-primary-500/30 transition-colors trans font-medium shrink-0"
+                        >
+                            <IconGenerating className="w-5 h-5 text-white transition-colors animate-spin" />
+                        </button>
+                    ) : (
+                        <button
+                            title="Send"
+                            onClick={handleSend}
+                            disabled={!content.trim() || !selectedSessionId || isJobActive}
+                            className="px-4 py-2 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors font-medium shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <IconSender className="w-5 h-5 text-white transition-colors" />
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
     );

@@ -50,17 +50,12 @@ export function useAutoScroll({
     const isNewSession = lastSessionIdRef.current !== sessionId
     lastSessionIdRef.current = sessionId
 
-    // First load of session: scroll to bottom immediately
+    // First load of session: 进入定位由 useEntryReveal 接管
+    // （门控期钉底直至布局稳定 / 缓存命中瞬时定位），此处只复位自动滚动状态
     if (isNewSession || isInitialLoadRef.current) {
       isInitialLoadRef.current = false
-      requestAnimationFrame(() => {
-        virtualizer.scrollToIndex(messagesLength - 1, {
-          align: 'end',
-          behavior: 'auto',
-        })
-        shouldAutoScrollRef.current = true
-        isNearBottomRef.current = true
-      })
+      shouldAutoScrollRef.current = true
+      isNearBottomRef.current = true
       return
     }
 

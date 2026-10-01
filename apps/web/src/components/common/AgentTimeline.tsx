@@ -8,22 +8,9 @@
 
 import { useState } from 'react'
 import type { TimelineEntry } from '../../types/timeline'
+import IconChevronRight from '../../assets/icon/chevron-right.svg?react'
 import PluginCardHost from '../PluginCardHost'
 import { extractCardPayload } from '../PluginCardHost/parse'
-
-/** 折叠指示箭头（与 ToolCallsBlock 的 chevron 同款，旋转过渡）。 */
-function Chevron({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      className={`ml-auto shrink-0 w-3 h-3 text-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden
-    >
-      <path d="M4 2.5L8 6L4 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
 /** running 状态的小号旋转指示（与 ToolCallProgress 的 spinner 样式一致）。 */
 function RunningSpinner() {
@@ -66,7 +53,7 @@ function ReasoningEntry({ entry, live }: { entry: Extract<TimelineEntry, { kind:
       >
         {thinking ? <RunningSpinner /> : <span className="shrink-0" aria-hidden>🧠</span>}
         <span className="font-medium shrink-0">{thinking ? '思考中…' : '思考过程'}</span>
-        <Chevron expanded={expanded} />
+        <IconChevronRight className={`ml-auto shrink-0 w-3 h-3 text-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />
       </button>
       {expanded && (
         <div className="px-3 pb-2 pt-0.5 border-t border-primary-100/80">
@@ -135,7 +122,7 @@ function ToolEntry({ entry, live }: { entry: Extract<TimelineEntry, { kind: 'too
         {duration && (
           <span className="shrink-0 text-[10px] text-text-tertiary font-mono">{duration}</span>
         )}
-        {hasDetail && <Chevron expanded={expanded} />}
+        {hasDetail && <IconChevronRight className={`ml-auto shrink-0 w-3 h-3 text-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />}
       </button>
       {expanded && hasDetail && (
         <div className="px-2.5 pb-2.5 pt-1 bg-bg-tertiary/40 border-t border-border-light flex flex-col gap-2">
