@@ -7,7 +7,7 @@ describe('builtinExecutors', () => {
     const descriptors = builtinExecutors.map(({ executor }) => executor.describe());
     const ids = descriptors.map(({ id }) => id);
 
-    expect(names).toHaveLength(12);
+    expect(names).toHaveLength(13);
     expect(new Set(names).size).toBe(names.length);
     expect(new Set(ids).size).toBe(ids.length);
     expect(descriptors.map(({ name }) => name)).toEqual(names);

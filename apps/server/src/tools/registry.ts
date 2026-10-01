@@ -44,28 +44,37 @@ export interface ToolExecutor {
  * the same name throws — this is intentional to surface double-registration
  * bugs early instead of silently shadowing the previous executor.
  */
-const executors = new Map<string, ToolExecutor>();
+const executors = new Map<string, { executor: ToolExecutor; advertised: boolean }>();
 
 /**
  * Register a built-in tool executor under `name`.
  *
  * @throws Error if `name` is already registered.
+ * @param options.advertised false = 注册后可执行（getToolExecutor 可达），
+ *   但不进入 listRegisteredTools 常驻广告列表——供按轮条件广告的工具
+ *   （read_session）使用；缺省 true。
  */
-export function registerTool(name: string, executor: ToolExecutor): void {
+export function registerTool(
+  name: string,
+  executor: ToolExecutor,
+  options?: { advertised?: boolean },
+): void {
   if (executors.has(name)) {
     throw new Error(`Tool "${name}" is already registered`);
   }
-  executors.set(name, executor);
+  executors.set(name, { executor, advertised: options?.advertised ?? true });
 }
 
 /** Look up the executor registered under `name`, if any. */
 export function getToolExecutor(name: string): ToolExecutor | undefined {
-  return executors.get(name);
+  return executors.get(name)?.executor;
 }
 
-/** Return the static `Tool` descriptors for every registered built-in. */
+/** Return the static `Tool` descriptors for every advertised registered built-in. */
 export function listRegisteredTools(): Tool[] {
-  return Array.from(executors.values()).map((e) => e.describe());
+  return Array.from(executors.values())
+    .filter((entry) => entry.advertised)
+    .map((entry) => entry.executor.describe());
 }
 
 /** Test-only escape hatch: clears the registry without invoking executors. */
