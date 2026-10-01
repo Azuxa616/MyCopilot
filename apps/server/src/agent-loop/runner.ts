@@ -38,6 +38,8 @@ import type {
   JsonSchemaTool,
 } from '../llm/base.js';
 import type { AttachmentText, SkillInjection } from '../prompt/assembler.js';
+import { applyVisionLearningLoop } from '../capability/learning.js';
+import { hasImageParts } from '../attachment/resolve.js';
 import { assembleMessagesV2 } from '../prompt/assembler.js';
 import { estimateMessagesTokens } from '../prompt/token-counter.js';
 import { summarizeHistory } from '../prompt/summarizer.js';
@@ -78,6 +80,8 @@ export interface AgentLoopResult {
   messages: Message[];
   /** Populated when status === 'error'. */
   error?: string;
+  /** 原始错误对象（如 ProviderError）——stringify 丢失的 statusCode/errorCode 供消费方判定。 */
+  cause?: unknown;
 }
 
 /** Events emitted by the agent loop via the onEvent callback. */
@@ -782,6 +786,7 @@ export async function runAgentLoop(
       content: lastIterationContent,
       messages: addedMessages,
       error: message,
+      cause: err,
     };
   }
 }
@@ -819,6 +824,8 @@ export interface AgentLoopJobContext {
   agentId?: string;
   /** Placeholder assistant message ID (created by the HTTP handler). */
   userMessageId: string;
+  /** 学习闭环：最终生效模型（streamMessageHandler 写入）。 */
+  modelId?: string;
   history: Message[];
   userContent: string;
   attachments?: AttachmentText[];
@@ -867,6 +874,16 @@ export async function runAgentLoopAsJob(
       }
     },
   });
+
+  // ─── 学习闭环（异步链路；与 lifecycle 同语义，capability/learning.ts 单点）───
+  // cause 是真实错误对象，必须在序列化进 job result 之前判定。
+  if (context.modelId) {
+    applyVisionLearningLoop({
+      modelId: context.modelId,
+      outboundHasImage: hasImageParts(context.currentUserParts),
+      result,
+    });
+  }
 
   return {
     status: result.status,
