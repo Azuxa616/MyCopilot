@@ -220,7 +220,22 @@ export class OpenAIAdapter implements ProviderAdapter {
 /** Serialize a ChatMessage into the OpenAI request body shape (omits null/undefined fields). */
 function serializeMessage(msg: ChatMessage): Record<string, unknown> {
   const base: Record<string, unknown> = { role: msg.role };
-  if (msg.content !== null) base.content = msg.content;
+  // Multimodal: user 消息携带 images 时，content 序列化为 OpenAI content blocks。
+  if (msg.images && msg.images.length > 0 && msg.role === 'user') {
+    const blocks: Array<Record<string, unknown>> = [];
+    if (typeof msg.content === 'string' && msg.content.length > 0) {
+      blocks.push({ type: 'text', text: msg.content });
+    }
+    for (const img of msg.images) {
+      blocks.push({
+        type: 'image_url',
+        image_url: { url: img.url, ...(img.detail !== undefined ? { detail: img.detail } : {}) },
+      });
+    }
+    base.content = blocks;
+  } else if (msg.content !== null) {
+    base.content = msg.content;
+  }
   if (msg.toolCalls) {
     // OpenAI requires each tool_calls entry to have:
     //   { id, type: "function", function: { name, arguments } }

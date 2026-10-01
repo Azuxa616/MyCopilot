@@ -6,7 +6,7 @@
  * to normalize differences in API endpoints, request/response formats,
  * and error handling.
  */
-import type { StreamEvent, ToolCall } from '@my-copilot/shared';
+import type { StreamEvent, ToolCall, WireImagePart } from '@my-copilot/shared';
 
 /** OpenAI-compatible chat message format (internal to server, not exported to shared) */
 export interface ChatMessage {
@@ -19,6 +19,11 @@ export interface ChatMessage {
   toolCallId?: string;
   /** Function name for tool-role messages (OpenAI `name` field). */
   name?: string;
+  /**
+   * 多模态图片（已解析的 data URL，由 assembler 出口组装）。协议约束：仅
+   * user 消息携带；adapter 负责序列化为 OpenAI content blocks / Ollama images。
+   */
+  images?: WireImagePart[];
 }
 
 /** Adapter configuration */

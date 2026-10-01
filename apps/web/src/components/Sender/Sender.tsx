@@ -13,6 +13,7 @@ import { useSessionStore, NEW_SESSION_SENTINEL } from '../../store/sessionStore'
 import { useDraftStore } from '../../store/draftStore'
 // Utils
 import { showMessageAlert } from '../common/Alert/alertUtils'
+import { isSupportedAttachmentName } from '../../utils/file'
 import { getErrorMessage } from '../../api'
 // Assets
 import IconAttachement from '../../assets/icon/attachment.svg?react'
@@ -57,6 +58,27 @@ export default function Sender() {
         useDraftStore.getState().consumePendingDraft();
     }
 
+    // 能力未知弱提示（模型能力探测计划落地后，此处替换为 useModelVisionCapability 的三态判定）
+    const [visionHintDismissed, setVisionHintDismissed] = useState(false);
+    const showVisionHint =
+        !visionHintDismissed && attachments.some((a) => a.type.startsWith('image/'));
+
+    // 统一的文件入口（模态框 / 粘贴 / 拖拽共用）：校验 → 选择即上传 → 失败 toast
+    const addFiles = async (files: File[]) => {
+        for (const file of files) {
+            if (!isSupportedAttachmentName(file.name)) {
+                showMessageAlert.warning('不支持该文件格式，仅支持 MD、TXT、CSV、DOCX、PDF 与图片');
+                continue;
+            }
+            try {
+                await addAttachment(file);
+            } catch (error) {
+                console.error('Failed to upload attachment:', error);
+                showMessageAlert.error(`${file.name}: ${getErrorMessage(error)}`);
+            }
+        }
+    };
+
     const currentSession = useSessionStore((state) => state.currentSession);
     const pendingModelId = useSessionStore((state) => state.pendingModelId);
 
@@ -84,9 +106,14 @@ export default function Sender() {
         }
 
         const messageContent = trimmedContent;
-        const messageFiles: File[] = attachments.map(a => a.file);
+        // 捕获当前附件（资产在选择时已上传），未完成上传的不进入本次消息
+        const pending = attachments;
+        const uploading = pending.filter((a) => a.uploading || !a.assetId);
+        if (uploading.length > 0) {
+            showMessageAlert.warning(`${uploading.length} 个附件仍在上传，本次消息将不包含它们`);
+        }
+        const ready = pending.filter((a) => a.assetId && !a.uploading);
 
-        // Clear input and attachments
         resetSender();
 
         try {
@@ -94,11 +121,26 @@ export default function Sender() {
             await sendMessage({
                 sessionId: selectedSessionId,
                 content: messageContent,
-                files: messageFiles.length > 0 ? messageFiles : undefined,
+                assetIds: ready.length > 0 ? ready.map((a) => a.assetId!) : undefined,
+                attachments: ready.map((a) => ({
+                    assetId: a.assetId,
+                    name: a.name,
+                    type: a.type,
+                    size: a.size,
+                })),
             });
         } catch (error) {
             console.error('Failed to send message:', error);
             showMessageAlert.error(getErrorMessage(error));
+        }
+    };
+
+    // 粘贴图片：剪贴板文件直接进入上传管道
+    const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        const files = Array.from(e.clipboardData?.files ?? []);
+        if (files.length > 0) {
+            e.preventDefault();
+            void addFiles(files);
         }
     };
 
@@ -115,7 +157,28 @@ export default function Sender() {
     };
 
     return (
-        <div className="flex flex-col w-full min-w-sm border border-border-base rounded-2xl bg-bg-elevated shadow-sm">
+        <div
+            className="flex flex-col w-full min-w-sm border border-border-base rounded-2xl bg-bg-elevated shadow-sm"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+                e.preventDefault();
+                void addFiles(Array.from(e.dataTransfer?.files ?? []));
+            }}
+        >
+            {/* 能力未知弱提示（能力探测计划落地后接入三态判定） */}
+            {showVisionHint && (
+                <div className="flex items-start justify-between gap-2 px-4 pt-3 text-xs text-text-tertiary">
+                    <span>未确认当前模型支持图片输入，首次发送将自动验证</span>
+                    <button
+                        type="button"
+                        onClick={() => setVisionHintDismissed(true)}
+                        className="shrink-0 text-text-tertiary hover:text-text-secondary"
+                        title="知道了"
+                    >
+                        ✕
+                    </button>
+                </div>
+            )}
             {/* Attachment list */}
             {attachments.length > 0 && (
                 <div className="px-4 pt-3 pb-2 border-b border-border-base">
@@ -145,7 +208,7 @@ export default function Sender() {
                         open={isModalOpen}
                         onOpenChange={setIsModalOpen}
                         attachments={attachments}
-                        onFileSelect={addAttachment}
+                        onFileSelect={(file) => { void addFiles([file]); }}
                         onRemoveAttachment={removeAttachment}
                     />
                     <textarea
@@ -153,6 +216,7 @@ export default function Sender() {
                         value={content}
                         onChange={handleInput}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         className="flex-1 p-2 focus:outline-none bg-transparent text-text-primary placeholder:text-text-tertiary resize-none overflow-hidden min-h-[24px] max-h-[200px] transition-all duration-300"
                         placeholder={selectedSessionId ? 'Enter your message' : '请先创建新对话'}
                         rows={1}

@@ -6,12 +6,14 @@ import type {
 import type {
   BudgetConfig,
   Message,
+  MessagePart,
   MessageStatus,
   RunChatMessage,
   RunContext,
   StrategyName,
   TokenUsage,
 } from '@my-copilot/shared';
+import { applyImagePolicy, resolveWireImages } from '../attachment/resolve.js';
 import { listMemories } from '../repo/memory.js';
 import {
   computeBudget,
@@ -210,6 +212,8 @@ export interface AssembleV2Params {
   history: Message[];
   userContent: string;
   attachments?: AttachmentText[];
+  /** 当前轮用户消息的多模态 parts（图片）。文本资产仍走 attachments 注入。 */
+  currentUserParts?: MessagePart[];
   skills?: SkillInjection[];
   summary?: SummaryInjection;
   /** Memory 注入用的会话 id（RFC §4）；提供时读取该会话全部记忆并注入 system 消息。 */
@@ -461,12 +465,45 @@ export async function assembleMessagesV2(
   if (summaryMessageText) {
     messages.push({ role: 'system', content: summaryMessageText });
   }
-  for (const chatMsg of historyToChatMessages(current)) {
-    messages.push(chatMsg);
+  // 多模态：历史 user 轮龄计数（最后一条历史 user 消息 age=1——当前轮
+  // user 消息不在 history 中，作为 userContent 单独拼装）。
+  const userAgeById = new Map<string, number>();
+  let ageCounter = 0;
+  for (let i = current.length - 1; i >= 0; i--) {
+    if (current[i]!.role === 'user') {
+      ageCounter += 1;
+      userAgeById.set(current[i]!.id, ageCounter);
+    }
   }
+
+  for (const msg of current) {
+    if (msg.role === 'tool') {
+      if (!msg.toolCallId) continue;
+      messages.push({ role: 'tool', content: msg.content, toolCallId: msg.toolCallId });
+      continue;
+    }
+    const out: ChatMessage = {
+      role: msg.role,
+      content: msg.content,
+      ...(msg.toolCalls ? { toolCalls: msg.toolCalls } : {}),
+    };
+    // 历史图片 detail 分级：窗口内 low、窗口外不发送字节（投影已含占位）。
+    if (msg.role === 'user' && msg.parts && msg.parts.length > 0) {
+      const userAge = userAgeById.get(msg.id) ?? 1;
+      const images = await resolveWireImages(applyImagePolicy(msg.parts, userAge));
+      if (images.length > 0) out.images = images;
+    }
+    messages.push(out);
+  }
+
+  // 当前轮 user 消息：图片 parts 原样（detail 缺省时 adapter 端省略字段）。
+  const currentUserImages = params.currentUserParts
+    ? await resolveWireImages(applyImagePolicy(params.currentUserParts, 0))
+    : [];
   messages.push({
     role: 'user',
     content: attachmentPrefix + params.userContent,
+    ...(currentUserImages.length > 0 ? { images: currentUserImages } : {}),
   });
 
   // (10) 包装为 RunContext：ChatMessage 字段与 RunChatMessage 直接兼容。
@@ -475,6 +512,7 @@ export async function assembleMessagesV2(
     content: m.content,
     ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
     ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
+    ...(m.images ? { images: m.images } : {}),
   }));
 
   return { messages: runMessages, budget, degraded };

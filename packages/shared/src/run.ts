@@ -8,6 +8,7 @@
 
 import type { BudgetBreakdown } from './context.js';
 import type { ToolCall } from './session.js';
+import type { WireImagePart } from './attachment.js';
 
 /**
  * Run 的生命周期状态，仿照 OpenAI Assistants 的 Run 生命周期建模。
@@ -87,6 +88,8 @@ export interface RunChatMessage {
   toolCalls?: ToolCall[];
   /** tool 角色消息引用的父工具调用 id。 */
   toolCallId?: string;
+  /** 多模态图片（已解析 data URL，仅 user 消息）。 */
+  images?: WireImagePart[];
 }
 
 /**

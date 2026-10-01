@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { MemoryRecord, Message, StreamEvent } from '@my-copilot/shared';
 import type {
   AdapterConfig,
@@ -12,6 +15,9 @@ import {
   type SkillInjection,
 } from '../assembler.js';
 import { listMemories } from '../../repo/memory.js';
+import { createAsset } from '../../repo/asset.js';
+import { writeAssetFile } from '../../attachment/storage.js';
+import { initDatabase, getDb } from '../../db/index.js';
 
 // Memory 仓储整体 mock：assembleMessagesV2 只消费 listMemories。
 vi.mock('../../repo/memory.js', () => ({
@@ -406,5 +412,123 @@ describe('assembleMessagesV2', () => {
 
     expect(v2.messages).toEqual(v1);
     expect(v2.degraded).toBe(false);
+  });
+});
+
+describe('assembleMessagesV2 multimodal（图片 parts）', () => {
+  let testDir: string;
+  let assetIds: string[];
+
+  beforeEach(async () => {
+    testDir = mkdtempSync(join(tmpdir(), 'my-copilot-test-'));
+    process.env.DATA_DIR = testDir;
+    initDatabase(testDir);
+    vi.mocked(listMemories).mockReset();
+    vi.mocked(listMemories).mockReturnValue([]);
+
+    assetIds = [];
+    for (let i = 0; i < 8; i++) {
+      const a = createAsset({
+        name: `img${i}.png`,
+        mimeType: 'image/png',
+        size: 4,
+        kind: 'image',
+        sha256: `h${i}`,
+      });
+      await writeAssetFile(a.id, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+      assetIds.push(a.id);
+    }
+  });
+
+  afterEach(() => {
+    try {
+      getDb().close();
+    } catch {
+      // ignore
+    }
+    delete process.env.DATA_DIR;
+    if (testDir) {
+      try {
+        rmSync(testDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it('当前轮图片原样；历史窗口内（age 1..5）降 low；窗口外（age>5）不发送字节', async () => {
+    // 7 个历史 user 轮，各带一张图；u7 age=1 … u1 age=7
+    const history: Message[] = [];
+    for (let i = 1; i <= 7; i++) {
+      history.push(
+        createMessage({
+          id: `u${i}`,
+          role: 'user',
+          content: `[图片: img.png]`,
+          parts: [{ type: 'image', assetId: assetIds[i]! }],
+        }),
+      );
+      history.push(createMessage({ id: `a${i}`, role: 'assistant', content: 'ok' }));
+    }
+
+    const ctx = await assembleMessagesV2({
+      history,
+      userContent: '看这张',
+      currentUserParts: [{ type: 'image', assetId: assetIds[0]! }],
+      totalContextTokens: 128000,
+    });
+
+    const userMsgs = ctx.messages.filter((m) => m.role === 'user');
+    // 7 历史 + 1 当前
+    expect(userMsgs).toHaveLength(8);
+
+    // 当前轮（最后一条）：图片原样，detail 缺省（adapter 端省略字段）
+    const currentMsg = userMsgs[userMsgs.length - 1]!;
+    expect(currentMsg.content).toBe('看这张');
+    expect(currentMsg.images).toHaveLength(1);
+    expect(currentMsg.images![0]!.url.startsWith('data:image/png;base64,')).toBe(true);
+    expect(currentMsg.images![0]!.detail).toBeUndefined();
+
+    // 历史按年龄：age 1..5 → images 带 detail 'low'；age 6/7 → 无 images 字段
+    const histByAge = userMsgs.slice(0, -1).reverse(); // index 0 = age 1
+    for (let age = 1; age <= 5; age++) {
+      const m = histByAge[age - 1]!;
+      expect(m.images, `age=${age}`).toHaveLength(1);
+      expect(m.images![0]!.detail, `age=${age}`).toBe('low');
+    }
+    expect(histByAge[5]!.images).toBeUndefined(); // age 6
+    expect(histByAge[6]!.images).toBeUndefined(); // age 7
+  });
+
+  it('无图片 parts 时零回归：不产生 images 字段', async () => {
+    const history: Message[] = [
+      createMessage({ id: 'u1', role: 'user', content: 'Hi' }),
+      createMessage({ id: 'a1', role: 'assistant', content: 'Hello!' }),
+    ];
+    const ctx = await assembleMessagesV2({ history, userContent: 'Next', totalContextTokens: 8000 });
+    for (const m of ctx.messages) {
+      expect(m.images).toBeUndefined();
+    }
+  });
+
+  it('图片资产缺失时 fail-soft：消息照常装配，无 images', async () => {
+    const history: Message[] = [
+      createMessage({
+        id: 'u1',
+        role: 'user',
+        content: '[图片: gone.png]',
+        parts: [{ type: 'image', assetId: 'ghost' }],
+      }),
+      createMessage({ id: 'a1', role: 'assistant', content: 'ok' }),
+    ];
+    const ctx = await assembleMessagesV2({
+      history,
+      userContent: '再看',
+      currentUserParts: [{ type: 'image', assetId: 'ghost2' }],
+      totalContextTokens: 8000,
+    });
+    const userMsgs = ctx.messages.filter((m) => m.role === 'user');
+    expect(userMsgs[userMsgs.length - 1]!.images).toBeUndefined();
+    expect(userMsgs[0]!.images).toBeUndefined();
   });
 });

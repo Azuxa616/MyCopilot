@@ -4,7 +4,7 @@
 import { useMemo } from 'react'
 import type { ReactNode } from 'react'
 // Types
-import type { Message } from '@my-copilot/shared'
+import type { Message, MessagePart } from '@my-copilot/shared'
 import { MessageRole, MessageStatus } from '@my-copilot/shared'
 // Components
 import ReactMarkdownRenderer from '../MarkdownRenderer'
@@ -13,6 +13,8 @@ import MessageActions from './MessageActions'
 import AttachmentCard from '../Sender/AttachmentCard'
 import AgentTimeline from './AgentTimeline'
 import type { MessageWithTimeline } from '../../types/timeline'
+// Hooks
+import { useAssetUrl } from './hooks/useAssetUrl'
 // Utils
 import { getRelativeTime } from '../../utils/time'
 import { showMessageAlert } from './Alert/alertUtils'
@@ -41,13 +43,50 @@ interface RenderContentProps {
   isAssistant: boolean
   isFailed: boolean
   isStreaming: boolean
+  onOpenAsset?: (assetId: string) => void
 }
 
-function RenderContent({ message, isSystem, isUser, isAssistant, isFailed, isStreaming }: RenderContentProps) {
+/** 消息内联图片（鉴权 objectURL；加载中显示占位块）。 */
+function MessageImage({ assetId, onOpen }: { assetId: string; onOpen?: (assetId: string) => void }) {
+  const url = useAssetUrl(assetId)
+  if (!url) {
+    return <div className="w-48 h-32 rounded-lg bg-bg-tertiary animate-pulse" aria-label="图片加载中" />
+  }
+  return (
+    <img
+      src={url}
+      alt="图片附件"
+      onClick={() => onOpen?.(assetId)}
+      className="max-w-full max-h-60 rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+    />
+  )
+}
+
+function RenderContent({ message, isSystem, isUser, isAssistant, isFailed, isStreaming, onOpenAsset }: RenderContentProps) {
   if (isSystem) {
     return <span className="whitespace-pre-wrap wrap-break-word">{message.content}</span>
   }
   if (isUser) {
+    // 多模态消息：parts 优先渲染（文本 run + 图片直显），content 投影兜底
+    const imageParts = (message.parts ?? []).filter(
+      (p): p is Extract<MessagePart, { type: 'image' }> => p.type === 'image',
+    )
+    if (imageParts.length > 0) {
+      const textRuns = (message.parts ?? [])
+        .filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text')
+        .map((p) => p.text)
+        .join('\n')
+      return (
+        <div className="max-w-none flex flex-col gap-2 text-[13px] leading-relaxed text-left">
+          {textRuns.length > 0 && (
+            <div className="whitespace-pre-wrap wrap-break-word">{textRuns}</div>
+          )}
+          {imageParts.map((p) => (
+            <MessageImage key={p.assetId} assetId={p.assetId} onOpen={onOpenAsset} />
+          ))}
+        </div>
+      )
+    }
     return (
       <div className="max-w-none whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-left">
         {message.content}
@@ -184,6 +223,8 @@ interface MessageCardProps {
   showRegenerate?: boolean
   /** 预留：自定义操作区域 */
   extraActions?: ReactNode
+  /** 点击图片附件（预留内容栏打开）。 */
+  onOpenAsset?: (assetId: string) => void
   /** 当前登录用户头像（用于 user 消息） */
   userAvatarUrl?: string
   /** AI 助手头像（用于 assistant 消息） */
@@ -199,6 +240,7 @@ export default function MessageCard({
   onRegenerate,
   showRegenerate,
   extraActions,
+  onOpenAsset,
 }: MessageCardProps) {
   const isUser = message.role === MessageRole.USER
   const isAssistant = message.role === MessageRole.ASSISTANT
@@ -332,6 +374,7 @@ export default function MessageCard({
             isAssistant={isAssistant}
             isFailed={isFailed}
             isStreaming={isStreaming ?? false}
+            onOpenAsset={onOpenAsset}
           />
         </div>
 

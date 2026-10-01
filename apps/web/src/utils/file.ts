@@ -1,4 +1,7 @@
-export const SUPPORTED_ATTACHMENT_EXTENSIONS = ['.md', '.txt', '.csv', '.docx'] as const;
+export const SUPPORTED_ATTACHMENT_EXTENSIONS = [
+    '.md', '.txt', '.csv', '.docx', '.pdf',
+    '.png', '.jpg', '.jpeg', '.gif', '.webp',
+] as const;
 
 export const ATTACHMENT_ACCEPT = SUPPORTED_ATTACHMENT_EXTENSIONS.join(',');
 

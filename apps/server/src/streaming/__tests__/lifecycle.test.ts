@@ -262,6 +262,27 @@ describe('Stream Message Lifecycle', () => {
     expect(mockUnregisterStream).toHaveBeenCalledWith('test-session');
   });
 
+  // --- Test 1a: 多模态 parts 穿透（同步链路） ---
+  it('currentUserParts: userMessage.parts 落库并传给 runAgentLoop（同步链路）', async () => {
+    setupNormalCompletion([]);
+    const parts = [{ type: 'image' as const, assetId: 'a1' }];
+
+    const c = makeContext();
+    const base = makeParams();
+    const params = makeParams({ userMessage: { ...base.userMessage, parts } });
+    streamMessageHandler(c, params);
+    await flushMicrotasks();
+
+    // user 消息落库携带 parts
+    expect(mockRepo.createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'user', parts }),
+    );
+    // runAgentLoop 收到 currentUserParts（skills P0 教训：链路参数必须测试锁定）
+    expect(mockRunAgentLoop).toHaveBeenCalledWith(
+      expect.objectContaining({ currentUserParts: parts }),
+    );
+  });
+
   // --- Test 1b: Reasoning events (Extended Thinking, agent-loop-v2 §3) ---
   it('reasoning: llm_event reasoning → SSE reasoning event, no delta side-effect', async () => {
     setupNormalCompletion([]);

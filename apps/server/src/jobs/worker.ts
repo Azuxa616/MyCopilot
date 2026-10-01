@@ -1,4 +1,4 @@
-import type { Job, Message } from '@my-copilot/shared';
+import type { Job, Message, MessagePart } from '@my-copilot/shared';
 import {
   claimJob,
   completeJob,
@@ -20,6 +20,8 @@ interface AgentLoopJobPayload {
   userContent: string;
   history: Message[];
   attachments?: Array<{ name: string; content: string }>;
+  /** 当前轮用户消息的多模态 parts（图片）。 */
+  currentUserParts?: MessagePart[];
   adapterType: 'openai' | 'ollama';
   adapterConfig: { baseUrl: string; apiKey?: string; model: string };
 }
@@ -280,6 +282,7 @@ export function registerAgentLoopHandler(): void {
         history: payload.history,
         userContent: payload.userContent,
         attachments: payload.attachments,
+        currentUserParts: payload.currentUserParts,
         // Skills 注入（修复死路径）：执行期解析而非 payload 快照，与上方
         // tools 的重解析语义一致。
         skills: buildSkillInjections(),
