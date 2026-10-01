@@ -5,6 +5,7 @@ import type {
   AdapterStreamOptions,
 } from './base.js';
 import { ProviderError } from './base.js';
+import { CAPABILITY_VISION_UNSUPPORTED, isVisionCapabilityError } from '../capability/classify.js';
 import type { StreamEvent } from '@my-copilot/shared';
 
 const OLLAMA_CHAT_PATH = '/api/chat';
@@ -158,13 +159,14 @@ function buildUrl(baseUrl: string): string {
 
 async function handleErrorResponse(response: Response): Promise<never> {
   let message = `HTTP ${response.status}: ${response.statusText}`;
+  let details: unknown;
 
   try {
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      const body: unknown = await response.json();
+      details = await response.json();
       // Ollama error format: { "error": "model not found" }
-      const errorBody = body as { error?: string; message?: string };
+      const errorBody = details as { error?: string; message?: string };
       const errorMsg = errorBody?.error ?? errorBody?.message;
       if (errorMsg) message = errorMsg;
     } else {
@@ -175,8 +177,20 @@ async function handleErrorResponse(response: Response): Promise<never> {
     // ignore body parsing errors
   }
 
-  throw new ProviderError(
-    `Ollama request failed: ${message}`,
-    response.status >= 400 && response.status < 600 ? response.status : 502,
-  );
+  const statusCode =
+    response.status >= 400 && response.status < 600 ? response.status : 502;
+
+  if (
+    response.status === 400 &&
+    isVisionCapabilityError({ statusCode: response.status, message, details })
+  ) {
+    throw new ProviderError(
+      `Ollama request failed: ${message}`,
+      statusCode,
+      details,
+      CAPABILITY_VISION_UNSUPPORTED,
+    );
+  }
+
+  throw new ProviderError(`Ollama request failed: ${message}`, statusCode);
 }

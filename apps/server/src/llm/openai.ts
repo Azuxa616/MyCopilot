@@ -5,6 +5,7 @@ import type {
   AdapterStreamOptions,
 } from './base.js';
 import { ProviderError } from './base.js';
+import { CAPABILITY_VISION_UNSUPPORTED, isVisionCapabilityError } from '../capability/classify.js';
 import type { StreamEvent } from '@my-copilot/shared';
 
 const CHAT_COMPLETIONS_PATH = '/v1/chat/completions';
@@ -266,12 +267,13 @@ function buildUrl(baseUrl: string): string {
 
 async function handleErrorResponse(response: Response): Promise<never> {
   let message = `HTTP ${response.status}: ${response.statusText}`;
+  let details: unknown;
 
   try {
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      const body: unknown = await response.json();
-      const errorBody = body as { error?: { message?: string }; message?: string };
+      details = await response.json();
+      const errorBody = details as { error?: { message?: string }; message?: string };
       const errorMsg = errorBody?.error?.message ?? errorBody?.message;
       if (errorMsg) message = errorMsg;
     } else {
@@ -284,6 +286,19 @@ async function handleErrorResponse(response: Response): Promise<never> {
 
   const statusCode =
     response.status >= 400 && response.status < 600 ? response.status : 502;
+
+  // 能力性 400 → 稳定错误码（学习闭环反写 no 的判定依据）
+  if (
+    response.status === 400 &&
+    isVisionCapabilityError({ statusCode: response.status, message, details })
+  ) {
+    throw new ProviderError(
+      `OpenAI request failed: ${message}`,
+      statusCode,
+      details,
+      CAPABILITY_VISION_UNSUPPORTED,
+    );
+  }
 
   // Map common OpenAI errors
   if (response.status === 401 || response.status === 403) {

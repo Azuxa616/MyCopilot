@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { OllamaAdapter } from '../ollama.js';
 import { ProviderError } from '../base.js';
+import { CAPABILITY_VISION_UNSUPPORTED } from '../../capability/classify.js';
 import type { ChatMessage, AdapterConfig } from '../base.js';
 import type { StreamEvent } from '@my-copilot/shared';
 
@@ -141,6 +142,27 @@ describe('OllamaAdapter', () => {
     const chunks = contentTexts(await collectEvents(gen));
 
     expect(chunks).toEqual(['Hi']);
+  });
+
+  it('HTTP 400 capability error → ProviderError(errorCode=capability_vision_unsupported)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: 'model does not support image input' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const adapter = new OllamaAdapter();
+    try {
+      for await (const _chunk of adapter.chatCompletionStream(messages, createConfig())) {
+        void _chunk;
+      }
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      expect((err as ProviderError).statusCode).toBe(400);
+      expect((err as ProviderError).errorCode).toBe(CAPABILITY_VISION_UNSUPPORTED);
+    }
   });
 });
 
