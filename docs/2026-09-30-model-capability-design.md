@@ -110,10 +110,15 @@ catalog 规则表形如 `[/^gpt-4o/, 'yes']`、`[/^deepseek-flash/, 'yes']`、`[
 
 ## 学习闭环
 
+> **实证修正（2026-10-01，会话 290a7ec1）**：DeepSeek 对非 vision 模型（deepseek-v4-pro）不返回 400，
+> 而是 HTTP 200 + 正常 SSE 流 + 模型侧 "Unsupported Image" 占位降级——**请求成功不构成图片被感知的证据**。
+> 由此修正：学习闭环**仅降级、不升格**（升格只走答案验证的探测端点与手动设置）；探测端点的判定标准
+> 从"首个流事件"改为"回答必须说出随机不常见纯色的正确色名"（`capability/probe.ts` 的色板 + 同义词匹配）。
+
 | 触发 | 条件 | 动作 |
 |------|------|------|
-| 请求成功 | 出站含 image part 且 vision = unknown | 升 `yes`，source = `probe` |
 | 请求失败 | HTTP 400 且错误分类器判定为能力性（unsupported modality / invalid content type 类关键词或结构） | 降 `no`，source = `probe` |
+| 请求成功 | 任意（含 unknown） | **不写**（DeepSeek 静默降级实证：成功无证明力） |
 | 用户编辑 | 设置页模型能力开关 | 写 source = `manual`，此后**永不被自动反写覆盖** |
 
 错误分类器落在 adapter 层（provider 错误结构各异），输出稳定错误码供复用（对齐 `PluginLifecycleError` 的 errorCode 先例）。

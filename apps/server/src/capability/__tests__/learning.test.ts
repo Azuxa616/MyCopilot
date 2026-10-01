@@ -17,39 +17,18 @@ function capability400(): ProviderError {
   );
 }
 
-describe('applyVisionLearningLoop（学习闭环单点）', () => {
+describe('applyVisionLearningLoop（学习闭环单点：仅降级，不升格）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   const base = { modelId: 'm1', outboundHasImage: true };
 
-  it('成功出站（completed）且当前非 yes → 反写 yes (source=probe)', () => {
-    applyVisionLearningLoop({
-      ...base,
-      modelVision: 'unknown',
-      result: { status: 'completed' },
-    });
-    expect(setModelVisionCapability).toHaveBeenCalledWith('m1', 'yes', 'probe');
-  });
-
-  it('已是 yes 时不发起升格调用（幂等前置）', () => {
-    applyVisionLearningLoop({
-      ...base,
-      modelVision: 'yes',
-      result: { status: 'completed' },
-    });
+  it('成功出站不再升格 yes（DeepSeek 静默降级实证：成功≠图片被感知）', () => {
+    applyVisionLearningLoop({ ...base, result: { status: 'completed' } });
+    applyVisionLearningLoop({ ...base, result: { status: 'length_limited' } });
+    applyVisionLearningLoop({ ...base, result: { status: 'max_iterations' } });
     expect(setModelVisionCapability).not.toHaveBeenCalled();
-  });
-
-  it('manual 锁（vision=no）成功出站 → 调用层仍发起写入（repo 锁兜底拒绝）', () => {
-    applyVisionLearningLoop({
-      ...base,
-      modelVision: 'no',
-      result: { status: 'completed' },
-    });
-    // 调用层语义：vision !== 'yes' 即尝试；真实 repo 会因 manual 锁原样返回（Task 2 已锁定）
-    expect(setModelVisionCapability).toHaveBeenCalledWith('m1', 'yes', 'probe');
   });
 
   it('能力性 400（errorCode）→ 反写 no', () => {

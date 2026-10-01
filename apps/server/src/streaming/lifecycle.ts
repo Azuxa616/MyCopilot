@@ -175,7 +175,6 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
       applyVisionLearningLoop({
         modelId: model.id,
         outboundHasImage: hasImageParts(userMessage.parts),
-        modelVision: model.capabilities?.vision,
         result,
       });
 

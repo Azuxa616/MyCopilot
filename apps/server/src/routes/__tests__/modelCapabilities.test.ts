@@ -147,6 +147,24 @@ describe('modelCapabilities routes', () => {
       expect(setModelVisionCapability).toHaveBeenCalledWith('m1', 'yes', 'probe');
     });
 
+    it('openai provider + 答案不命中（DeepSeek 降级占位）→ writes no with 200', async () => {
+      const updated = mockModel({
+        capabilities: { vision: 'no', sources: { vision: 'probe' } },
+      });
+      vi.mocked(getModel).mockReturnValue(mockModel());
+      vi.mocked(getProvider).mockReturnValue(mockProvider());
+      vi.mocked(probeVisionByChat).mockResolvedValue('no');
+      vi.mocked(setModelVisionCapability).mockReturnValue(updated);
+
+      const app = createTestApp();
+      const res = await app.request('/models/m1/probe-vision', { method: 'POST' });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as ApiResponse;
+      expect(body.data.probe).toMatchObject({ method: 'chat', vision: 'no', source: 'probe' });
+      expect((body.data.probe as { message?: string }).message).toContain('颜色');
+      expect(setModelVisionCapability).toHaveBeenCalledWith('m1', 'no', 'probe');
+    });
+
     it('openai provider + capability 400 → writes no with source=probe and 200', async () => {
       const updated = mockModel({
         capabilities: { vision: 'no', sources: { vision: 'probe' } },

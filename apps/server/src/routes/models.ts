@@ -125,13 +125,20 @@ modelCapabilitiesApp.post('/:id/probe-vision', async (c) => {
     return successResponse(c, payload);
   }
 
-  // openai 兼容：真实小图请求（设计 L4"测试图片输入"）。
+  // openai 兼容：真实小图请求 + 答案验证（设计 L4；判定标准见 capability/probe.ts）。
   try {
-    await probeVisionByChat(provider, model.name);
-    const updated = setModelVisionCapability(id, 'yes', 'probe') ?? model;
+    const verdict = await probeVisionByChat(provider, model.name);
+    const updated = setModelVisionCapability(id, verdict, 'probe') ?? model;
     const payload: ProbeVisionResponse = {
       model: updated,
-      probe: { method: 'chat', vision: 'yes', source: 'probe' },
+      probe: {
+        method: 'chat',
+        vision: verdict,
+        source: 'probe',
+        ...(verdict === 'no'
+          ? { message: '模型未能正确说出探测图片的颜色（不支持图片输入或为降级占位）' }
+          : {}),
+      },
     };
     return successResponse(c, payload);
   } catch (err) {

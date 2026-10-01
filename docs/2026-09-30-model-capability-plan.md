@@ -7,6 +7,12 @@
 > - **分类器两处盲区修复**（计划正则的缺陷）：复数形 "Images" 不匹配 `\bimage\b` → 名词侧 `images?/modalit(y|ies)`；JSON details 的 snake_case（`unsupported_modality`）→ 匹配前下划线/连字符归一为空格
 > - **迁移计数测试 8→9**（0009 加入，house 惯例）；cache 测试的 mock 改 `mockImplementation`（Response body 单次消费）
 > - 全量验证：typecheck ✓ / server 928 tests ✓ / web 227 tests ✓ / lint 0 error（1 既有 warning：PluginCardHost，非本计划）
+>
+> **修复（2026-10-01，用户报告：deepseek-v4-pro 被误判 yes，会话 290a7ec1）：** 根因为 DeepSeek 对非 vision 模型走 200 + SSE + 模型侧 "Unsupported Image" 占位降级（DB 实证：模型回复原文明确说出占位），"流成功/请求成功"不构成图片被感知的证据。修正：
+> - **probe.ts 重写**：判定改为答案验证——无依赖 PNG 编码器（node:zlib + CRC32）生成 32×32 随机**不常见**纯色（teal/maroon/olive/lime/fuchsia/navy/silver/beige，盲猜高频色 red/blue/green 刻意排除），提示要求精确色名，回答命中中英同义词表 → yes，否则 → no；maxTokens 256 容纳 reasoning 模型；pickColor 可注入保测试确定性
+> - **learning.ts 收紧**：成功出站不再升格 yes（删除升格分支），仅保留 400 能力性降级；升格只走探测（答案验证）与手动
+> - 端点/测试/文案同步：路由 verdict 直写；lifecycle 与 learning 测试改为"成功不写"断言；Sender 弱提示改为指向设置页实测
+> - 验证：定向 58/58 绿（capability + 路由 + lifecycle）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

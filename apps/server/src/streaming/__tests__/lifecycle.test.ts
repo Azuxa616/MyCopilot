@@ -295,7 +295,7 @@ describe('Stream Message Lifecycle', () => {
     return flushMicrotasks();
   }
 
-  it('学习闭环：成功出站含 image part 且 vision 非 yes → 反写 yes (source=probe)', async () => {
+  it('学习闭环：成功出站不再升格（DeepSeek 静默降级实证：成功≠图片被感知）', async () => {
     setupNormalCompletion(['ok']);
     mockRunAgentLoop.mockResolvedValue({ status: 'completed', content: 'ok', messages: [] });
 
@@ -303,7 +303,20 @@ describe('Stream Message Lifecycle', () => {
       userMessage: { ...makeParams().userMessage, parts: [{ type: 'image', assetId: 'a1' }] },
     });
 
-    expect(setModelVisionCapability).toHaveBeenCalledWith('model-1', 'yes', 'probe');
+    expect(setModelVisionCapability).not.toHaveBeenCalled();
+  });
+
+  it('学习闭环：manual 模型成功出站同样不写（升格只走探测/手动）', async () => {
+    setupNormalCompletion([]);
+    mockRunAgentLoop.mockResolvedValue({ status: 'completed', content: 'ok', messages: [] });
+
+    const base = makeParams();
+    await runHandlerWith({
+      model: { ...base.model, capabilities: { vision: 'no', sources: { vision: 'manual' } } },
+      userMessage: { ...base.userMessage, parts: [{ type: 'image', assetId: 'a1' }] },
+    });
+
+    expect(setModelVisionCapability).not.toHaveBeenCalled();
   });
 
   it('学习闭环：能力性 400（errorCode）→ 反写 no', async () => {
@@ -338,20 +351,6 @@ describe('Stream Message Lifecycle', () => {
     });
 
     expect(setModelVisionCapability).not.toHaveBeenCalled();
-  });
-
-  it('学习闭环：manual 锁模型成功出站 → 调用层仍发起写入（repo 锁兜底拒绝）', async () => {
-    setupNormalCompletion([]);
-    mockRunAgentLoop.mockResolvedValue({ status: 'completed', content: 'ok', messages: [] });
-
-    const base = makeParams();
-    await runHandlerWith({
-      model: { ...base.model, capabilities: { vision: 'no', sources: { vision: 'manual' } } },
-      userMessage: { ...base.userMessage, parts: [{ type: 'image', assetId: 'a1' }] },
-    });
-
-    // 调用层语义：vision !== 'yes' 即尝试升格；真实 repo 因 manual 锁原样返回（Task 2 已锁定）
-    expect(setModelVisionCapability).toHaveBeenCalledWith('model-1', 'yes', 'probe');
   });
 
   // --- Test 1b: Reasoning events (Extended Thinking, agent-loop-v2 §3) ---
