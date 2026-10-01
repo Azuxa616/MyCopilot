@@ -58,7 +58,7 @@ export default function Sender() {
         useDraftStore.getState().consumePendingDraft();
     }
 
-    // 能力未知弱提示（模型能力探测计划落地后，此处替换为 useModelVisionCapability 的三态判定）
+    // 能力未知弱提示（学习闭环已收紧为"仅降级"——升格走设置页的答案验证探测或手动设置）
     const [visionHintDismissed, setVisionHintDismissed] = useState(false);
     const showVisionHint =
         !visionHintDismissed && attachments.some((a) => a.type.startsWith('image/'));
@@ -168,7 +168,7 @@ export default function Sender() {
             {/* 能力未知弱提示（能力探测计划落地后接入三态判定） */}
             {showVisionHint && (
                 <div className="flex items-start justify-between gap-2 px-4 pt-3 text-xs text-text-tertiary">
-                    <span>未确认当前模型支持图片输入，首次发送将自动验证</span>
+                    <span>未确认当前模型支持图片输入，可在 设置 → 模型 中「测试图片输入」实测</span>
                     <button
                         type="button"
                         onClick={() => setVisionHintDismissed(true)}

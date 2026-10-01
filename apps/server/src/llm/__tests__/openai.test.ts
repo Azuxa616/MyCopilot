@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { OpenAIAdapter } from '../openai.js';
 import { ProviderError } from '../base.js';
+import { CAPABILITY_VISION_UNSUPPORTED } from '../../capability/classify.js';
 import type { ChatMessage, AdapterConfig } from '../base.js';
 import type { StreamEvent } from '@my-copilot/shared';
 
@@ -165,6 +166,50 @@ describe('OpenAIAdapter', () => {
     await collectEvents(gen);
 
     expect(capturedUrl).toBe('https://custom.api.com/v1/chat/completions');
+  });
+
+  it('HTTP 400 capability error → ProviderError(errorCode=capability_vision_unsupported)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { message: 'Invalid content type. image_url is only supported by vision models.' },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const adapter = new OpenAIAdapter();
+    try {
+      for await (const _chunk of adapter.chatCompletionStream(messages, createConfig())) {
+        void _chunk;
+      }
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      expect((err as ProviderError).statusCode).toBe(400);
+      expect((err as ProviderError).errorCode).toBe(CAPABILITY_VISION_UNSUPPORTED);
+    }
+  });
+
+  it('HTTP 429 → no capability errorCode (限流不反写)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: 'image requests rate limited' } }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const adapter = new OpenAIAdapter();
+    try {
+      for await (const _chunk of adapter.chatCompletionStream(messages, createConfig())) {
+        void _chunk;
+      }
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      expect((err as ProviderError).statusCode).toBe(429);
+      expect((err as ProviderError).errorCode).toBeUndefined();
+    }
   });
 });
 

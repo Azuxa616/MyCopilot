@@ -99,11 +99,14 @@ export interface ProviderAdapter {
 export class ProviderError extends Error {
   public statusCode: number;
   public details?: unknown;
+  /** 稳定错误码（如 CAPABILITY_VISION_UNSUPPORTED），对齐 PluginLifecycleError.errorCode 先例。 */
+  public errorCode?: string;
 
-  constructor(message: string, statusCode: number, details?: unknown) {
+  constructor(message: string, statusCode: number, details?: unknown, errorCode?: string) {
     super(message);
     this.name = 'ProviderError';
     this.statusCode = statusCode;
     this.details = details;
+    this.errorCode = errorCode;
   }
 }

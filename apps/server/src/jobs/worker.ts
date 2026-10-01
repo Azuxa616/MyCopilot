@@ -17,6 +17,8 @@ import { expirePendingToolApprovals } from '../repo/tool-approval.js';
 interface AgentLoopJobPayload {
   sessionId: string;
   userMessageId: string;
+  /** 学习闭环：最终生效模型（lifecycle 写入，runAgentLoopAsJob 消费）。 */
+  modelId?: string;
   userContent: string;
   history: Message[];
   attachments?: Array<{ name: string; content: string }>;
@@ -279,6 +281,7 @@ export function registerAgentLoopHandler(): void {
       {
         sessionId: payload.sessionId,
         userMessageId: payload.userMessageId,
+        modelId: payload.modelId,
         history: payload.history,
         userContent: payload.userContent,
         attachments: payload.attachments,

@@ -12,6 +12,8 @@ import type { AgentLoopEvent } from '../agent-loop/runner.js';
 import type { AttachmentText } from '../prompt/assembler.js';
 import { buildSkillInjections } from '../prompt/skill-injections.js';
 import { filterDemoTools } from '../demo/tools.js';
+import { applyVisionLearningLoop } from '../capability/learning.js';
+import { hasImageParts } from '../attachment/resolve.js';
 import { registerStream, unregisterStream } from './registry.js';
 
 /** Parameters for the stream message handler. */
@@ -88,6 +90,8 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         sessionId,
         // Placeholder assistant message created above; the worker fills it.
         userMessageId: assistantMsg.id,
+        // 学习闭环：最终生效模型（worker 侧 runAgentLoopAsJob 消费）。
+        modelId: model.id,
         userContent: userMessage.content,
         // History is JSON-serialised by createJob; plain message objects.
         history,
@@ -165,6 +169,13 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
             },
           });
         },
+      });
+
+      // ─── 学习闭环（同步链路；capability/learning.ts 单点，manual 锁由 repo 保证）───
+      applyVisionLearningLoop({
+        modelId: model.id,
+        outboundHasImage: hasImageParts(userMessage.parts),
+        result,
       });
 
       // Auto-generate title from first user message (only when there's no

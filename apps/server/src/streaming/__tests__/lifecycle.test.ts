@@ -48,6 +48,9 @@ const mockStream = {
 const mockStreamSSE = vi.fn();
 
 vi.mock('../../repo/message.js', () => mockRepo);
+vi.mock('../../repo/model.js', () => ({
+  setModelVisionCapability: vi.fn(),
+}));
 vi.mock('../../llm/index.js', () => ({
   getAdapter: mockGetAdapter,
 }));
@@ -76,7 +79,9 @@ vi.mock('hono/streaming', () => ({
 
 // Dynamic import after mocks are set up
 const { streamMessageHandler } = await import('../lifecycle.js');
-
+const { setModelVisionCapability } = await import('../../repo/model.js');
+import { ProviderError } from '../../llm/base.js';
+import { CAPABILITY_VISION_UNSUPPORTED } from '../../capability/classify.js';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -281,6 +286,71 @@ describe('Stream Message Lifecycle', () => {
     expect(mockRunAgentLoop).toHaveBeenCalledWith(
       expect.objectContaining({ currentUserParts: parts }),
     );
+  });
+
+  // --- Test 1a-2: 学习闭环（同步链路，capability/learning.ts 单点） ---
+  function runHandlerWith(params: Record<string, unknown>): Promise<void> {
+    const c = makeContext();
+    streamMessageHandler(c, makeParams(params));
+    return flushMicrotasks();
+  }
+
+  it('学习闭环：成功出站不再升格（DeepSeek 静默降级实证：成功≠图片被感知）', async () => {
+    setupNormalCompletion(['ok']);
+    mockRunAgentLoop.mockResolvedValue({ status: 'completed', content: 'ok', messages: [] });
+
+    await runHandlerWith({
+      userMessage: { ...makeParams().userMessage, parts: [{ type: 'image', assetId: 'a1' }] },
+    });
+
+    expect(setModelVisionCapability).not.toHaveBeenCalled();
+  });
+
+  it('学习闭环：manual 模型成功出站同样不写（升格只走探测/手动）', async () => {
+    setupNormalCompletion([]);
+    mockRunAgentLoop.mockResolvedValue({ status: 'completed', content: 'ok', messages: [] });
+
+    const base = makeParams();
+    await runHandlerWith({
+      model: { ...base.model, capabilities: { vision: 'no', sources: { vision: 'manual' } } },
+      userMessage: { ...base.userMessage, parts: [{ type: 'image', assetId: 'a1' }] },
+    });
+
+    expect(setModelVisionCapability).not.toHaveBeenCalled();
+  });
+
+  it('学习闭环：能力性 400（errorCode）→ 反写 no', async () => {
+    setupNormalCompletion([]);
+    mockRunAgentLoop.mockResolvedValue({
+      status: 'error',
+      content: '',
+      messages: [],
+      error: 'OpenAI request failed: Invalid content type.',
+      cause: new ProviderError('OpenAI request failed: Invalid content type.', 400, undefined, CAPABILITY_VISION_UNSUPPORTED),
+    });
+
+    await runHandlerWith({
+      userMessage: { ...makeParams().userMessage, parts: [{ type: 'image', assetId: 'a1' }] },
+    });
+
+    expect(setModelVisionCapability).toHaveBeenCalledWith('model-1', 'no', 'probe');
+  });
+
+  it('学习闭环：非能力性错误（429 限流）不反写', async () => {
+    setupNormalCompletion([]);
+    mockRunAgentLoop.mockResolvedValue({
+      status: 'error',
+      content: '',
+      messages: [],
+      error: 'Rate limited',
+      cause: new ProviderError('Rate limited', 429),
+    });
+
+    await runHandlerWith({
+      userMessage: { ...makeParams().userMessage, parts: [{ type: 'image', assetId: 'a1' }] },
+    });
+
+    expect(setModelVisionCapability).not.toHaveBeenCalled();
   });
 
   // --- Test 1b: Reasoning events (Extended Thinking, agent-loop-v2 §3) ---

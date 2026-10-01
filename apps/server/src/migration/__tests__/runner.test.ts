@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,11 +50,11 @@ describe('runMigrations', () => {
     // Asset layer (0008)
     expect(tableNames).toContain('assets');
 
-    // applied_migrations has exactly 8 rows (0001..0008)
+    // applied_migrations has exactly 9 rows (0001..0009)
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(8);
+    expect(row.count).toBe(9);
 
     db.close();
   });
@@ -113,7 +113,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(8);
+    expect(row.count).toBe(9);
 
     db.close();
   });
