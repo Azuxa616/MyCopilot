@@ -11,6 +11,8 @@ import {
   listAllEnabledModels,
   updateModel,
   deleteModel,
+  setModelVisionCapability,
+  clearModelVisionCapability,
 } from '../model.js';
 import { createSession, getSession } from '../session.js';
 
@@ -141,5 +143,104 @@ describe('ModelRepo', () => {
     const fetched = getSession(session.id);
     expect(fetched).toBeDefined();
     expect(fetched!.modelId).toBeNull();
+  });
+
+  it('getModel reads capabilities; legacy "{}" parses to undefined', () => {
+    const provider = createProvider({
+      name: 'T',
+      type: 'openai',
+      baseUrl: 'https://api.openai.com',
+      apiKey: '',
+    });
+    const model = createModel(provider.id, { name: 'gpt-4o' });
+
+    // 新建模型走列默认 '{}' → capabilities 为 undefined（= unknown）
+    expect(getModel(model.id)?.capabilities).toBeUndefined();
+
+    setModelVisionCapability(model.id, 'yes', 'catalog');
+    expect(getModel(model.id)?.capabilities).toEqual({
+      vision: 'yes',
+      sources: { vision: 'catalog' },
+    });
+  });
+
+  it('setModelVisionCapability writes source=probe with probedAt', () => {
+    const provider = createProvider({
+      name: 'T',
+      type: 'openai',
+      baseUrl: 'https://api.openai.com',
+      apiKey: '',
+    });
+    const model = createModel(provider.id, { name: 'deepseek-flash' });
+
+    const updated = setModelVisionCapability(model.id, 'no', 'probe');
+    expect(updated?.capabilities).toMatchObject({
+      vision: 'no',
+      sources: { vision: 'probe' },
+    });
+    expect(updated?.capabilities?.probedAt).toBeGreaterThan(0);
+  });
+
+  it('setModelVisionCapability enforces the manual lock', () => {
+    const provider = createProvider({
+      name: 'T',
+      type: 'openai',
+      baseUrl: 'https://api.openai.com',
+      apiKey: '',
+    });
+    const model = createModel(provider.id, { name: 'gpt-4o' });
+
+    setModelVisionCapability(model.id, 'yes', 'manual');
+
+    // 非manual 来源（probe / catalog / provider）一律不得覆盖 manual
+    const afterProbe = setModelVisionCapability(model.id, 'no', 'probe');
+    expect(afterProbe?.capabilities).toEqual({
+      vision: 'yes',
+      sources: { vision: 'manual' },
+    });
+
+    // manual 自身可以改判
+    const afterManual = setModelVisionCapability(model.id, 'no', 'manual');
+    expect(afterManual?.capabilities).toMatchObject({
+      vision: 'no',
+      sources: { vision: 'manual' },
+    });
+  });
+
+  it('clearModelVisionCapability removes the record (back to unknown)', () => {
+    const provider = createProvider({
+      name: 'T',
+      type: 'openai',
+      baseUrl: 'https://api.openai.com',
+      apiKey: '',
+    });
+    const model = createModel(provider.id, { name: 'gpt-4o' });
+
+    setModelVisionCapability(model.id, 'yes', 'manual');
+    const cleared = clearModelVisionCapability(model.id);
+    expect(cleared?.capabilities).toBeUndefined();
+    expect(getModel(model.id)?.capabilities).toBeUndefined();
+
+    expect(clearModelVisionCapability('no-such-model')).toBeUndefined();
+  });
+
+  it('updateModel preserves the capabilities column', () => {
+    const provider = createProvider({
+      name: 'T',
+      type: 'openai',
+      baseUrl: 'https://api.openai.com',
+      apiKey: '',
+    });
+    const model = createModel(provider.id, { name: 'gpt-4o', displayName: 'GPT-4o' });
+
+    setModelVisionCapability(model.id, 'yes', 'probe');
+    const updated = updateModel(model.id, { name: 'gpt-4o-2024' });
+
+    expect(updated?.name).toBe('gpt-4o-2024');
+    expect(updated?.capabilities).toMatchObject({
+      vision: 'yes',
+      sources: { vision: 'probe' },
+    });
+    expect(getModel(model.id)?.capabilities?.probedAt).toBeGreaterThan(0);
   });
 });

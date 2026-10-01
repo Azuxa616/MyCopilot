@@ -1,4 +1,11 @@
-import type { Model, CreateModelParams, UpdateModelParams } from '@my-copilot/shared';
+import type {
+  Model,
+  CreateModelParams,
+  UpdateModelParams,
+  ModelCapabilities,
+  CapabilitySource,
+  CapabilityState,
+} from '@my-copilot/shared';
 import { getDb } from '../db/index.js';
 import { generateId, now } from './base.js';
 
@@ -10,6 +17,24 @@ interface ModelRow {
   enabled: number;
   created_at: number;
   updated_at: number;
+  capabilities: string;
+}
+
+/** fail-soft 解析 capabilities JSON；'{}'/坏数据按无记录处理（= 全 unknown）。 */
+function parseCapabilities(raw: string): ModelCapabilities | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return undefined;
+    }
+    const caps = parsed as ModelCapabilities;
+    if (caps.vision === undefined && caps.sources === undefined && caps.probedAt === undefined) {
+      return undefined; // '{}' 及空对象视为无记录（= unknown）
+    }
+    return caps;
+  } catch {
+    return undefined;
+  }
 }
 
 function rowToModel(row: ModelRow): Model {
@@ -19,6 +44,7 @@ function rowToModel(row: ModelRow): Model {
     name: row.name,
     displayName: row.display_name ?? undefined,
     enabled: Boolean(row.enabled),
+    capabilities: parseCapabilities(row.capabilities),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -81,6 +107,7 @@ export function updateModel(id: string, params: UpdateModelParams): Model | unde
     name,
     displayName: displayName ?? undefined,
     enabled,
+    capabilities: parseCapabilities(existing.capabilities),
     createdAt: existing.created_at,
     updatedAt: ts,
   };
@@ -98,4 +125,75 @@ export function listAllEnabledModels(): Model[] {
     .prepare('SELECT * FROM models WHERE enabled = 1 ORDER BY created_at DESC')
     .all() as ModelRow[];
   return rows.map(rowToModel);
+}
+
+/**
+ * 写入 vision 能力判定（解析链 / 探测 / 学习闭环 / 手动设置的唯一写入口）。
+ *
+ * manual 锁：现存 source=manual 且本次来源非 manual 时拒绝写入并原样返回
+ * （手动是最终仲裁，永不被自动反写覆盖——设计决策）。
+ * 幂等：值与来源均未变化时不写库（避免学习闭环每次请求都 touch updated_at）。
+ */
+export function setModelVisionCapability(
+  id: string,
+  state: Exclude<CapabilityState, 'unknown'>,
+  source: CapabilitySource,
+): Model | undefined {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM models WHERE id = ?').get(id) as ModelRow | undefined;
+  if (!existing) return undefined;
+
+  const caps = parseCapabilities(existing.capabilities) ?? {};
+  if (caps.sources?.vision === 'manual' && source !== 'manual') {
+    return rowToModel(existing); // manual 锁：不覆盖
+  }
+  if (caps.vision === state && caps.sources?.vision === source) {
+    return rowToModel(existing); // 幂等：无变化不写
+  }
+
+  const ts = now();
+  const next: ModelCapabilities = {
+    ...caps,
+    vision: state,
+    sources: { ...caps.sources, vision: source },
+    ...(source === 'probe' ? { probedAt: ts } : {}),
+  };
+  db.prepare('UPDATE models SET capabilities = ?, updated_at = ? WHERE id = ?').run(
+    JSON.stringify(next),
+    ts,
+    id,
+  );
+  return getModel(id);
+}
+
+/** 清除 vision 能力记录（回到 unknown；主要供设置页解除手动锁定）。 */
+export function clearModelVisionCapability(id: string): Model | undefined {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM models WHERE id = ?').get(id) as ModelRow | undefined;
+  if (!existing) return undefined;
+
+  const caps = parseCapabilities(existing.capabilities);
+  if (!caps || (caps.vision === undefined && caps.sources?.vision === undefined)) {
+    return rowToModel(existing); // 已无记录
+  }
+
+  // 只摘除 vision 相关键（capabilities 结构为其他能力预留扩展位，不整体清空）
+  const next: ModelCapabilities = { ...caps };
+  delete next.vision;
+  delete next.probedAt;
+  if (next.sources) {
+    const sources = { ...next.sources };
+    delete sources.vision;
+    if (Object.keys(sources).length === 0) {
+      delete next.sources;
+    } else {
+      next.sources = sources;
+    }
+  }
+
+  const ts = now();
+  // 摘除后无任何键 → 写 '{}'（parseCapabilities 对空对象返回 undefined，语义 = 全 unknown）
+  const json = Object.keys(next).length === 0 ? '{}' : JSON.stringify(next);
+  db.prepare('UPDATE models SET capabilities = ?, updated_at = ? WHERE id = ?').run(json, ts, id);
+  return getModel(id);
 }
