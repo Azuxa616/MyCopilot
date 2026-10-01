@@ -13,6 +13,7 @@ import { parseSkillZip } from '../skills/zip-import.js';
 import { isSafeSkillFilePath } from '../skills/limits.js';
 import { syncDirectorySkills, type SyncResult } from '../skills/sync.js';
 import { listRepoSkills, importRepoSkill } from '../skills/github.js';
+import { listEffectiveSkillMetas } from '../prompt/skill-injections.js';
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import { getDb } from '../db/index.js';
@@ -43,6 +44,13 @@ export function createSkillsApp(opts: SkillsAppOptions = {}): Hono {
 
     const data = listSkills(filter);
     return successResponse(c, data);
+  });
+
+  // GET /effective — / 命令面板的有效 skill 集（与 buildSkillInjections /
+  // read_skill 同一集合来源；diy-agent 白名单落地后随 listEffectiveSkillMetas
+  // 单点升级为「绑定 ∩ 全局启用」）。必须注册在 GET /:id 之前。
+  app.get('/effective', (c) => {
+    return successResponse(c, listEffectiveSkillMetas());
   });
 
   // POST / — create a skill. Two accepted shapes:

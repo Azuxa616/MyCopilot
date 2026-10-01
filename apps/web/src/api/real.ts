@@ -449,6 +449,20 @@ export async function fetchSkills(): Promise<SkillMeta[]> {
 }
 
 /**
+ * Fetch the effective skill set for the / command palette
+ * GET /api/skills/effective
+ */
+export async function fetchEffectiveSkills(): Promise<SkillMeta[]> {
+    const response = await enhancedFetch<{ data: SkillMeta[] }>('/api/skills/effective', {
+        method: 'GET',
+        timeout: 30000,
+        retry: true,
+        maxRetries: 2,
+    });
+    return response.data;
+}
+
+/**
  * Get a single skill (including body content)
  * GET /api/skills/:id
  */
