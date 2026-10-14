@@ -163,27 +163,116 @@ export function annotateLines(value: string, chips: InputChip[]): AnnotatedLine[
   });
 }
 
-/** 发送序列化：chip 行剔除出 content 投影；有效 chip 按类别归集（去重）。 */
+/**
+ * 发送序列化。
+ *
+ * 分工（引用卡片化后）：
+ * - skill chip：token 整行承载于 textarea——剔除其 token 行，悬空（token 行
+ *   被改写）者不参与发送；
+ * - ref chip（file/session）：卡片化、不进 textarea——直接归集载荷（无悬空
+ *   概念），并投影为正文开头的 `@标题` 行（与 `[图片: name]` 投影约定一致），
+ *   保证仅引用即可发送且气泡/历史可读。
+ */
 export function serializeDraft(value: string, chips: InputChip[]): SerializedDraft {
-  const kept = annotateLines(value, chips)
+  const skillChips = chips.filter((chip) => chip.kind === 'skill');
+  const refChips = chips.filter((chip) => chip.kind !== 'skill');
+
+  const kept = annotateLines(value, skillChips)
     .filter((line): line is { type: 'text'; text: string } => line.type === 'text')
     .map((line) => line.text);
 
   const enforcedSkillIds = new Set<string>();
-  const referencedSessionIds = new Set<string>();
-  const assetIds = new Set<string>();
-  for (const chip of chips) {
+  for (const chip of skillChips) {
     // 悬空 chip（token 行不存在或已被改写）不参与发送
     if (!value.split('\n').includes(chip.token)) continue;
-    if (chip.kind === 'skill' && chip.skillName) enforcedSkillIds.add(chip.skillName);
+    if (chip.skillName) enforcedSkillIds.add(chip.skillName);
+  }
+
+  const referencedSessionIds = new Set<string>();
+  const assetIds = new Set<string>();
+  for (const chip of refChips) {
     if (chip.kind === 'session' && chip.sessionId) referencedSessionIds.add(chip.sessionId);
     if (chip.kind === 'file' && chip.assetId) assetIds.add(chip.assetId);
   }
 
+  const projection = refChips.map((chip) => chip.token);
+
   return {
-    content: kept.join('\n').trim(),
+    content: [...projection, ...kept].join('\n').trim(),
     enforcedSkillIds: [...enforcedSkillIds],
     referencedSessionIds: [...referencedSessionIds],
     assetIds: [...assetIds],
   };
+}
+
+/**
+ * @ 引用面板候选组装（两级 + 一级全局搜索）。
+ *
+ * - category 层空 query：分类条目（会话/文件 + 条目数；确认行为是下钻，无 chip）；
+ * - category 层非空 query：全局扁平条目（不限类型，带 chip 载荷；
+ *   过滤本身由调用方 filterCandidates 完成，本函数返回全量扁平集）；
+ * - items 层：该分类下的具体条目。
+ */
+export function buildReferenceItems(
+  stage: 'category' | 'items',
+  category: ReferenceCategory | null,
+  query: string,
+  references: ReferenceCandidate[],
+): PaletteItem[] {
+  const toItem = (r: ReferenceCandidate): PaletteItem => ({
+    key: `${r.kind}-${r.id}`,
+    filterText: r.title,
+    title: r.title,
+    subtitle: r.subtitle,
+    badge: r.kind,
+    chip: createChip({ kind: r.kind, token: r.token, assetId: r.assetId, sessionId: r.sessionId }),
+  });
+
+  if (stage === 'category' && query === '') {
+    const defs: Array<{ label: string; category: ReferenceCategory }> = [
+      { label: '会话', category: 'session' },
+      { label: '文件', category: 'file' },
+    ];
+    return defs.map((d) => ({
+      key: `category-${d.category}`,
+      filterText: d.label,
+      title: d.label,
+      subtitle: `${references.filter((r) => r.kind === d.category).length} 个`,
+      badge: d.category,
+      category: d.category,
+    }));
+  }
+  if (stage === 'category') {
+    return references.map(toItem);
+  }
+  return references.filter((r) => r.kind === category).map(toItem);
+}
+
+/**
+ * skill chip 行尾输入保护：纯插入且插入点前的行内容恰好等于某 skill token
+ * 时，在插入内容前补 `\n`，让新字符落到下一行（chip 恒独占一行，避免
+ * "敲个空格 chip 样式就碎"）。插入字符为空格时只补换行（行首空格无意义）；
+ * 其余字符原样保留。删除、多行粘贴（插入块含换行）、行中编辑均不干预。
+ */
+export function splitAfterChipToken(
+  prevValue: string,
+  newValue: string,
+  newCaret: number,
+  skillTokens: readonly string[],
+): { value: string; caret: number } | null {
+  const insertedLen = newValue.length - prevValue.length;
+  if (insertedLen <= 0) return null; // 删除/替换不干预
+  const insertStart = newCaret - insertedLen;
+  if (insertStart < 0) return null;
+
+  const inserted = newValue.slice(insertStart, newCaret);
+  if (inserted.includes('\n')) return null; // 多行粘贴不干预
+
+  const lineStart = newValue.lastIndexOf('\n', insertStart - 1) + 1;
+  const beforeInserted = newValue.slice(lineStart, insertStart);
+  if (!skillTokens.includes(beforeInserted)) return null;
+
+  const tail = inserted === ' ' ? '' : inserted;
+  const value = newValue.slice(0, insertStart) + '\n' + tail + newValue.slice(newCaret);
+  return { value, caret: insertStart + 1 + tail.length };
 }

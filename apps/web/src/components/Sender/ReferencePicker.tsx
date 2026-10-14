@@ -26,6 +26,10 @@ export default function ReferencePicker({ stage, items, selectedIndex, query, ca
     const listRef = useRef<HTMLDivElement | null>(null)
     useScrollSelectedIntoView(listRef, selectedIndex)
 
+    // 列表形态按条目形状判定（而非 stage）：一级分类层输入过滤词后进入
+    // 全局搜索，此时 stage 仍是 category，但条目已是带 chip 的具体项。
+    const isCategoryList = items.length > 0 && items.every((i) => i.category !== undefined)
+
     const header = stage === 'items' && categoryLabel
         ? `引用 @${categoryLabel}${query ? ` ${query}` : ''}`
         : `引用 @${query}`
@@ -39,7 +43,7 @@ export default function ReferencePicker({ stage, items, selectedIndex, query, ca
                 <div className="px-3 py-3 text-sm text-text-tertiary">
                     {stage === 'category' ? '无匹配的分类' : '无匹配的文件或会话'}
                 </div>
-            ) : stage === 'category' ? (
+            ) : isCategoryList ? (
                 <ul>
                     {items.map((item, index) => (
                         <li key={item.key}>

@@ -11,15 +11,16 @@ import {
   type PaletteItem,
   type ReferenceCandidate,
   type SerializedDraft,
+  buildReferenceItems,
   createChip,
   deleteChipAtCaret,
   hasChipToken,
   insertChipToken,
   serializeDraft,
+  splitAfterChipToken,
 } from '../chips/model'
 import {
   CLOSED,
-  type ReferenceCategory,
   type TriggerState,
   ascendToCategory,
   descendToItems,
@@ -67,6 +68,7 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
     // 联合类型收窄快照（deps 数组不能直接访问 trigger.kind 等判别字段）
     const triggerOpen = trigger.open
     const triggerKind = trigger.open ? trigger.kind : null
+    const triggerQuery = trigger.open ? trigger.query : ''
     const triggerStage = trigger.open && trigger.kind === 'reference' ? trigger.stage : null
     const triggerCategory =
         trigger.open && trigger.kind === 'reference' && trigger.stage === 'items'
@@ -89,37 +91,18 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
             }))
         }
         if (trigger.open && trigger.kind === 'reference') {
-            // 一级分类层：会话 / 文件（带条目数徽标；无 chip——确认行为是下钻）
-            if (trigger.stage === 'category') {
-                const defs: Array<{ label: string; category: ReferenceCategory }> = [
-                    { label: '会话', category: 'session' },
-                    { label: '文件', category: 'file' },
-                ]
-                return defs.map((d) => ({
-                    key: `category-${d.category}`,
-                    filterText: d.label,
-                    title: d.label,
-                    subtitle: `${references.filter((r) => r.kind === d.category).length} 个`,
-                    badge: d.category,
-                    category: d.category,
-                }))
-            }
-            // 二级条目层：该分类下的具体引用
-            return references
-                .filter((r) => r.kind === trigger.category)
-                .map((r) => ({
-                    key: `${r.kind}-${r.id}`,
-                    filterText: r.title,
-                    title: r.title,
-                    subtitle: r.subtitle,
-                    badge: r.kind,
-                    chip: createChip({ kind: r.kind, token: r.token, assetId: r.assetId, sessionId: r.sessionId }),
-                }))
+            // 两级 + 一级全局搜索的组装规则见 buildReferenceItems（model 层表驱动测试）。
+            return buildReferenceItems(
+                trigger.stage,
+                trigger.stage === 'items' ? trigger.category : null,
+                trigger.query,
+                references,
+            )
         }
         return []
         // trigger.query 变化即重建（createChip 每次生成新 id，仅在确认时入 state，无稳定性问题）
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [triggerOpen, triggerKind, triggerStage, triggerCategory, skills, references])
+    }, [triggerOpen, triggerKind, triggerStage, triggerCategory, triggerQuery, skills, references])
 
     const candidates = useMemo(
         () => (trigger.open ? filterCandidates(items, trigger.query) : []),
@@ -127,11 +110,18 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
     )
 
     const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const value = e.target.value
-        const caret = e.target.selectionStart ?? value.length
+        const raw = e.target.value
+        const rawCaret = e.target.selectionStart ?? raw.length
+        const skillTokens = chips.filter((c) => c.kind === 'skill').map((c) => c.token)
+        // skill chip 行尾输入保护：新字符拆到下一行，chip 恒独占一行。
+        // 拆行后新行的触发符（如 @）照常重算面板。
+        const split = splitAfterChipToken(content, raw, rawCaret, skillTokens)
+        const value = split ? split.value : raw
+        const caret = split ? split.caret : rawCaret
+        if (split) pendingCaretRef.current = split.caret
         setContent(value)
-        setTrigger((prev) => updateTriggerOnInput(prev, value, caret, chips.map((c) => c.token)))
-    }, [chips])
+        setTrigger((prev) => updateTriggerOnInput(prev, value, caret, skillTokens))
+    }, [chips, content])
 
     const insertItem = useCallback((item: PaletteItem) => {
         // 分类条目（一级）：下钻二级并消费一级过滤词（textarea 截回触发符），
@@ -145,6 +135,29 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
         }
         const chip = item.chip
         if (!chip) return
+
+        // 引用条目（二级下钻或一级全局搜索）：不进 textarea——删除触发文本
+        // [triggerStart, caret)，chip 以卡片形态挂在输入框上方（去重按 kind+id）。
+        if (chip.kind === 'file' || chip.kind === 'session') {
+            const payloadId = chip.sessionId ?? chip.assetId
+            const dup = chips.some(
+                (c) => c.kind === chip.kind && (c.sessionId ?? c.assetId) === payloadId,
+            )
+            if (dup) {
+                setTrigger(CLOSED)
+                return
+            }
+            const ta = textareaRef.current
+            const caret = ta ? (ta.selectionStart ?? content.length) : content.length
+            const start = trigger.open ? trigger.triggerStart : caret
+            const nextValue = content.slice(0, start) + content.slice(caret)
+            setContent(nextValue)
+            setChips((prev) => [...prev, chip])
+            setTrigger(CLOSED)
+            pendingCaretRef.current = start
+            return
+        }
+
         const token = chip.token
         // token 唯一约束：同名 chip 已存在则仅关面板
         if (hasChipToken(chips, token)) {
@@ -177,7 +190,7 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
 
         // Backspace 优先整删 chip（caret 无选区时）
         if (e.key === 'Backspace' && ta.selectionStart === ta.selectionEnd) {
-            const deletion = deleteChipAtCaret(content, chips, caret)
+            const deletion = deleteChipAtCaret(content, chips.filter((c) => c.kind === 'skill'), caret)
             if (deletion) {
                 e.preventDefault()
                 setContent(deletion.value)
@@ -242,11 +255,19 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
         textareaRef.current = el
     }, [])
 
+    const skillChips = useMemo(() => chips.filter((c) => c.kind === 'skill'), [chips])
+
+    /** 移除 ref chip（卡片 × 按钮）。 */
+    const removeChip = useCallback((id: string) => {
+        setChips((prev) => prev.filter((c) => c.id !== id))
+    }, [])
+
     const draft = useMemo(() => serializeDraft(content, chips), [content, chips])
 
     return {
         content,
         chips,
+        skillChips,
         trigger,
         candidates,
         draft,
@@ -256,6 +277,7 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
         hoverItem,
         submit,
         reset,
+        removeChip,
         setTextareaRef,
         // draftStore 一次性草稿注入等外部写入口（plan 外补充，保持既有功能可用）。
         setContent,

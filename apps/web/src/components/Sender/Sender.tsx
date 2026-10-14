@@ -8,6 +8,7 @@ import FileUploadModal from './FileUploadModal'
 import CommandPalette from './CommandPalette'
 import ReferencePicker from './ReferencePicker'
 import ChipsOverlay from './ChipsOverlay'
+import ReferenceChip from './ReferenceChip'
 // Hooks
 import { useTextareaAutoHeight } from './hooks/useTextareaAutoHeight'
 import { useAttachments } from './hooks/useAttachments'
@@ -180,8 +181,8 @@ export default function Sender() {
 
     // chip 输入接线（顺序关键：handleChipSubmit 必须在 hook 之前定义——TDZ）
     const {
-        content, chips, trigger, candidates, draft,
-        handleInput, handleKeyDown, selectItem, hoverItem, submit, reset, setTextareaRef, setContent,
+        content, chips, skillChips, trigger, candidates, draft,
+        handleInput, handleKeyDown, selectItem, hoverItem, submit, reset, removeChip, setTextareaRef, setContent,
     } = useChipInput({ skills: skillEntries, references, onSend: handleChipSubmit })
     const textareaRef = useTextareaAutoHeight(content)
 
@@ -258,6 +259,20 @@ export default function Sender() {
                     </div>
                 </div>
             )}
+            {/* @ 引用卡片行（会话/文件；不占用输入文本） */}
+            {chips.some((chip) => chip.kind !== 'skill') && (
+                <div className="px-4 pt-3 pb-2 border-b border-border-base">
+                    <div className="flex flex-wrap gap-2">
+                        {chips.filter((chip) => chip.kind !== 'skill').map((chip) => (
+                            <ReferenceChip
+                                key={chip.id}
+                                chip={chip}
+                                onRemove={removeChip}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
             {/* Input area */}
             <div className="flex items-end justify-between px-4 py-3">
                 <div className="flex items-end gap-2 flex-1">
@@ -277,7 +292,7 @@ export default function Sender() {
                         onRemoveAttachment={removeAttachment}
                     />
                     <div className="relative flex-1 min-w-0">
-                        <ChipsOverlay value={content} chips={chips} />
+                        <ChipsOverlay value={content} chips={skillChips} />
                         <textarea
                             ref={(el) => {
                                 textareaRef.current = el
