@@ -13,7 +13,21 @@
 > 8. Sender 保留既有 `onPaste` 粘贴上传管道（plan JSX 片段未列出，属既有功能保留而非新增）。
 > 9. `handleChipSubmit` 适配 post-plan-A 资产管道：无 `files` 兼容位，附件与 `@file` chip 统一走 `assetIds`。
 >
-> **终审结论：** Task 1-12 全部落地。`pnpm typecheck`（server + web）、`pnpm test`（server 963 + web 272 + shared 62 全绿）、`pnpm lint`（0 error；web 侧 1 个 warning 为 PluginCardHost 既有问题，与本计划无关）。Step 13.2 手动验收（pnpm dev 实操清单）未执行，建议后续人工走查。
+> **终审结论：** Task 1-12 全部落地。`pnpm typecheck`（server + web）、`pnpm test`（server 963 + web 272 + shared 62 全绿）、`pnpm lint`（0 error；web 侧 1 个 warning 为 PluginCardHost 既有问题，与本计划无关）。
+>
+> **Step 13.2 手动验收：已完成（2026-10-14，Playwright 驱动 + 本地 mock OpenAI 端点观察注入）。** 8 项全部通过：
+> 1. `/` 触发/过滤/↑↓/Enter/Tab/鼠标确认/Esc 关闭 ✓
+> 2. `@` 浮层两类徽标（文件 3 + 会话 46）、当前会话已排除 ✓
+> 3. chip 独占一行、Backspace 一次整删 ✓
+> 4. 单浮层互斥（`/bili @长` → 面板切换为引用）✓
+> 5. chip 行不进正文（DB 中 user 消息为纯文本投影）；skill 全文进 "Always apply these skills" 段；@会话 摘要块注入 user 前缀；read_session 仅引用轮可见 ✓
+> 6. AGENT_ASYNC_MODE=true 下 worker 链路同样生效 ✓
+> 7. 无摘要会话降级拼接（消息数 + 首尾片段）✓
+> 8. 普通消息逐字节一致 ✓
+>
+> 验收中发现并修复（fix(web) 461be1f）：
+> - ChipsOverlay chip 胶囊原为 text-xs，比底层 text-base token 文本窄导致文本露出 → 改为继承行字号；
+> - 鼠标点选面板项后焦点移到按钮、键盘输入丢失 → 面板按钮加 onMouseDown preventDefault，useChipInput caret 恢复兜底 focus。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
