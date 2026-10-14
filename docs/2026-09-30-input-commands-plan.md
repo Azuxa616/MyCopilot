@@ -1,6 +1,19 @@
 # 输入框命令与引用（/ 与 @）实施计划
 
-> **执行记录:** 未开始（本计划尚未执行；执行时在此追加偏差记录与终审结论）。
+> **执行记录:** 已完成（2026-10-14，分支 `input-commands`）。
+>
+> **偏差记录：**
+> 1. Task 6/7/8 由本会话补齐：runner.test.ts 存在上个会话遗留的语法错误（type literal 中使用保留字 `function` 作属性名，TS1005），改用既有 `JsonSchemaTool` 类型修复；runner.ts 此前仅加了 import 未接线，本次完成 `referencedSessionIds` 单点接线。
+> 2. `tools/builtins/index.ts` 已提交代码存在 lint/tsc 错误（barrel import 了 `appendReadSessionTool` 但未使用），单独修复提交（fix(server): drop unused barrel import）。
+> 3. Task 8 落在 plan A 已完成的 JSON 路由形态上：`assetIds` 解析保留既有实现，新增 `parseIdList` helper 统一解析 `enforcedSkillIds`（上限 20）/ `referencedSessionIds`（上限 10）。
+> 4. Task 11 资产候选源的实际函数名为 `api.fetchAssets()`（plan A 落地名），非计划中的 `api.listAssets()`。
+> 5. `useChipInput` 额外暴露 `submit` 与 `setContent`：发送按钮 onClick 与 draftStore 一次性草稿注入是既有功能入口，plan 的 hook 契约未覆盖。
+> 6. `moveSelection` 增加 open 态重载签名（strict TS 下测试直接访问 `.selectedIndex` 需要收窄后的返回类型）。
+> 7. `CommandPalette.test.tsx` 追加手动 `cleanup()`（vitest 未开 globals，RTL 自动清理不生效，沿用 `SkillFormModal.test.tsx` 既有约定）。
+> 8. Sender 保留既有 `onPaste` 粘贴上传管道（plan JSX 片段未列出，属既有功能保留而非新增）。
+> 9. `handleChipSubmit` 适配 post-plan-A 资产管道：无 `files` 兼容位，附件与 `@file` chip 统一走 `assetIds`。
+>
+> **终审结论：** Task 1-12 全部落地。`pnpm typecheck`（server + web）、`pnpm test`（server 963 + web 272 + shared 62 全绿）、`pnpm lint`（0 error；web 侧 1 个 warning 为 PluginCardHost 既有问题，与本计划无关）。Step 13.2 手动验收（pnpm dev 实操清单）未执行，建议后续人工走查。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
