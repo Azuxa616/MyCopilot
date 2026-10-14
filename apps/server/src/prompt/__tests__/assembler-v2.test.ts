@@ -532,3 +532,30 @@ describe('assembleMessagesV2 multimodal（图片 parts）', () => {
     expect(userMsgs[0]!.images).toBeUndefined();
   });
 });
+
+describe('assembleMessagesV2 referencedSessions（@会话 第一层）', () => {
+  it('referencedSessions 注入最终 user 消息前缀（@会话 第一层）', async () => {
+    const result = await assembleMessagesV2({
+      history: [],
+      userContent: '总结一下',
+      referencedSessions: '[用户引用了会话《旧会话》的摘要]\n摘要正文',
+    });
+
+    const last = result.messages[result.messages.length - 1]!;
+    expect(last.role).toBe('user');
+    expect(last.content).toBe(
+      '[用户引用了会话《旧会话》的摘要]\n摘要正文\n\n总结一下',
+    );
+  });
+
+  it('referencedSessions 缺省/空白时 user 消息零变化（字节级兼容）', async () => {
+    const a = await assembleMessagesV2({ history: [], userContent: 'x' });
+    const b = await assembleMessagesV2({
+      history: [],
+      userContent: 'x',
+      referencedSessions: '   ',
+    });
+    expect(b.messages[b.messages.length - 1]!.content).toBe('x');
+    expect(b.messages).toEqual(a.messages);
+  });
+});

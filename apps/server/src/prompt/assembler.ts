@@ -216,6 +216,11 @@ export interface AssembleV2Params {
   currentUserParts?: MessagePart[];
   skills?: SkillInjection[];
   summary?: SummaryInjection;
+  /**
+   * `@会话` 引用注入块（调用方预构建文本，见 prompt/referenced-sessions.ts）。
+   * 拼入最终 user 消息前缀（附件块之后、用户正文之前），并计入 working 桶计量。
+   */
+  referencedSessions?: string;
   /** Memory 注入用的会话 id（RFC §4）；提供时读取该会话全部记忆并注入 system 消息。 */
   sessionId?: string;
   /** 摘要降级（第二级）使用的 provider adapter；与 adapterConfig 成对出现，缺省时第二级被跳过。 */
@@ -325,6 +330,12 @@ export async function assembleMessagesV2(
     }
   }
 
+  // @会话 引用前缀：与最终 user 消息中的引用块逐字一致，用于 working 桶计量。
+  const referencedSessionsPrefix =
+    params.referencedSessions && params.referencedSessions.trim().length > 0
+      ? `${params.referencedSessions}\n\n`
+      : '';
+
   // system 桶计量口径：默认提示 + skills + 原 summary 文本（稳定前缀的
   // 文本部分）。tools 桶由 adapter 层的工具定义计量，本函数恒传空数组。
   const prefixUsageText = [skillsText, summaryMessageText]
@@ -344,7 +355,7 @@ export async function assembleMessagesV2(
       tools: [],
       systemPrompt,
       skillsText: prefixUsageText,
-      attachmentsText: attachmentPrefix,
+      attachmentsText: attachmentPrefix + referencedSessionsPrefix,
       userContent: params.userContent,
     });
 
@@ -502,7 +513,7 @@ export async function assembleMessagesV2(
     : [];
   messages.push({
     role: 'user',
-    content: attachmentPrefix + params.userContent,
+    content: attachmentPrefix + referencedSessionsPrefix + params.userContent,
     ...(currentUserImages.length > 0 ? { images: currentUserImages } : {}),
   });
 

@@ -9,6 +9,7 @@ import type {
   ProviderAdapter,
   AdapterConfig,
   ChatMessage,
+  JsonSchemaTool,
 } from '../../llm/base.js';
 import type { ToolExecutionResult } from '../../tools/registry.js';
 import type {
@@ -69,6 +70,44 @@ vi.mock('../../repo/memory.js', () => ({
   // 测试环境返回空列表以避免触碰真实数据库（读取失败本身也 fail-soft，
   // 但显式置空更确定）。
   listMemories: vi.fn(() => []),
+}));
+
+// @会话 引用（input-commands 设计）：runner 单点接线的两个依赖。
+const mockBuildReferencedSessionsText = vi.fn(
+  (sessionIds: string[]) => (sessionIds.length > 0 ? 'REF_BLOCK_SENTINEL' : ''),
+);
+
+vi.mock('../../prompt/referenced-sessions.js', () => ({
+  buildReferencedSessionsText: (...args: [string[]]) =>
+    mockBuildReferencedSessionsText(...args),
+}));
+
+// 内联对象（不依赖 makeTool）：vi.mock 工厂提升不触发 TDZ，但立即求值的
+// 哨兵工具常量必须避开后面才定义的 helper。
+const READ_SESSION_TOOL: Tool = {
+  id: 'tool-read_session',
+  name: 'read_session',
+  description: 'sentinel',
+  inputSchema: { fields: [] },
+  type: 'built-in',
+  safetyLevel: 'safe',
+  sourceMcpId: null,
+  policyVersion: 'test:read_session:v1',
+  enabled: true,
+  createdAt: 0,
+  updatedAt: 0,
+};
+
+const mockAppendReadSessionTool = vi.fn(
+  (tools: Tool[], referencedSessionIds?: string[]) =>
+    referencedSessionIds && referencedSessionIds.length > 0
+      ? [...tools, READ_SESSION_TOOL]
+      : tools,
+);
+
+vi.mock('../../tools/builtins/read-session.js', () => ({
+  appendReadSessionTool: (...args: [Tool[], string[] | undefined]) =>
+    mockAppendReadSessionTool(...args),
 }));
 
 import { runAgentLoop } from '../runner.js';
@@ -996,5 +1035,50 @@ describe('runAgentLoop', () => {
     } finally {
       debugSpy.mockRestore();
     }
+  });
+
+  // --- 20. @会话 引用（input-commands 设计）：runner 单点接线 -------------
+  it('referencedSessionIds 携带时：注入文本进 assembler、read_session 进广告工具列表', async () => {
+    const capturedOptions: Array<{ tools?: JsonSchemaTool[] } | undefined> = [];
+    const adapter = {
+      type: 'openai',
+      chatCompletionStream: (
+        _messages: ChatMessage[],
+        _config: AdapterConfig,
+        options?: { tools?: JsonSchemaTool[] },
+      ) => {
+        capturedOptions.push(options ? { tools: options.tools } : undefined);
+        return generatorFrom([events.finish('stop')]);
+      },
+    } as unknown as ProviderAdapter;
+
+    await runAgentLoop(
+      makeParams({
+        adapter,
+        referencedSessionIds: ['sess-ref'],
+      }),
+    );
+
+    expect(mockBuildReferencedSessionsText).toHaveBeenCalledWith(['sess-ref']);
+    expect(mockAppendReadSessionTool).toHaveBeenCalledWith(
+      expect.any(Array),
+      ['sess-ref'],
+    );
+    expect(mockAssembleMessagesV2).toHaveBeenCalledWith(
+      expect.objectContaining({ referencedSessions: 'REF_BLOCK_SENTINEL' }),
+    );
+    // read_session 出现在发给 LLM 的工具目录里
+    const toolNames = capturedOptions[0]?.tools?.map((t) => t.function.name) ?? [];
+    expect(toolNames).toContain('read_session');
+  });
+
+  it('未携带 referencedSessionIds 时：不注入、不追加（零行为变化）', async () => {
+    await runAgentLoop(makeParams({}));
+
+    expect(mockBuildReferencedSessionsText).not.toHaveBeenCalled();
+    expect(mockAppendReadSessionTool).toHaveBeenCalledWith(expect.any(Array), undefined);
+    expect(mockAssembleMessagesV2).not.toHaveBeenCalledWith(
+      expect.objectContaining({ referencedSessions: expect.any(String) }),
+    );
   });
 });
