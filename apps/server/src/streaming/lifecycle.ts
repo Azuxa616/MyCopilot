@@ -24,6 +24,10 @@ export interface StreamMessageParams {
   model: Model;
   attachments?: AttachmentText[];
   history: Message[];
+  /** / 命令携带的手动激活 skill 名（经 buildSkillInjections 合并为 always 注入）。 */
+  enforcedSkillIds?: string[];
+  /** `@会话` 引用的目标会话 id（透传 runAgentLoop：注入摘要 + 追加 read_session）。 */
+  referencedSessionIds?: string[];
 }
 
 /**
@@ -35,7 +39,7 @@ export interface StreamMessageParams {
  * 5. Write final done/error/aborted event + title auto-generation
  */
 export function streamMessageHandler(c: Context, params: StreamMessageParams): Response {
-  const { sessionId, userMessage, provider, model, attachments, history } = params;
+  const { sessionId, userMessage, provider, model, attachments, history, enforcedSkillIds, referencedSessionIds } = params;
 
   // 1. Save user message
   createMessage({
@@ -97,6 +101,10 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         history,
         attachments: attachments ?? [],
         currentUserParts: userMessage.parts ?? [],
+        // / 与 @ 的按轮参数：worker 执行期消费（skills 集合本身仍是执行期解析，
+        // 只有用户意图随 payload 快照——与 tools 的重解析语义一致）。
+        enforcedSkillIds: enforcedSkillIds ?? [],
+        referencedSessionIds: referencedSessionIds ?? [],
         adapterType: provider.type,
         adapterConfig,
         enabledTools,
@@ -149,8 +157,10 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         userContent: userMessage.content,
         attachments,
         currentUserParts: userMessage.parts,
-        // Skills 注入（修复死路径）：enabled skills 在执行期从 DB 解析进 prompt。
-        skills: buildSkillInjections(),
+        // Skills 注入（修复死路径）：enabled skills 在执行期从 DB 解析进 prompt；
+        // / 命令的 enforcedSkillIds 在此合并（always 语义）。
+        skills: buildSkillInjections(enforcedSkillIds),
+        referencedSessionIds,
         tools: enabledTools,
         adapter,
         adapterConfig,

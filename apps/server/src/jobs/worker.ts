@@ -24,6 +24,10 @@ interface AgentLoopJobPayload {
   attachments?: Array<{ name: string; content: string }>;
   /** 当前轮用户消息的多模态 parts（图片）。 */
   currentUserParts?: MessagePart[];
+  /** / 命令携带的手动激活 skill 名（执行期与 enabled 集合并注入）。 */
+  enforcedSkillIds?: string[];
+  /** @会话 引用携带的目标会话 id（runner 注入摘要 + 追加 read_session 工具）。 */
+  referencedSessionIds?: string[];
   adapterType: 'openai' | 'ollama';
   adapterConfig: { baseUrl: string; apiKey?: string; model: string };
 }
@@ -286,9 +290,11 @@ export function registerAgentLoopHandler(): void {
         userContent: payload.userContent,
         attachments: payload.attachments,
         currentUserParts: payload.currentUserParts,
-        // Skills 注入（修复死路径）：执行期解析而非 payload 快照，与上方
-        // tools 的重解析语义一致。
-        skills: buildSkillInjections(),
+        referencedSessionIds: payload.referencedSessionIds,
+        // Skills 注入（修复死路径）：执行期解析而非 payload 快照；
+        // enforcedSkillIds 是本轮用户意图，必须经 payload 穿透（P0 教训：
+        // 两条链路都要传，agent-loop-handler.test.ts 锁定本行为）。
+        skills: buildSkillInjections(payload.enforcedSkillIds),
         tools,
         adapter,
         adapterConfig: payload.adapterConfig,
