@@ -15,6 +15,19 @@ import { projectPartsToText } from '../attachment/projection.js';
 import { streamMessageHandler } from '../streaming/lifecycle.js';
 import { stopStreamHandler } from '../streaming/stop.js';
 
+/**
+ * 发送参数中的 id 列表解析：非数组返回 undefined；元素过滤非字符串与空白；
+ * 超过 maxCount 截断（防御性上限，不报错——非法输入静默修正）。
+ */
+function parseIdList(value: unknown, maxCount: number): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = value
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .map((v) => v.trim())
+    .slice(0, maxCount);
+  return ids.length > 0 ? ids : undefined;
+}
+
 export const messagesApp = new Hono();
 
 messagesApp.post('/', async (c) => {
@@ -39,11 +52,19 @@ messagesApp.post('/', async (c) => {
   };
   let content = '';
   let outcome = emptyOutcome;
+  /** / 命令与 @会话 引用（input-commands 设计）：JSON 通道解析，透传 lifecycle → runner。 */
+  let enforcedSkillIds: string[] | undefined;
+  let referencedSessionIds: string[] | undefined;
 
   const contentTypeHeader = c.req.header('content-type') ?? '';
   if (contentTypeHeader.includes('application/json')) {
     const body =
-      (await c.req.json().catch(() => null)) as { content?: unknown; assetIds?: unknown } | null;
+      (await c.req.json().catch(() => null)) as {
+        content?: unknown;
+        assetIds?: unknown;
+        enforcedSkillIds?: unknown;
+        referencedSessionIds?: unknown;
+      } | null;
     if (!body || typeof body.content !== 'string') {
       throw new HttpError(400, 'Missing content');
     }
@@ -54,6 +75,8 @@ messagesApp.post('/', async (c) => {
     if (assetIds.length > 0) {
       outcome = await resolveAssetsFromIds(assetIds);
     }
+    enforcedSkillIds = parseIdList(body.enforcedSkillIds, 20);
+    referencedSessionIds = parseIdList(body.referencedSessionIds, 10);
   } else {
     const form = await c.req.formData();
     content = (form.get('content') as string) || '';
@@ -137,6 +160,8 @@ messagesApp.post('/', async (c) => {
     provider,
     model,
     attachments: outcome.attachmentTexts.length > 0 ? outcome.attachmentTexts : undefined,
+    enforcedSkillIds,
+    referencedSessionIds,
     history,
   });
 });

@@ -287,4 +287,73 @@ describe('messages route', () => {
     const body = (await res.json()) as ApiResponse;
     expect(body.code).toBe(404);
   });
+
+  it('POST / 解析 enforcedSkillIds / referencedSessionIds 并透传 lifecycle（plan A JSON 形态）', async () => {
+    const mockSession = { id: 's1', title: 'Test', modelId: 'm1', createdAt: 1, updatedAt: 1 };
+    const mockModel = { id: 'm1', providerId: 'p1', name: 'gpt-4', enabled: true, createdAt: 1, updatedAt: 1 };
+    const mockProvider = { id: 'p1', name: 'OpenAI', type: 'openai' as const, baseUrl: 'https://api.openai.com', apiKey: 'sk-test', enabled: true, createdAt: 1, updatedAt: 1 };
+
+    vi.mocked(getSession).mockReturnValue(mockSession);
+    vi.mocked(getModel).mockReturnValue(mockModel);
+    vi.mocked(getProvider).mockReturnValue(mockProvider);
+    vi.mocked(listMessagesBySession).mockReturnValue([]);
+    vi.mocked(streamMessageHandler).mockReturnValue(
+      new Response('sse-stream', { headers: { 'content-type': 'text/event-stream' } }),
+    );
+
+    const app = createTestApp();
+    const res = await app.request('/sessions/s1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'hello',
+        enforcedSkillIds: ['beta', 'gamma'],
+        referencedSessionIds: ['sess-9'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(streamMessageHandler).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        sessionId: 's1',
+        enforcedSkillIds: ['beta', 'gamma'],
+        referencedSessionIds: ['sess-9'],
+      }),
+    );
+  });
+
+  it('POST / 对非法 id 列表字段静默修正（非数组忽略；非字符串/空白元素过滤；超限截断）', async () => {
+    const mockSession = { id: 's1', title: 'Test', modelId: 'm1', createdAt: 1, updatedAt: 1 };
+    const mockModel = { id: 'm1', providerId: 'p1', name: 'gpt-4', enabled: true, createdAt: 1, updatedAt: 1 };
+    const mockProvider = { id: 'p1', name: 'OpenAI', type: 'openai' as const, baseUrl: 'https://api.openai.com', apiKey: 'sk-test', enabled: true, createdAt: 1, updatedAt: 1 };
+
+    vi.mocked(getSession).mockReturnValue(mockSession);
+    vi.mocked(getModel).mockReturnValue(mockModel);
+    vi.mocked(getProvider).mockReturnValue(mockProvider);
+    vi.mocked(listMessagesBySession).mockReturnValue([]);
+    vi.mocked(streamMessageHandler).mockReturnValue(
+      new Response('sse-stream', { headers: { 'content-type': 'text/event-stream' } }),
+    );
+
+    const app = createTestApp();
+    const res = await app.request('/sessions/s1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'hi',
+        enforcedSkillIds: 'not-an-array',
+        referencedSessionIds: ['', 42, 'sess-9'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(streamMessageHandler).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ referencedSessionIds: ['sess-9'] }),
+    );
+    // 非法字段被修正为 undefined（不进 objectContaining 的键值断言口径）
+    const call = vi.mocked(streamMessageHandler).mock.calls[0]!;
+    expect(call[1]?.enforcedSkillIds).toBeUndefined();
+  });
 });
