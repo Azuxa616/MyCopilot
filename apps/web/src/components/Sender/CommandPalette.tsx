@@ -13,7 +13,7 @@ interface CommandPaletteProps {
 
 export default function CommandPalette({ items, selectedIndex, query, onSelect, onHover }: CommandPaletteProps) {
     return (
-        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-border-base bg-bg-elevated shadow-lg">
+        <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-64 overflow-y-auto rounded-lg border border-border-base bg-bg-elevated shadow-lg">
             <div className="border-b border-border-base px-3 py-1.5 text-xs text-text-tertiary">
                 命令 <span className="font-mono">/{query}</span>
             </div>
