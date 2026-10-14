@@ -6,20 +6,36 @@
  * Esc 关闭；面板关闭时所有按键 ignore（走 textarea 默认行为）。
  */
 
+import type { ReferenceCategory } from './model';
+
+export type { ReferenceCategory };
+
 export type TriggerKind = 'command' | 'reference';
+
+interface TriggerOpenBase {
+  open: true;
+  /** 触发符（'/' 或 '@'）在 textarea 值中的位置。 */
+  triggerStart: number;
+  /** 触发符之后至 caret 的过滤词（不含触发符）。 */
+  query: string;
+  /** 当前选中候选下标（候选列表由组件层按 query 过滤后传入）。 */
+  selectedIndex: number;
+}
 
 export type TriggerState =
   | { open: false }
-  | {
-      open: true;
-      kind: TriggerKind;
-      /** 触发符（'/' 或 '@'）在 textarea 值中的位置。 */
-      triggerStart: number;
-      /** 触发符之后至 caret 的过滤词（不含触发符）。 */
-      query: string;
-      /** 当前选中候选下标（候选列表由组件层按 query 过滤后传入）。 */
-      selectedIndex: number;
-    };
+  | (TriggerOpenBase & { kind: 'command' })
+  | (TriggerOpenBase & {
+      kind: 'reference';
+      /** 一级：分类层（会话 / 文件）。 */
+      stage: 'category';
+    })
+  | (TriggerOpenBase & {
+      kind: 'reference';
+      /** 二级：条目层（具体会话 / 文件）。 */
+      stage: 'items';
+      category: ReferenceCategory;
+    });
 
 export const CLOSED: TriggerState = { open: false };
 
@@ -33,7 +49,7 @@ export const CLOSED: TriggerState = { open: false };
  *   chip 行编辑时不应弹出面板）——由 chipTokens 参数排除。
  */
 export function updateTriggerOnInput(
-  _state: TriggerState,
+  prev: TriggerState,
   value: string,
   caret: number,
   chipTokens: readonly string[] = [],
@@ -42,8 +58,8 @@ export function updateTriggerOnInput(
   while (i >= 0) {
     const ch = value[i]!;
     if (ch === '/' || ch === '@') {
-      const prev = i > 0 ? value[i - 1]! : '';
-      const atBoundary = prev === '' || prev === '\n' || prev === ' ';
+      const prevCh = i > 0 ? value[i - 1]! : '';
+      const atBoundary = prevCh === '' || prevCh === '\n' || prevCh === ' ';
       if (!atBoundary) return CLOSED;
 
       // chip token 行整体是已确认的 chip：不再触发
@@ -51,14 +67,16 @@ export function updateTriggerOnInput(
       const lineText = value.slice(i, lineEnd === -1 ? value.length : lineEnd);
       if (chipTokens.includes(lineText)) return CLOSED;
 
-      const kind: TriggerKind = ch === '/' ? 'command' : 'reference';
-      return {
-        open: true,
-        kind,
-        triggerStart: i,
-        query: value.slice(i + 1, caret),
-        selectedIndex: 0,
-      };
+      const query = value.slice(i + 1, caret);
+      if (ch === '/') {
+        return { open: true, kind: 'command', triggerStart: i, query, selectedIndex: 0 };
+      }
+      // reference：同 triggerStart 的连续输入保留 prev 的层级（stage/category），
+      // 仅重算 query 并重置选中项；新触发（或 prev 非 reference）从 category 层开始。
+      if (prev.open && prev.kind === 'reference' && prev.triggerStart === i) {
+        return { ...prev, query, selectedIndex: 0 };
+      }
+      return { open: true, kind: 'reference', triggerStart: i, query, selectedIndex: 0, stage: 'category' };
     }
     if (/\s/.test(ch)) return CLOSED;
     i -= 1;
@@ -70,7 +88,38 @@ export type TriggerKeyAction =
   | { type: 'ignore' }
   | { type: 'move'; delta: -1 | 1 }
   | { type: 'commit' }
-  | { type: 'close' };
+  | { type: 'close' }
+  | { type: 'back' };
+
+/** 二级下钻：category 层 → items 层（query 清空、selectedIndex 归零）。非 category 层原样返回。 */
+export function descendToItems(
+  state: TriggerState,
+  category: ReferenceCategory,
+): TriggerState {
+  if (!state.open || state.kind !== 'reference' || state.stage !== 'category') return state;
+  return {
+    open: true,
+    kind: 'reference',
+    triggerStart: state.triggerStart,
+    query: '',
+    selectedIndex: 0,
+    stage: 'items',
+    category,
+  };
+}
+
+/** 返回一级分类层（selectedIndex 归零、移除 category）。非 items 层原样返回。 */
+export function ascendToCategory(state: TriggerState): TriggerState {
+  if (!state.open || state.kind !== 'reference' || state.stage !== 'items') return state;
+  return {
+    open: true,
+    kind: 'reference',
+    triggerStart: state.triggerStart,
+    query: '',
+    selectedIndex: 0,
+    stage: 'category',
+  };
+}
 
 /** 面板打开时的键盘路由；面板关闭时一律 ignore。 */
 export function handleTriggerKeyDown(state: TriggerState, key: string): TriggerKeyAction {
@@ -84,7 +133,10 @@ export function handleTriggerKeyDown(state: TriggerState, key: string): TriggerK
     case 'Tab':
       return { type: 'commit' };
     case 'Escape':
-      return { type: 'close' };
+      // 逐层返回：引用条目层先退回分类层，其余场景直接关闭。
+      return state.kind === 'reference' && state.stage === 'items'
+        ? { type: 'back' }
+        : { type: 'close' };
     default:
       return { type: 'ignore' };
   }

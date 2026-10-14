@@ -9,6 +9,9 @@
 
 export type ChipKind = 'skill' | 'file' | 'session';
 
+/** @ 引用分类（一级分类层的可选项；triggers 状态机与面板共用）。 */
+export type ReferenceCategory = 'file' | 'session';
+
 export interface InputChip {
   id: string;
   kind: ChipKind;
@@ -63,8 +66,10 @@ export interface PaletteItem {
   subtitle?: string;
   /** 类型徽标（'skill' | 'file' | 'session'）。 */
   badge: 'skill' | 'file' | 'session';
-  /** 确认时插入的 chip。 */
-  chip: InputChip;
+  /** 确认时插入的 chip（分类条目无 chip——确认行为是下钻二级）。 */
+  chip?: InputChip;
+  /** 分类条目载荷：@ 引用一级分类（仅 ReferencePicker 分类层使用）。 */
+  category?: ReferenceCategory;
 }
 
 let chipSeq = 0;

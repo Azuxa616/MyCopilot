@@ -1,7 +1,9 @@
 // CommandPalette - / 命令面板（skill 目录：name / description / triggers）
 // 纯展示组件：候选过滤与键盘状态由 useChipInput 持有，本组件只渲染 + 上报。
 
+import { useRef } from 'react'
 import type { PaletteItem } from './chips/model'
+import { useScrollSelectedIntoView } from './hooks/useScrollSelectedIntoView'
 
 interface CommandPaletteProps {
     items: PaletteItem[]
@@ -12,8 +14,11 @@ interface CommandPaletteProps {
 }
 
 export default function CommandPalette({ items, selectedIndex, query, onSelect, onHover }: CommandPaletteProps) {
+    const listRef = useRef<HTMLDivElement | null>(null)
+    useScrollSelectedIntoView(listRef, selectedIndex)
+
     return (
-        <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-64 overflow-y-auto rounded-lg border border-border-base bg-bg-elevated shadow-lg">
+        <div ref={listRef} className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-64 overflow-y-auto rounded-lg border border-border-base bg-bg-elevated shadow-lg">
             <div className="border-b border-border-base px-3 py-1.5 text-xs text-text-tertiary">
                 命令 <span className="font-mono">/{query}</span>
             </div>
@@ -25,6 +30,7 @@ export default function CommandPalette({ items, selectedIndex, query, onSelect, 
                         <li key={item.key}>
                             <button
                                 type="button"
+                                data-index={index}
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => onSelect(index)}
                                 onMouseEnter={() => onHover(index)}

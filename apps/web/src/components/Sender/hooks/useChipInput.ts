@@ -19,7 +19,10 @@ import {
 } from '../chips/model'
 import {
   CLOSED,
+  type ReferenceCategory,
   type TriggerState,
+  ascendToCategory,
+  descendToItems,
   filterCandidates,
   handleTriggerKeyDown,
   moveSelection,
@@ -61,9 +64,14 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
         }
     }, [content])
 
-    // 联合类型收窄快照（deps 数组不能直接访问 trigger.kind）
+    // 联合类型收窄快照（deps 数组不能直接访问 trigger.kind 等判别字段）
     const triggerOpen = trigger.open
     const triggerKind = trigger.open ? trigger.kind : null
+    const triggerStage = trigger.open && trigger.kind === 'reference' ? trigger.stage : null
+    const triggerCategory =
+        trigger.open && trigger.kind === 'reference' && trigger.stage === 'items'
+            ? trigger.category
+            : null
 
     /** 候选 → 面板条目（command 与 reference 两类）。 */
     const items = useMemo<PaletteItem[]>(() => {
@@ -81,19 +89,37 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
             }))
         }
         if (trigger.open && trigger.kind === 'reference') {
-            return references.map((r) => ({
-                key: `${r.kind}-${r.id}`,
-                filterText: r.title,
-                title: r.title,
-                subtitle: r.subtitle,
-                badge: r.kind,
-                chip: createChip({ kind: r.kind, token: r.token, assetId: r.assetId, sessionId: r.sessionId }),
-            }))
+            // 一级分类层：会话 / 文件（带条目数徽标；无 chip——确认行为是下钻）
+            if (trigger.stage === 'category') {
+                const defs: Array<{ label: string; category: ReferenceCategory }> = [
+                    { label: '会话', category: 'session' },
+                    { label: '文件', category: 'file' },
+                ]
+                return defs.map((d) => ({
+                    key: `category-${d.category}`,
+                    filterText: d.label,
+                    title: d.label,
+                    subtitle: `${references.filter((r) => r.kind === d.category).length} 个`,
+                    badge: d.category,
+                    category: d.category,
+                }))
+            }
+            // 二级条目层：该分类下的具体引用
+            return references
+                .filter((r) => r.kind === trigger.category)
+                .map((r) => ({
+                    key: `${r.kind}-${r.id}`,
+                    filterText: r.title,
+                    title: r.title,
+                    subtitle: r.subtitle,
+                    badge: r.kind,
+                    chip: createChip({ kind: r.kind, token: r.token, assetId: r.assetId, sessionId: r.sessionId }),
+                }))
         }
         return []
         // trigger.query 变化即重建（createChip 每次生成新 id，仅在确认时入 state，无稳定性问题）
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [triggerOpen, triggerKind, skills, references])
+    }, [triggerOpen, triggerKind, triggerStage, triggerCategory, skills, references])
 
     const candidates = useMemo(
         () => (trigger.open ? filterCandidates(items, trigger.query) : []),
@@ -108,7 +134,18 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
     }, [chips])
 
     const insertItem = useCallback((item: PaletteItem) => {
-        const token = item.chip.token
+        // 分类条目（一级）：下钻二级并消费一级过滤词（textarea 截回触发符），
+        // caret 紧随其后（"清空重输"语义），二级从全量列表重新过滤。
+        if (trigger.open && trigger.kind === 'reference' && trigger.stage === 'category' && item.category) {
+            const nextValue = content.slice(0, trigger.triggerStart + 1)
+            setContent(nextValue)
+            setTrigger((prev) => descendToItems(prev, item.category!))
+            pendingCaretRef.current = nextValue.length
+            return
+        }
+        const chip = item.chip
+        if (!chip) return
+        const token = chip.token
         // token 唯一约束：同名 chip 已存在则仅关面板
         if (hasChipToken(chips, token)) {
             setTrigger(CLOSED)
@@ -119,7 +156,7 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
         const start = trigger.open ? trigger.triggerStart : caret
         const next = insertChipToken(content, start, caret, token)
         setContent(next.value)
-        setChips((prev) => [...prev, item.chip])
+        setChips((prev) => [...prev, chip])
         setTrigger(CLOSED)
         pendingCaretRef.current = next.caret
     }, [chips, content, trigger])
@@ -151,8 +188,25 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
             }
         }
 
+        // Backspace 手势：二级且过滤词为空 → 返回一级分类层（不删字符）
+        if (
+            e.key === 'Backspace' &&
+            trigger.open &&
+            trigger.kind === 'reference' &&
+            trigger.stage === 'items' &&
+            trigger.query === '' &&
+            ta.selectionStart === ta.selectionEnd
+        ) {
+            e.preventDefault()
+            setTrigger((prev) => ascendToCategory(prev))
+            return
+        }
+
         const action = handleTriggerKeyDown(trigger, e.key)
-        if (action.type === 'move') {
+        if (action.type === 'back') {
+            e.preventDefault()
+            setTrigger((prev) => ascendToCategory(prev))
+        } else if (action.type === 'move') {
             e.preventDefault()
             setTrigger((prev) => moveSelection(prev, action.delta, candidates.length))
         } else if (action.type === 'commit') {

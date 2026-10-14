@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // vitest 未开 globals：RTL 自动清理不生效，沿用 SkillFormModal.test.tsx 的手动 cleanup 约定。
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import CommandPalette from './CommandPalette'
@@ -10,6 +10,11 @@ const items: PaletteItem[] = [
 ]
 
 describe('CommandPalette', () => {
+    beforeEach(() => {
+        // jsdom 未实现 scrollIntoView，stub 之
+        Element.prototype.scrollIntoView = vi.fn();
+    });
+
     afterEach(() => {
         cleanup();
     });
@@ -37,4 +42,14 @@ describe('CommandPalette', () => {
         render(<CommandPalette items={[]} selectedIndex={0} query="zzz" onSelect={vi.fn()} onHover={vi.fn()} />)
         expect(screen.getByText('无匹配的 skill')).toBeTruthy()
     })
+
+    it('selectedIndex 变化时对选中项调用 scrollIntoView（滚动跟随）', () => {
+        const { rerender } = render(
+            <CommandPalette items={items} selectedIndex={0} query="" onSelect={vi.fn()} onHover={vi.fn()} />,
+        );
+        rerender(
+            <CommandPalette items={items} selectedIndex={1} query="" onSelect={vi.fn()} onHover={vi.fn()} />,
+        );
+        expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    });
 })

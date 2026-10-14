@@ -303,9 +303,15 @@ export default function Sender() {
                         )}
                         {trigger.open && trigger.kind === 'reference' && (
                             <ReferencePicker
+                                stage={trigger.stage}
                                 items={candidates}
                                 selectedIndex={trigger.selectedIndex}
                                 query={trigger.query}
+                                categoryLabel={
+                                    trigger.stage === 'items'
+                                        ? trigger.category === 'session' ? '会话' : '文件'
+                                        : undefined
+                                }
                                 onSelect={selectItem}
                                 onHover={hoverItem}
                             />
