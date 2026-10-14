@@ -153,8 +153,12 @@ interface SessionStore {
     sendMessage: (params: {
         sessionId: string;
         content: string;
-        /** 引用已上传资产的 id（服务端解析注入）。 */
+        /** 引用已上传资产的 id（服务端解析注入；含 @file chip 载荷）。 */
         assetIds?: string[];
+        /** / 命令携带的手动激活 skill 名（chip 载荷）。 */
+        enforcedSkillIds?: string[];
+        /** @会话 引用携带的目标会话 id（chip 载荷）。 */
+        referencedSessionIds?: string[];
         /** 仅用于乐观渲染本地用户消息的附件卡片（可选）。 */
         attachments?: Message['attachments'];
     }) => Promise<void>;
@@ -444,7 +448,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
 
         // Send message via server SSE
         // If sessionId is the sentinel, lazily create the session first.
-        sendMessage: async ({ sessionId, content, assetIds, attachments }) => {
+        sendMessage: async ({ sessionId, content, assetIds, enforcedSkillIds, referencedSessionIds, attachments }) => {
             transition('send');
             const { addMessage, updateMessage, updateSessionSummary, createSession, pendingModelId } = get();
 
@@ -476,7 +480,14 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
             set({ abortController, isSending: true });
 
             try {
-                const result = await api.sendMessage({ sessionId: realSessionId, content, assetIds });
+                // 本地乐观 userMessage 保持纯 content 投影——chip 不进本地消息缓存，与 DB 侧一致。
+                const result = await api.sendMessage({
+                    sessionId: realSessionId,
+                    content,
+                    ...(assetIds && assetIds.length > 0 ? { assetIds } : {}),
+                    ...(enforcedSkillIds && enforcedSkillIds.length > 0 ? { enforcedSkillIds } : {}),
+                    ...(referencedSessionIds && referencedSessionIds.length > 0 ? { referencedSessionIds } : {}),
+                });
                 updateMessage(realSessionId, userMessage.id, { status: 'sent' });
 
                 // Async mode: the server accepted the message as a background job

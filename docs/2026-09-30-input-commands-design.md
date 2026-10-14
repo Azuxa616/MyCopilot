@@ -1,7 +1,7 @@
 # 输入框命令与引用（/ 与 @）设计
 
 **日期：** 2026-09-30
-**状态：** 设计定稿，待用户批准后转入实施计划
+**状态：** 已实施（实施计划 `docs/2026-09-30-input-commands-plan.md`）
 **分支：** main
 **来源：** 2026-09-30 产品形态讨论结论沉淀
 **关联文档：** `2026-09-30-attachment-assets-multimodal-design.md`（`@file` 消费资产与 parts 管道）、`2026-09-30-model-capability-design.md`（图片引用的能力门控）、`docs/2026-08-22-skill-system-upgrade-design.md`（渐进披露与 `read_skill`）、`docs/2026-07-11-tool-safety-system-design.md`（工具安全分级）

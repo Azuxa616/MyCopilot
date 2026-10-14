@@ -25,6 +25,8 @@ const mockUnregisterStream = vi.fn();
 
 const mockListEnabledTools = vi.fn(() => []);
 
+const mockCreateJob = vi.fn();
+
 const mockRunAgentLoop = vi.fn();
 
 // Skills 注入修复：sentinel 数组用于验证 buildSkillInjections() 的返回值
@@ -66,6 +68,9 @@ vi.mock('../../repo/tool.js', () => ({
 }));
 vi.mock('../../repo/session.js', () => ({
   updateSession: vi.fn(),
+}));
+vi.mock('../../repo/job.js', () => ({
+  createJob: (...args: unknown[]) => mockCreateJob(...args),
 }));
 vi.mock('../../agent-loop/runner.js', () => ({
   runAgentLoop: mockRunAgentLoop,
@@ -557,5 +562,67 @@ describe('Stream Message Lifecycle', () => {
 
     // unregisterStream still called (finally block)
     expect(mockUnregisterStream).toHaveBeenCalledWith('test-session');
+  });
+
+  // ── / 命令与 @ 引用参数穿透（skill P0 教训：双链路之 sync）──
+
+  it('sync 链路：enforcedSkillIds 传入 buildSkillInjections，referencedSessionIds 传入 runAgentLoop', async () => {
+    setupNormalCompletion();
+
+    streamMessageHandler(makeContext(), makeParams({
+      enforcedSkillIds: ['beta'],
+      referencedSessionIds: ['sess-9'],
+    }));
+    await flushMicrotasks();
+
+    expect(mockBuildSkillInjections).toHaveBeenCalledWith(['beta']);
+    expect(mockRunAgentLoop).toHaveBeenCalledWith(
+      expect.objectContaining({ referencedSessionIds: ['sess-9'] }),
+    );
+  });
+
+  it('未携带时按 undefined 传递（零行为变化）', async () => {
+    setupNormalCompletion();
+
+    streamMessageHandler(makeContext(), makeParams());
+    await flushMicrotasks();
+
+    expect(mockBuildSkillInjections).toHaveBeenCalledWith(undefined);
+    expect(mockRunAgentLoop).toHaveBeenCalledWith(
+      expect.objectContaining({ referencedSessionIds: undefined }),
+    );
+  });
+
+  it('async 链路（入队侧）：enforcedSkillIds / referencedSessionIds 写入 job payload', async () => {
+    setupNormalCompletion();
+    mockCreateJob.mockReturnValue({ id: 'job-1' });
+    process.env.AGENT_ASYNC_MODE = 'true';
+
+    try {
+      const asyncContext = {
+        json: (data: unknown, status: number) =>
+          new Response(JSON.stringify(data), { status }),
+      } as unknown as Context;
+
+      streamMessageHandler(asyncContext, makeParams({
+        enforcedSkillIds: ['beta'],
+        referencedSessionIds: ['sess-9'],
+      }));
+      await flushMicrotasks();
+
+      expect(mockCreateJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'agent-loop',
+          payload: expect.objectContaining({
+            enforcedSkillIds: ['beta'],
+            referencedSessionIds: ['sess-9'],
+          }),
+        }),
+      );
+      // async 模式不走 runAgentLoop（由 worker 执行）
+      expect(mockRunAgentLoop).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.AGENT_ASYNC_MODE;
+    }
   });
 });

@@ -102,6 +102,22 @@ describe('skills route', () => {
     expect(listSkills).toHaveBeenCalledWith({ enabled: true, source: 'directory' });
   });
 
+  it('GET /effective returns the enabled skill set for the command palette', async () => {
+    const ENABLED = { ...mockSkillMeta, id: 'se1', enabled: true };
+    const DISABLED = { ...mockSkillMeta, id: 'sd1', enabled: false };
+    vi.mocked(listSkills).mockImplementation(
+      (filter?: { enabled?: boolean }) =>
+        filter?.enabled === true ? [ENABLED] : [ENABLED, DISABLED],
+    );
+
+    const app = createTestApp();
+    const res = await app.request('/effective');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ApiResponse;
+    expect(body.data).toEqual([ENABLED]);
+    expect(vi.mocked(listSkills)).toHaveBeenCalledWith({ enabled: true });
+  });
+
   it('POST / creates skill with valid content', async () => {
     const parsed = {
       frontmatter: { name: 'New', description: 'desc' },

@@ -13,7 +13,7 @@ vi.mock('../../repo/skill.js', () => ({
   getSkill: (...args: unknown[]) => mockGetSkill(...args),
 }));
 
-const { buildSkillInjections } = await import('../skill-injections.js');
+const { buildSkillInjections, listEffectiveSkillMetas } = await import('../skill-injections.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,12 +135,54 @@ describe('buildSkillInjections', () => {
     });
   });
 
-  it('meta 对应 detail 缺失（getSkill → undefined）时跳过该条', () => {
-    mockListSkills.mockReturnValue([
-      { id: 'skill-1', name: 'alpha', enabled: true, createdAt: 1 },
-    ] as SkillMeta[]);
-    mockGetSkill.mockReturnValue(undefined);
+  it('enforcedSkillIds 命中启用 skill → 该条 always: true（手动激活走 always 全文通道）', () => {
+    installTable([
+      { id: 'skill-1', name: 'alpha', body: 'body of alpha', enabled: true, createdAt: 2 },
+      { id: 'skill-2', name: 'beta', body: 'body of beta', enabled: true, createdAt: 1 },
+    ]);
 
-    expect(buildSkillInjections()).toEqual([]);
+    const result = buildSkillInjections(['beta']);
+
+    expect(result).toEqual([
+      expect.objectContaining({ name: 'alpha', always: false }),
+      expect.objectContaining({ name: 'beta', always: true }),
+    ]);
+  });
+
+  it('enforcedSkillIds 命中已 always 的 skill → 保持单条且 always: true（不重复注入）', () => {
+    mockListSkills.mockReturnValue([
+      { id: 'skill-1', name: 'always-skill', enabled: true, createdAt: 1, description: 'd' },
+    ] as SkillMeta[]);
+    mockGetSkill.mockReturnValue(
+      makeDetail(
+        { id: 'skill-1', name: 'always-skill', body: 'b', enabled: true, createdAt: 1 },
+        { always: true },
+      ),
+    );
+
+    const result = buildSkillInjections(['always-skill']);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ name: 'always-skill', always: true });
+  });
+
+  it('enforcedSkillIds 命中未启用/不存在的 skill → 静默忽略（有效集语义：enforced 与 enabled）', () => {
+    installTable([
+      { id: 'skill-1', name: 'alpha', body: 'b', enabled: true, createdAt: 1 },
+      { id: 'skill-2', name: 'gamma', body: 'b', enabled: false, createdAt: 2 },
+    ]);
+
+    const result = buildSkillInjections(['gamma', 'nope']);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ name: 'alpha', always: false });
+  });
+
+  it('listEffectiveSkillMetas 返回启用集（/ 面板与注入同源）', () => {
+    installTable([
+      { id: 'skill-1', name: 'alpha', body: 'b', enabled: true, createdAt: 1 },
+      { id: 'skill-2', name: 'gamma', body: 'b', enabled: false, createdAt: 2 },
+    ]);
+
+    expect(listEffectiveSkillMetas().map((m) => m.name)).toEqual(['alpha']);
   });
 });
+

@@ -38,6 +38,8 @@ import type {
   JsonSchemaTool,
 } from '../llm/base.js';
 import type { AttachmentText, SkillInjection } from '../prompt/assembler.js';
+import { buildReferencedSessionsText } from '../prompt/referenced-sessions.js';
+import { appendReadSessionTool } from '../tools/builtins/read-session.js';
 import { applyVisionLearningLoop } from '../capability/learning.js';
 import { hasImageParts } from '../attachment/resolve.js';
 import { assembleMessagesV2 } from '../prompt/assembler.js';
@@ -116,6 +118,13 @@ export interface RunAgentLoopParams {
   /** 当前轮用户消息的多模态 parts（图片；经 assembler 解析为 wire images）。 */
   currentUserParts?: MessagePart[];
   skills?: SkillInjection[];
+  /**
+   * `@会话` 引用（input-commands 设计）：本轮用户点名的会话 id 列表。
+   * 携带时 runner 完成单点接线：摘要注入块拼入最终 user 消息前缀
+   * （assembler 的 referencedSessions），并把 read_session 追加进本轮
+   * 广告工具目录；缺省/为空时零行为变化。
+   */
+  referencedSessionIds?: string[];
   /** Enabled tools to advertise to the LLM. */
   tools: Tool[];
   adapter: ProviderAdapter;
@@ -357,6 +366,7 @@ export async function runAgentLoop(
     attachments,
     currentUserParts,
     skills,
+    referencedSessionIds,
     tools,
     adapter,
     adapterConfig,
@@ -378,7 +388,20 @@ export async function runAgentLoop(
 
   let lastIterationContent = '';
   const addedMessages: Message[] = [];
-  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+
+  // @会话 引用（input-commands 设计）单点接线：
+  // - 第一层：摘要注入块文本（referenced-sessions 内部 fail-soft；无引用时
+  //   不调用、传 undefined，assembler 跳过注入）；
+  // - 第二层：read_session 仅在本轮携带引用时追加进广告工具目录
+  //   （appendReadSessionTool 无引用时原样返回同一数组，零行为变化）。
+  // toolsByName 与 jsonTools 统一基于 effectiveTools，保证 read_session
+  // 的广告与执行路径（advertisedTool 查找）一致。
+  const referencedSessions =
+    referencedSessionIds && referencedSessionIds.length > 0
+      ? buildReferencedSessionsText(referencedSessionIds)
+      : undefined;
+  const effectiveTools = appendReadSessionTool(tools, referencedSessionIds);
+  const toolsByName = new Map(effectiveTools.map((tool) => [tool.name, tool]));
 
   // 已尝试工具调用 digest 的镜像集合：LoopGuard 内部由 markAttempted 维护，
   // 此处同步记录以填充 check() 的 attemptedDigests 快照（当前 runtime 侧
@@ -386,7 +409,7 @@ export async function runAgentLoop(
   const attemptedDigests = new Set<string>();
 
   // Convert Tool[] to JsonSchemaTool[] for LLM adapter
-  const jsonTools: JsonSchemaTool[] = tools.map((t) => ({
+  const jsonTools: JsonSchemaTool[] = effectiveTools.map((t) => ({
     type: 'function' as const,
     function: {
       name: t.name,
@@ -474,6 +497,7 @@ export async function runAgentLoop(
         attachments,
         currentUserParts,
         skills,
+        referencedSessions,
         sessionId,
         adapter,
         adapterConfig,
@@ -832,6 +856,8 @@ export interface AgentLoopJobContext {
   /** 当前轮用户消息的多模态 parts（图片）。 */
   currentUserParts?: MessagePart[];
   skills?: SkillInjection[];
+  /** `@会话` 引用携带的目标会话 id（透传 {@link runAgentLoop}）。 */
+  referencedSessionIds?: string[];
   tools: Tool[];
   adapter: ProviderAdapter;
   adapterConfig: AdapterConfig;

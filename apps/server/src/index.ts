@@ -106,9 +106,9 @@ app.route('/api/models', modelCapabilitiesApp);
 // loop. registerTool throws on double-registration (e.g. HMR in dev), so wrap
 // each call defensively.
 function registerBuiltInTools() {
-  for (const { name, executor } of builtinExecutors) {
+  for (const { name, executor, advertised } of builtinExecutors) {
     try {
-      registerTool(name, executor);
+      registerTool(name, executor, { advertised: advertised ?? true });
     } catch (err) {
       // Already registered (e.g. hot reload) — safe to ignore.
       console.warn(`[tools] ${name} already registered:`, err instanceof Error ? err.message : err);

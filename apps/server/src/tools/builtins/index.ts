@@ -12,10 +12,13 @@ import { listGithubSkillsExecutor } from './list-github-skills.js';
 import { installSkillExecutor } from './install-skill.js';
 import { readSkillExecutor } from './read-skill.js';
 import { webSearchExecutor } from './web-search.js';
+import { readSessionExecutor } from './read-session.js';
 
 export interface BuiltinExecutorRegistration {
   name: string;
   executor: ToolExecutor;
+  /** false = 注册可执行但不进常驻广告列表（按轮条件广告，如 read_session）。 */
+  advertised?: boolean;
 }
 
 // E2E test fixtures (e2e_danger_tool / e2e_restricted_tool) are gated behind
@@ -43,6 +46,7 @@ export const builtinExecutors: readonly BuiltinExecutorRegistration[] = [
   { name: 'read_skill', executor: readSkillExecutor },
   { name: 'list_github_skills', executor: listGithubSkillsExecutor },
   { name: 'install_skill', executor: installSkillExecutor },
+  { name: 'read_session', executor: readSessionExecutor, advertised: false },
   ...e2eTools,
 ];
 
@@ -58,4 +62,5 @@ export { jsonFormatExecutor } from './json-format.js';
 export { listGithubSkillsExecutor } from './list-github-skills.js';
 export { installSkillExecutor } from './install-skill.js';
 export { readSkillExecutor } from './read-skill.js';
+export { readSessionExecutor, appendReadSessionTool } from './read-session.js';
 export { webSearchExecutor, registerWebSearch } from './web-search.js';

@@ -83,4 +83,8 @@ export interface SendMessageParams {
   content: string;
   /** 发送时引用的资产 id（服务端解析：文本类 → AttachmentText 注入；图片类 → image part）。 */
   assetIds?: string[];
+  /** / 命令携带的手动激活 skill 名（服务端按有效集语义合并为 always 注入，未启用者忽略）。 */
+  enforcedSkillIds?: string[];
+  /** @会话 引用携带的目标会话 id（服务端注入摘要块并按需注册 read_session 工具）。 */
+  referencedSessionIds?: string[];
 }
