@@ -131,13 +131,22 @@ export async function sendMessage(params: {
     sessionId: string;
     content: string;
     assetIds?: string[];
+    /** / 命令携带的手动激活 skill 名（chip 载荷，服务端 always 语义注入）。 */
+    enforcedSkillIds?: string[];
+    /** @会话 引用携带的目标会话 id（chip 载荷，服务端注入摘要块 + 按轮注册 read_session）。 */
+    referencedSessionIds?: string[];
 }): Promise<SendMessageResult> {
-    const { sessionId, content, assetIds } = params;
+    const { sessionId, content, assetIds, enforcedSkillIds, referencedSessionIds } = params;
 
     const response = await fetchWithAuth(`/api/sessions/${sessionId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, ...(assetIds && assetIds.length > 0 ? { assetIds } : {}) }),
+        body: JSON.stringify({
+            content,
+            ...(assetIds && assetIds.length > 0 ? { assetIds } : {}),
+            ...(enforcedSkillIds && enforcedSkillIds.length > 0 ? { enforcedSkillIds } : {}),
+            ...(referencedSessionIds && referencedSessionIds.length > 0 ? { referencedSessionIds } : {}),
+        }),
         timeout: 120000,
     });
 
