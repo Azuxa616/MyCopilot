@@ -12,7 +12,7 @@ import { listGithubSkillsExecutor } from './list-github-skills.js';
 import { installSkillExecutor } from './install-skill.js';
 import { readSkillExecutor } from './read-skill.js';
 import { webSearchExecutor } from './web-search.js';
-import { readSessionExecutor, appendReadSessionTool } from './read-session.js';
+import { readSessionExecutor } from './read-session.js';
 
 export interface BuiltinExecutorRegistration {
   name: string;
