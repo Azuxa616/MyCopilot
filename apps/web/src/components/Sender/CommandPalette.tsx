@@ -25,6 +25,7 @@ export default function CommandPalette({ items, selectedIndex, query, onSelect, 
                         <li key={item.key}>
                             <button
                                 type="button"
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => onSelect(index)}
                                 onMouseEnter={() => onHover(index)}
                                 className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors ${

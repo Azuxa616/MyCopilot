@@ -16,7 +16,7 @@ export default function ChipsOverlay({ value, chips }: { value: string; chips: I
             {annotateLines(value, chips).map((line, i) => (
                 <div key={i} className="min-h-6">
                     {line.type === 'chip' ? (
-                        <span className="inline-flex h-5 max-w-full items-center truncate rounded-md border border-primary-200 bg-primary-50 px-1.5 align-baseline text-xs leading-5 text-primary-700">
+                        <span className="inline-flex max-w-full items-center truncate rounded-md border border-primary-200 bg-primary-50 px-1.5 align-baseline text-primary-700">
                             {line.chip.label}
                         </span>
                     ) : (

@@ -52,7 +52,12 @@ export function useChipInput({ skills, references, onSend }: UseChipInputOptions
         pendingCaretRef.current = null
         const ta = textareaRef.current
         if (ta) {
-            requestAnimationFrame(() => ta.setSelectionRange(caret, caret))
+            requestAnimationFrame(() => {
+                // 兜底聚焦：鼠标点选等路径可能已移走焦点（面板按钮另有
+                // onMouseDown preventDefault 主防线）。
+                if (document.activeElement !== ta) ta.focus()
+                ta.setSelectionRange(caret, caret)
+            })
         }
     }, [content])
 
