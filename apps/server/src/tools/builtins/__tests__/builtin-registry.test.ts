@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { builtinExecutors } from '../index.js';
 
 describe('builtinExecutors', () => {
-  it('contains twelve uniquely named executors with unique descriptors', () => {
+  it('contains fourteen uniquely named executors with unique descriptors', () => {
     const names = builtinExecutors.map(({ name }) => name);
     const descriptors = builtinExecutors.map(({ executor }) => executor.describe());
     const ids = descriptors.map(({ id }) => id);
 
-    expect(names).toHaveLength(13);
+    expect(names).toHaveLength(14);
+    expect(names).toContain('propose_scheduled_task');
     expect(new Set(names).size).toBe(names.length);
     expect(new Set(ids).size).toBe(ids.length);
     expect(descriptors.map(({ name }) => name)).toEqual(names);

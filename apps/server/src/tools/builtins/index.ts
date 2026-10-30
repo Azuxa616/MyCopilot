@@ -13,6 +13,7 @@ import { installSkillExecutor } from './install-skill.js';
 import { readSkillExecutor } from './read-skill.js';
 import { webSearchExecutor } from './web-search.js';
 import { readSessionExecutor } from './read-session.js';
+import { proposeScheduledTaskExecutor } from './propose-scheduled-task.js';
 
 export interface BuiltinExecutorRegistration {
   name: string;
@@ -47,6 +48,7 @@ export const builtinExecutors: readonly BuiltinExecutorRegistration[] = [
   { name: 'list_github_skills', executor: listGithubSkillsExecutor },
   { name: 'install_skill', executor: installSkillExecutor },
   { name: 'read_session', executor: readSessionExecutor, advertised: false },
+  { name: 'propose_scheduled_task', executor: proposeScheduledTaskExecutor },
   ...e2eTools,
 ];
 
@@ -64,3 +66,5 @@ export { installSkillExecutor } from './install-skill.js';
 export { readSkillExecutor } from './read-skill.js';
 export { readSessionExecutor, appendReadSessionTool } from './read-session.js';
 export { webSearchExecutor, registerWebSearch } from './web-search.js';
+
+export { proposeScheduledTaskExecutor } from './propose-scheduled-task.js';

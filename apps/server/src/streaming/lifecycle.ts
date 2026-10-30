@@ -241,7 +241,7 @@ interface HandlerDeps {
  * Kept as a free function (not a method) so it can be unit-tested in isolation
  * once we add direct tests for the SSE mapping.
  */
-async function handleAgentEvent(
+export async function handleAgentEvent(
   event: AgentLoopEvent,
   deps: HandlerDeps,
 ): Promise<void> {
@@ -311,6 +311,12 @@ async function handleAgentEvent(
       });
       break;
     }
+    case 'scheduled_task_draft':
+      await deps.stream.writeSSE({
+        event: 'scheduled_task_draft',
+        data: JSON.stringify({ draftId: event.draft.id }),
+      });
+      break;
     case 'tool_confirmation_settled':
       break;
     case 'agent_loop_end':

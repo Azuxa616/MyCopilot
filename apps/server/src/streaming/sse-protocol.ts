@@ -11,6 +11,7 @@ export type SSEEventType =
   | 'tool_result'
   | 'confirmation_required'
   | 'job_status'
+  | 'scheduled_task_draft'
   /** v2 新增（RFC agent-loop-v2 §3 Extended Thinking），追加到末尾以保持现有顺序不变。 */
   | 'reasoning';
 
@@ -109,6 +110,10 @@ export interface ReasoningEvent {
   text: string;
 }
 
+export interface ScheduledTaskDraftEvent {
+  draftId: string;
+}
+
 /** Union of all possible SSE event data types. */
 export type SSEEventData =
   | PlaceholderEvent
@@ -122,4 +127,5 @@ export type SSEEventData =
   | ToolResultEvent
   | ConfirmationRequiredEvent
   | JobStatusEvent
-  | ReasoningEvent;
+  | ReasoningEvent
+  | ScheduledTaskDraftEvent;

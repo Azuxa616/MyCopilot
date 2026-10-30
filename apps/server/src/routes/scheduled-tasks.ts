@@ -89,3 +89,5 @@ scheduledRunsApp.post('/:id/read', (c) => {
   if (!getScheduledTaskRun(c.req.param('id'))) throw new HttpError(404, 'scheduled_task_run_not_found');
   return successResponse(c, markScheduledTaskRunRead(c.req.param('id'), now()));
 });
+
+export { parseInput as parseScheduledTaskInput, mapError as mapScheduledTaskError, readInput as readScheduledTaskInput };
