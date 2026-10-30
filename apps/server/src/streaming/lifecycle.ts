@@ -1,34 +1,22 @@
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import type { Message, Provider, Model, AttachmentMeta } from '@my-copilot/shared';
+import type { AttachmentMeta } from '@my-copilot/shared';
 import { createMessage, updateMessage, updateMessageContent } from '../repo/message.js';
 import { updateSession } from '../repo/session.js';
-import { createJob } from '../repo/job.js';
 import { getAdapter } from '../llm/index.js';
 import { listEnabledTools } from '../repo/tool.js';
 import { listRegisteredTools } from '../tools/registry.js';
 import { runAgentLoop } from '../agent-loop/runner.js';
 import type { AgentLoopEvent } from '../agent-loop/runner.js';
-import type { AttachmentText } from '../prompt/assembler.js';
 import { buildSkillInjections } from '../prompt/skill-injections.js';
 import { filterDemoTools } from '../demo/tools.js';
 import { applyVisionLearningLoop } from '../capability/learning.js';
 import { hasImageParts } from '../attachment/resolve.js';
 import { registerStream, unregisterStream } from './registry.js';
+import { enqueueAgentLoop } from '../jobs/enqueue-agent-loop.js';
+import type { StreamMessageParams } from '../jobs/enqueue-agent-loop.js';
 
-/** Parameters for the stream message handler. */
-export interface StreamMessageParams {
-  sessionId: string;
-  userMessage: Message;
-  provider: Provider;
-  model: Model;
-  attachments?: AttachmentText[];
-  history: Message[];
-  /** / 命令携带的手动激活 skill 名（经 buildSkillInjections 合并为 always 注入）。 */
-  enforcedSkillIds?: string[];
-  /** `@会话` 引用的目标会话 id（透传 runAgentLoop：注入摘要 + 追加 read_session）。 */
-  referencedSessionIds?: string[];
-}
+export type { StreamMessageParams } from '../jobs/enqueue-agent-loop.js';
 
 /**
  * Full SSE streaming lifecycle:
@@ -40,6 +28,18 @@ export interface StreamMessageParams {
  */
 export function streamMessageHandler(c: Context, params: StreamMessageParams): Response {
   const { sessionId, userMessage, provider, model, attachments, history, enforcedSkillIds, referencedSessionIds } = params;
+
+  if (process.env.AGENT_ASYNC_MODE === 'true') {
+    const { job, assistantMessage } = enqueueAgentLoop(params);
+    return c.json({
+      data: {
+        jobId: job.id,
+        status: 'pending',
+        message: 'Job created',
+        assistantMessageId: assistantMessage.id,
+      },
+    }, 200);
+  }
 
   // 1. Save user message
   createMessage({
@@ -81,54 +81,6 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
         tool.type === 'mcp-provided' && tool.sourceMcpId !== null,
     ),
   ]);
-
-  // ─── Async mode (Step B): enqueue a job and return immediately ───
-  // When AGENT_ASYNC_MODE=true the client does not hold an SSE connection;
-  // we persist a `agent-loop` job and the background worker runs the loop.
-  // The client polls /api/jobs/:id (or /api/jobs/:id/stream) for progress.
-  // Sync mode (default) falls through to the SSE path below.
-  if (process.env.AGENT_ASYNC_MODE === 'true') {
-    const job = createJob({
-      type: 'agent-loop',
-      payload: {
-        sessionId,
-        // Placeholder assistant message created above; the worker fills it.
-        userMessageId: assistantMsg.id,
-        // 学习闭环：最终生效模型（worker 侧 runAgentLoopAsJob 消费）。
-        modelId: model.id,
-        userContent: userMessage.content,
-        // History is JSON-serialised by createJob; plain message objects.
-        history,
-        attachments: attachments ?? [],
-        currentUserParts: userMessage.parts ?? [],
-        // / 与 @ 的按轮参数：worker 执行期消费（skills 集合本身仍是执行期解析，
-        // 只有用户意图随 payload 快照——与 tools 的重解析语义一致）。
-        enforcedSkillIds: enforcedSkillIds ?? [],
-        referencedSessionIds: referencedSessionIds ?? [],
-        adapterType: provider.type,
-        adapterConfig,
-        enabledTools,
-      },
-      sessionId,
-      maxAttempts: 1,
-    });
-
-    // Confirm placeholder is in `sending` state (no-op if already sending).
-    // The worker's runAgentLoop will transition it to sent/aborted/failed.
-    updateMessage(assistantMsg.id, { content: '', status: 'sending' });
-
-    return c.json(
-      {
-        data: {
-          jobId: job.id,
-          status: 'pending',
-          message: 'Job created',
-          assistantMessageId: assistantMsg.id,
-        },
-      },
-      200,
-    );
-  }
 
   // Register this user-facing stream for abort tracking.
   const ac = registerStream(sessionId);
