@@ -31,6 +31,7 @@ import { syncDirectorySkills } from './skills/index.js';
 import { disconnectAll, synchronizeAllEnabledMcps } from './mcp/index.js';
 import { start as startJobWorker, stop as stopJobWorker, registerAgentLoopHandler } from './jobs/worker.js';
 import { seedDemoData } from './demo/seed.js';
+import { startScheduler, stopScheduler } from './scheduler/index.js';
 
 // Resolve dataDir first (needed for db init before full config load)
 const dataDir = resolve(process.env.DATA_DIR || './data');
@@ -142,6 +143,7 @@ if (skillsDir) {
 // poll cycle can dispatch any `agent-loop` job that was already queued.
 registerAgentLoopHandler();
 void startJobWorker();
+startScheduler();
 
 // Static file serving — single-container mode
 if (config.serverPublicDir && existsSync(config.serverPublicDir)) {
@@ -174,8 +176,8 @@ httpServer.headersTimeout = 0;
 // Graceful shutdown: wait up to 5s for active SSE streams to finish
 async function gracefulShutdown(signal: string) {
   console.log(`${signal} received, shutting down...`);
-  // Stop the job worker first so it stops claiming/dispatching new jobs
-  // and aborts the in-flight one before we tear down shared resources.
+  // 先停止产生新 Job 的 Scheduler，再停止 Worker。
+  stopScheduler();
   try {
     await stopJobWorker();
   } catch (err) {

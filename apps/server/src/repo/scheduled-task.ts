@@ -1,5 +1,6 @@
 import type { ScheduledTask, ScheduledTaskRun, ScheduledTaskRunView } from '@my-copilot/shared';
 import { getDb } from '../db/index.js';
+import { getJob } from './job.js';
 
 interface ScheduledTaskRow {
   id: string; name: string; prompt: string; schedule_type: string; run_at: number | null;
@@ -80,6 +81,62 @@ export function updateScheduledTaskRecord(task: ScheduledTask): ScheduledTask {
 }
 
 export function toScheduledTaskRunView(run: ScheduledTaskRun): ScheduledTaskRunView {
-  const status = run.dispatchStatus === 'skipped' ? 'skipped' : run.dispatchStatus === 'failed' ? 'dispatch_failed' : 'pending';
+  const status = run.dispatchStatus === 'skipped'
+    ? 'skipped'
+    : run.dispatchStatus === 'failed'
+      ? 'dispatch_failed'
+      : run.jobId ? getJob(run.jobId)?.status ?? 'dispatch_failed' : 'dispatch_failed';
   return { ...run, status };
+}
+
+export function listDueScheduledTaskRecords(at: number, limit = 20): ScheduledTask[] {
+  const rows = getDb().prepare(`SELECT * FROM scheduled_tasks
+    WHERE deleted_at IS NULL AND status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= ?
+    ORDER BY next_run_at ASC LIMIT ?`).all(at, limit) as ScheduledTaskRow[];
+  return rows.map(rowToTask);
+}
+
+export function insertScheduledTaskRun(run: ScheduledTaskRun): ScheduledTaskRun {
+  getDb().prepare(`INSERT INTO scheduled_task_runs (
+    id, task_id, scheduled_for, trigger_type, job_id, session_id, user_message_id,
+    assistant_message_id, dispatch_status, skipped_reason, dispatch_error, read_at, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    run.id, run.taskId, run.scheduledFor, run.triggerType, run.jobId, run.sessionId,
+    run.userMessageId, run.assistantMessageId, run.dispatchStatus, run.skippedReason,
+    run.dispatchError, run.readAt, run.createdAt,
+  );
+  return run;
+}
+
+export function getScheduledTaskRun(id: string): ScheduledTaskRunView | undefined {
+  const row = getDb().prepare('SELECT * FROM scheduled_task_runs WHERE id = ?').get(id) as ScheduledTaskRunRow | undefined;
+  return row ? toScheduledTaskRunView(rowToScheduledTaskRun(row)) : undefined;
+}
+
+export function listScheduledTaskRunViews(taskId: string): ScheduledTaskRunView[] {
+  const rows = getDb().prepare('SELECT * FROM scheduled_task_runs WHERE task_id = ? ORDER BY created_at DESC, id DESC').all(taskId) as ScheduledTaskRunRow[];
+  return rows.map((row) => toScheduledTaskRunView(rowToScheduledTaskRun(row)));
+}
+
+export function hasActiveScheduledTaskRun(taskId: string): boolean {
+  const row = getDb().prepare(`SELECT r.id FROM scheduled_task_runs r
+    JOIN jobs j ON j.id = r.job_id
+    WHERE r.task_id = ? AND r.dispatch_status = 'dispatched'
+      AND j.status IN ('pending', 'running', 'waiting_confirmation') LIMIT 1`).get(taskId);
+  return row !== undefined;
+}
+
+export function countUnreadScheduledTaskRuns(): number {
+  const row = getDb().prepare(`SELECT COUNT(*) AS count FROM scheduled_task_runs r
+    LEFT JOIN jobs j ON j.id = r.job_id
+    WHERE r.read_at IS NULL AND (
+      r.dispatch_status IN ('skipped', 'failed')
+      OR j.status IN ('waiting_confirmation', 'done', 'failed', 'cancelled')
+    )`).get() as { count: number };
+  return row.count;
+}
+
+export function markScheduledTaskRunRead(id: string, at: number): ScheduledTaskRunView | undefined {
+  getDb().prepare('UPDATE scheduled_task_runs SET read_at = ? WHERE id = ? AND read_at IS NULL').run(at, id);
+  return getScheduledTaskRun(id);
 }

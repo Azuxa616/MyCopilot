@@ -12,7 +12,7 @@ import {
 } from '../repo/scheduled-task.js';
 import { getNextRunAt } from './calculate-next-run.js';
 
-function validateScheduledTaskInput(input: ScheduledTaskInput, at = now()): void {
+export function validateScheduledTaskReferences(input: ScheduledTaskInput): void {
   if (!input.name.trim()) throw new Error('name_required');
   if (!input.prompt.trim()) throw new Error('prompt_required');
   if (input.targetType === 'existing_session') {
@@ -29,6 +29,10 @@ function validateScheduledTaskInput(input: ScheduledTaskInput, at = now()): void
     if (!skill) throw new Error('skill_not_found');
     if (!skill.enabled) throw new Error('skill_disabled');
   }
+}
+
+function validateScheduledTaskInput(input: ScheduledTaskInput, at = now()): void {
+  validateScheduledTaskReferences(input);
   const next = getNextRunAt(input, at);
   if (next === null) throw new Error('run_at_in_past');
 }

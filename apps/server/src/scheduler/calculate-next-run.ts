@@ -20,3 +20,14 @@ export function getNextRunAt(input: ScheduledTaskInput, after: number): number |
     throw new Error('invalid_cron_expression');
   }
 }
+
+export function getLatestRunAt(input: ScheduledTaskInput, at: number): number | null {
+  if (input.scheduleType === 'once') return input.runAt;
+  if (!input.cronExpression) throw new Error('cron_expression_required');
+  try {
+    return new Cron(input.cronExpression, { timezone: input.timezone })
+      .previousRuns(1, new Date(at + 1))[0]?.getTime() ?? null;
+  } catch {
+    throw new Error('invalid_cron_expression');
+  }
+}
