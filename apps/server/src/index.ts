@@ -32,6 +32,7 @@ import { disconnectAll, synchronizeAllEnabledMcps } from './mcp/index.js';
 import { start as startJobWorker, stop as stopJobWorker, registerAgentLoopHandler } from './jobs/worker.js';
 import { seedDemoData } from './demo/seed.js';
 import { startScheduler, stopScheduler } from './scheduler/index.js';
+import { scheduledTasksApp, scheduledRunsApp } from './routes/scheduled-tasks.js';
 
 // Resolve dataDir first (needed for db init before full config load)
 const dataDir = resolve(process.env.DATA_DIR || './data');
@@ -83,6 +84,8 @@ app.route('/api/skills', createSkillsApp({ skillsDir }));
 app.route('/api/mcps', mcpsApp);
 app.route('/api/plugins', pluginsApp);
 app.route('/api/jobs', jobsApp);
+app.route('/api/scheduled-tasks', scheduledTasksApp);
+app.route('/api/scheduled-runs', scheduledRunsApp);
 app.route('/api/auth', authApp);
 
 // Debug route — mounted ONLY when MYCOPILOT_DEBUG === '1' (explicit opt-in).
