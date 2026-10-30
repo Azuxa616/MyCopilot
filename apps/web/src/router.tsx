@@ -8,12 +8,21 @@ import { ToolsPage } from './views/settings/ToolsPage';
 import { SkillsPage } from './views/settings/SkillsPage';
 import { McpsPage } from './views/settings/McpsPage';
 import { PluginsPage } from './views/settings/PluginsPage';
+import { ScheduledTasksPage } from './views/scheduled/ScheduledTasksPage';
+import { ScheduledTaskEditorPage } from './views/scheduled/ScheduledTaskEditorPage';
+import { ScheduledTaskDetailPage } from './views/scheduled/ScheduledTaskDetailPage';
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <Layout />,
-    children: [{ index: true, element: <MainView /> }],
+    children: [
+      { index: true, element: <MainView /> },
+      { path: 'scheduled', element: <ScheduledTasksPage /> },
+      { path: 'scheduled/new', element: <ScheduledTaskEditorPage /> },
+      { path: 'scheduled/:id', element: <ScheduledTaskDetailPage /> },
+      { path: 'scheduled/:id/edit', element: <ScheduledTaskEditorPage /> },
+    ],
   },
   {
     path: '/settings',
