@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ScheduledTaskInput } from '@my-copilot/shared';
+import type { ScheduledTask, ScheduledTaskDraft, ScheduledTaskInput } from '@my-copilot/shared';
 import { errorMiddleware } from '../../middleware/error.js';
 import { getDb, initDatabase } from '../../db/index.js';
 import { createProvider } from '../../repo/provider.js';
@@ -30,10 +30,10 @@ describe('scheduled task draft routes', () => {
     const confirm = () => app().request(`/${draftId}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...input, name: '最终名称' }) });
     const first = await confirm();
     expect(first.status).toBe(200);
-    const body = await first.json() as any;
+    const body = await first.json() as { data: { draft: ScheduledTaskDraft; task: ScheduledTask } };
     expect(body.data.task.name).toBe('最终名称');
     const second = await confirm();
-    expect((await second.json() as any).data.task.id).toBe(body.data.task.id);
+    expect((await second.json() as { data: { task: ScheduledTask } }).data.task.id).toBe(body.data.task.id);
   });
 
   it('取消后不能确认', async () => {

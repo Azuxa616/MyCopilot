@@ -222,3 +222,15 @@ export function useJobStream(jobId: string | null): JobStreamState {
 
     return { job, isConnected, error };
 }
+
+/** 从 Job 结果中提取需要恢复确认卡片的草稿 ID。 */
+export function extractScheduledTaskDraftIds(job: Job | null): string[] {
+    if (!job?.result || !Array.isArray(job.result.events)) return [];
+    const ids = new Set<string>();
+    for (const value of job.result.events) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+        const event = value as { type?: unknown; draft?: { id?: unknown } };
+        if (event.type === 'scheduled_task_draft' && typeof event.draft?.id === 'string') ids.add(event.draft.id);
+    }
+    return [...ids];
+}

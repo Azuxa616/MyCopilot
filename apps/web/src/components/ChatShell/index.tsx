@@ -7,11 +7,13 @@ import Sender from '../Sender'
 import EmptyChatView from './EmptyChatView'
 import LoadingChatView from './LoadingChatView'
 import MessageList from './MessageList'
+import { ScheduledTaskDraftCard } from '../ScheduledTask/ScheduledTaskDraftCard'
+import { useScheduledTaskDrafts } from '../ScheduledTask/useScheduledTaskDrafts'
 // Hooks
 import { useMessageVirtualizer } from './hooks/useMessageVirtualizer'
 import { useAutoScroll } from './hooks/useAutoScroll'
 import { useMessageRegenerate } from './hooks/useMessageRegenerate'
-import { useJobStream, TERMINAL_JOB_STATUSES } from './hooks/useJobStream'
+import { useJobStream, TERMINAL_JOB_STATUSES, extractScheduledTaskDraftIds } from './hooks/useJobStream'
 // Store
 import { useSessionStore } from '../../store/sessionStore'
 import { useConfigStore } from '../../store/configStore'
@@ -34,6 +36,8 @@ export default function ChatShell() {
   const setPendingModelId = useSessionStore((state) => state.setPendingModelId)
   const activeJobId = useSessionStore((state) => state.activeJobId)
   const setActiveJobId = useSessionStore((state) => state.setActiveJobId)
+  const loadScheduledTaskDrafts = useSessionStore((state) => state.loadScheduledTaskDrafts)
+  const { drafts: scheduledDrafts, sessions: draftSessions, models: draftModels, skills: draftSkills } = useScheduledTaskDrafts(selectedSessionId)
 
   // Get messages for current session from cache, grouped into "timeline +
   // final answer" per assistant turn:
@@ -152,7 +156,9 @@ export default function ChatShell() {
   // invalidation, loadSessionMessages would short-circuit on the stale cache.
   useEffect(() => {
     if (!job || !TERMINAL_JOB_STATUSES.includes(job.status)) return
+    const draftIds = extractScheduledTaskDraftIds(job)
     if (selectedSessionId && selectedSessionId !== NEW_SESSION_SENTINEL) {
+      if (draftIds.length > 0) void loadScheduledTaskDrafts(selectedSessionId)
       useSessionStore.setState((state) => {
         const nextCache = { ...state.messagesCache }
         delete nextCache[selectedSessionId]
@@ -161,7 +167,7 @@ export default function ChatShell() {
       loadSessionMessages(selectedSessionId)
     }
     setActiveJobId(null)
-  }, [job, selectedSessionId, loadSessionMessages, setActiveJobId])
+  }, [job, selectedSessionId, loadSessionMessages, setActiveJobId, loadScheduledTaskDrafts])
 
   const hasNoModel = selectedSessionId === NEW_SESSION_SENTINEL
     ? !pendingModelId
@@ -227,6 +233,8 @@ export default function ChatShell() {
           <span>{jobStatusText}</span>
         </div>
       )}
+
+      {scheduledDrafts.map((draft) => <ScheduledTaskDraftCard key={draft.id} draft={draft} sessions={draftSessions} models={draftModels} skills={draftSkills} />)}
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden">

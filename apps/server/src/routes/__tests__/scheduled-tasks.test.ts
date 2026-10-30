@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ScheduledTask, ScheduledTaskInput } from '@my-copilot/shared';
+import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRunView } from '@my-copilot/shared';
 import { errorMiddleware } from '../../middleware/error.js';
 import { getDb, initDatabase } from '../../db/index.js';
 import { createProvider } from '../../repo/provider.js';
@@ -18,7 +18,7 @@ function app(): Hono {
   value.route('/scheduled-runs', scheduledRunsApp);
   return value;
 }
-async function json(res: Response): Promise<any> { return res.json(); }
+async function json<T = ScheduledTask & { triggerType: string; count: number }>(res: Response): Promise<{ code: number; msg: string; data: T }> { return res.json() as Promise<{ code: number; msg: string; data: T }>; }
 
 describe('scheduled task routes', () => {
   let testDir: string; let input: ScheduledTaskInput;
@@ -65,7 +65,7 @@ describe('scheduled task routes', () => {
     const run = (await json(runRes)).data;
     expect(run.triggerType).toBe('manual');
     expect((await app().request(`/scheduled-tasks/${task.id}/run`, { method: 'POST' })).status).toBe(409);
-    const history = await json(await app().request(`/scheduled-tasks/${task.id}/runs`));
+    const history = await json<ScheduledTaskRunView[]>(await app().request(`/scheduled-tasks/${task.id}/runs`));
     expect(history.data).toHaveLength(1);
   });
 
@@ -75,8 +75,39 @@ describe('scheduled task routes', () => {
     const claimed = claimJob('route-test')!;
     completeJob(claimed.id, { content: '完成' });
     expect((await json(await app().request('/scheduled-runs/unread-count'))).data.count).toBe(1);
-    const runs = (await json(await app().request(`/scheduled-tasks/${task.id}/runs`))).data;
+    const runs = (await json<ScheduledTaskRunView[]>(await app().request(`/scheduled-tasks/${task.id}/runs`))).data;
     expect((await app().request(`/scheduled-runs/${runs[0].id}/read`, { method: 'POST' })).status).toBe(200);
     expect((await json(await app().request('/scheduled-runs/unread-count'))).data.count).toBe(0);
+  });
+});
+
+describe('scheduled task preview', () => {
+  it('只返回下次执行时间，不创建任务', async () => {
+    const { createProvider } = await import('../../repo/provider.js');
+    const { createModel } = await import('../../repo/model.js');
+    const { getDb, initDatabase } = await import('../../db/index.js');
+    const { mkdtempSync, rmSync, existsSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { scheduledTasksApp, scheduledRunsApp } = await import('../scheduled-tasks.js');
+    const dir = mkdtempSync(join(tmpdir(), 'scheduled-preview-'));
+    initDatabase(dir);
+    try {
+      const provider = createProvider({ name: 'P', type: 'openai', baseUrl: 'https://example.com', apiKey: '' });
+      const model = createModel(provider.id, { name: 'gpt-test' });
+      const input = { name: '任务', prompt: '执行', scheduleType: 'cron', runAt: null, cronExpression: '0 9 * * *', timezone: 'Asia/Hong_Kong', targetType: 'new_session', targetSessionId: null, modelId: model.id, enforcedSkillIds: [] };
+      const { Hono } = await import('hono');
+      const { errorMiddleware } = await import('../../middleware/error.js');
+      const { listScheduledTasks } = await import('../../scheduler/tasks.js');
+      const app = new Hono(); app.onError(errorMiddleware()); app.route('/scheduled-tasks', scheduledTasksApp); app.route('/scheduled-runs', scheduledRunsApp);
+      const res = await app.request('/scheduled-tasks/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+      expect(res.status).toBe(200);
+      expect((await res.json() as { data: { nextRunAt: number } }).data.nextRunAt).toBeGreaterThan(Date.now());
+      expect(listScheduledTasks()).toHaveLength(0);
+    } finally {
+      try { getDb().close(); } catch { /* ignore */ }
+      rmSync(dir, { recursive: true, force: true });
+      existsSync(dir);
+    }
   });
 });

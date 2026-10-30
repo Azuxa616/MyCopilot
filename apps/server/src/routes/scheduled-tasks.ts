@@ -7,6 +7,8 @@ import { createScheduledTask, getScheduledTask, listScheduledTasks, setScheduled
 import { runScheduledTaskNow } from '../scheduler/dispatch.js';
 import { countUnreadScheduledTaskRuns, listScheduledTaskRunViews, markScheduledTaskRunRead, getScheduledTaskRun } from '../repo/scheduled-task.js';
 import { now } from '../repo/base.js';
+import { getNextRunAt } from '../scheduler/calculate-next-run.js';
+import { validateScheduledTaskReferences } from '../scheduler/tasks.js';
 
 export const scheduledTasksApp = new Hono();
 export const scheduledRunsApp = new Hono();
@@ -50,6 +52,15 @@ function mapError(error: unknown): never {
 scheduledTasksApp.get('/', (c) => successResponse(c, listScheduledTasks()));
 scheduledTasksApp.post('/', async (c) => {
   try { return successResponse(c, createScheduledTask(await readInput(c)), 201); } catch (error) { return mapError(error); }
+});
+scheduledTasksApp.post('/preview', async (c) => {
+  try {
+    const input = await readInput(c);
+    validateScheduledTaskReferences(input);
+    const nextRunAt = getNextRunAt(input, now());
+    if (nextRunAt === null) throw new HttpError(400, 'run_at_in_past');
+    return successResponse(c, { nextRunAt });
+  } catch (error) { return mapError(error); }
 });
 scheduledTasksApp.get('/:id', (c) => {
   const task = getScheduledTask(c.req.param('id'));

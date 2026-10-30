@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Model, ScheduledTaskInput, SessionSummary, SkillMeta } from '@my-copilot/shared';
+import { api } from '../../api';
 
 export interface ScheduledTaskEditorProps {
   initialValue?: ScheduledTaskInput;
@@ -23,10 +24,18 @@ export function ScheduledTaskEditor({ initialValue, sessions, models, skills, on
     targetType: 'new_session', targetSessionId: null,
     modelId: models[0]?.id ?? '', enforcedSkillIds: [],
   });
+  const [previewNextRunAt, setPreviewNextRunAt] = useState<number | null>(null);
+  useEffect(() => {
+    let active = true;
+    const timer = setTimeout(() => {
+      void api.previewScheduledTask(value).then((next) => { if (active) setPreviewNextRunAt(next); }).catch(() => { if (active) setPreviewNextRunAt(null); });
+    }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [value]);
   const patch = <K extends keyof ScheduledTaskInput>(key: K, next: ScheduledTaskInput[K]) => setValue((current) => ({ ...current, [key]: next }));
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    void onSubmit(value);
+    void onSubmit({ ...value, modelId: value.modelId || models[0]?.id || '' });
   };
   const inputClass = 'w-full rounded-lg border border-border-base bg-bg-primary px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-200';
   return (
@@ -36,7 +45,7 @@ export function ScheduledTaskEditor({ initialValue, sessions, models, skills, on
           <input aria-label="任务名称" required maxLength={200} className={`${inputClass} mt-1.5`} value={value.name} onChange={(e) => patch('name', e.target.value)} />
         </label>
         <label className="text-sm text-text-secondary">执行模型
-          <select aria-label="执行模型" required className={`${inputClass} mt-1.5`} value={value.modelId} onChange={(e) => patch('modelId', e.target.value)}>
+          <select aria-label="执行模型" required className={`${inputClass} mt-1.5`} value={value.modelId || models[0]?.id || ''} onChange={(e) => patch('modelId', e.target.value)}>
             {models.map((model) => <option key={model.id} value={model.id}>{model.displayName || model.name}</option>)}
           </select>
         </label>
@@ -80,6 +89,7 @@ export function ScheduledTaskEditor({ initialValue, sessions, models, skills, on
           {skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.name}</option>)}
         </select>
       </label>
+      <div className="text-xs text-text-tertiary" aria-live="polite">{previewNextRunAt ? `下次执行：${new Date(previewNextRunAt).toLocaleString()}` : '填写完整调度信息后显示下次执行时间'}</div>
       <div className="flex justify-end gap-2 border-t border-border-base pt-4">
         {onCancel ? <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-bg-hover">取消</button> : null}
         <button type="submit" className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600">{submitLabel}</button>

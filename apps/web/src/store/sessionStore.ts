@@ -1,6 +1,6 @@
 // Zustand - Session state management
 import { create } from 'zustand';
-import type { Session, SessionSummary, CreateSessionParams, Message } from '@my-copilot/shared';
+import type { Session, SessionSummary, CreateSessionParams, Message, ScheduledTaskDraft } from '@my-copilot/shared';
 import { api } from '../api';
 import { parseSSEStream, type ConfirmationEventData } from '../utils/streamUtils';
 import type { MessageWithTimeline, TimelineEntry } from '../types/timeline';
@@ -123,6 +123,11 @@ interface SessionStore {
     agentState: AgentState;
     /** 当前轮工具调用进度（T13 渲染用；终态触发时清空）。 */
     activeToolCalls: ActiveToolCall[];
+    /** 各 Session 的定时任务草稿，确认卡片从这里读取。 */
+    scheduledTaskDrafts: Record<string, ScheduledTaskDraft[]>;
+
+    loadScheduledTaskDrafts: (sessionId: string) => Promise<void>;
+    upsertScheduledTaskDraft: (draft: ScheduledTaskDraft) => void;
 
     // Actions - session list (layered loading)
     loadSessionSummaries: () => Promise<void>;
@@ -252,6 +257,20 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         pendingConfirmation: null,
         agentState: 'idle',
         activeToolCalls: [],
+        scheduledTaskDrafts: {},
+
+        loadScheduledTaskDrafts: async (sessionId) => {
+            const drafts = await api.fetchScheduledTaskDrafts(sessionId);
+            set((state) => ({ scheduledTaskDrafts: { ...state.scheduledTaskDrafts, [sessionId]: drafts } }));
+        },
+        upsertScheduledTaskDraft: (draft) => {
+            set((state) => {
+                const current = state.scheduledTaskDrafts[draft.sourceSessionId] ?? [];
+                const exists = current.some((item) => item.id === draft.id);
+                const next = exists ? current.map((item) => item.id === draft.id ? draft : item) : [draft, ...current];
+                return { scheduledTaskDrafts: { ...state.scheduledTaskDrafts, [draft.sourceSessionId]: next } };
+            });
+        },
 
         // Load session summaries from server
         loadSessionSummaries: async () => {
@@ -555,6 +574,9 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                     },
                     // tool_call_* / tool_result 事件：维护时间线条目 + activeToolCalls
                     // （后者仅驱动 agentState 状态机）并驱动状态机
+                    onScheduledTaskDraft: (draftId) => {
+                        void api.getScheduledTaskDraft(draftId).then((draft) => get().upsertScheduledTaskDraft(draft));
+                    },
                     onToolCallStart: (msgId, index) => {
                         // 前导文本快照：本轮首个 tool_call_start 时，把气泡中累积的
                         // 当前轮文本移入时间线 lead 条目并清空气泡——正文只承载最终

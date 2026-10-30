@@ -18,8 +18,7 @@ export function ScheduledTaskEditorPage() {
       setSessions(s); setModels(m.filter((model) => model.enabled)); setSkills(k.filter((skill) => skill.enabled));
     }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     if (id) void api.getScheduledTask(id).then((task) => {
-      const { id: _id, status: _status, nextRunAt: _next, deletedAt: _deleted, createdAt: _created, updatedAt: _updated, ...input } = task;
-      setInitialValue(input); setLoading(false);
+      setInitialValue({ name: task.name, prompt: task.prompt, scheduleType: task.scheduleType, runAt: task.runAt, cronExpression: task.cronExpression, timezone: task.timezone, targetType: task.targetType, targetSessionId: task.targetSessionId, modelId: task.modelId, enforcedSkillIds: task.enforcedSkillIds }); setLoading(false);
     }).catch((cause) => { setError(cause instanceof Error ? cause.message : String(cause)); setLoading(false); });
   }, [id]);
   const submit = async (input: ScheduledTaskInput) => {

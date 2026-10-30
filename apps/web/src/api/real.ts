@@ -13,7 +13,7 @@ import type {
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
   Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
   PluginRecord, PluginLifecycleEvent,
-  ScheduledTask, ScheduledTaskInput, ScheduledTaskRunView,
+  ScheduledTask, ScheduledTaskInput, ScheduledTaskRunView, ScheduledTaskDraft,
   ProbeVisionResponse,
 } from '@my-copilot/shared';
 import { enhancedFetch, fetchWithAuth } from './request';
@@ -849,4 +849,21 @@ export async function fetchScheduledTaskRunUnreadCount(): Promise<number> {
 }
 export async function markScheduledTaskRunRead(id: string): Promise<ScheduledTaskRunView> {
   return (await enhancedFetch<{ data: ScheduledTaskRunView }>(`/api/scheduled-runs/${id}/read`, { method: 'POST' })).data;
+}
+
+export async function fetchScheduledTaskDrafts(sessionId: string): Promise<ScheduledTaskDraft[]> {
+  return (await enhancedFetch<{ data: ScheduledTaskDraft[] }>(`/api/scheduled-task-drafts?session_id=${encodeURIComponent(sessionId)}`)).data;
+}
+export async function getScheduledTaskDraft(id: string): Promise<ScheduledTaskDraft> {
+  return (await enhancedFetch<{ data: ScheduledTaskDraft }>(`/api/scheduled-task-drafts/${id}`)).data;
+}
+export async function confirmScheduledTaskDraft(id: string, input: ScheduledTaskInput): Promise<{ draft: ScheduledTaskDraft; task: ScheduledTask }> {
+  return (await enhancedFetch<{ data: { draft: ScheduledTaskDraft; task: ScheduledTask } }>(`/api/scheduled-task-drafts/${id}/confirm`, { method: 'POST', body: JSON.stringify(input) })).data;
+}
+export async function cancelScheduledTaskDraft(id: string): Promise<ScheduledTaskDraft> {
+  return (await enhancedFetch<{ data: ScheduledTaskDraft }>(`/api/scheduled-task-drafts/${id}/cancel`, { method: 'POST' })).data;
+}
+
+export async function previewScheduledTask(input: ScheduledTaskInput): Promise<number> {
+  return (await enhancedFetch<{ data: { nextRunAt: number } }>('/api/scheduled-tasks/preview', { method: 'POST', body: JSON.stringify(input) })).data.nextRunAt;
 }

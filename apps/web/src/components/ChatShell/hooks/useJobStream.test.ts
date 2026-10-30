@@ -6,6 +6,7 @@ import {
     TERMINAL_JOB_STATUSES,
     MAX_BACKOFF_MS,
     INITIAL_BACKOFF_MS,
+    extractScheduledTaskDraftIds,
 } from './useJobStream';
 
 /** Minimal valid job factory for tests. */
@@ -123,4 +124,14 @@ describe('computeBackoff', () => {
         expect(computeBackoff(MAX_BACKOFF_MS)).toBe(MAX_BACKOFF_MS);
         expect(computeBackoff(MAX_BACKOFF_MS * 4)).toBe(MAX_BACKOFF_MS);
     });
+});
+describe('extractScheduledTaskDraftIds', () => {
+  it('从异步 Job 结果事件恢复 draftId 并去重', () => {
+    const job = makeJob({ result: { events: [
+      { type: 'scheduled_task_draft', draft: { id: 'draft-1' } },
+      { type: 'scheduled_task_draft', draft: { id: 'draft-1' } },
+      { type: 'scheduled_task_draft', draft: { id: 'draft-2' } },
+    ] } });
+    expect(extractScheduledTaskDraftIds(job)).toEqual(['draft-1', 'draft-2']);
+  });
 });
