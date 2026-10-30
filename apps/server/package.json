@@ -17,6 +17,7 @@
     "@my-copilot/shared": "workspace:*",
     "ajv": "^8.20.0",
     "better-sqlite3": "^12.11.1",
+    "croner": "^11.0.0",
     "fflate": "^0.8.3",
     "gray-matter": "^4.0.3",
     "hono": "^4",
