@@ -76,4 +76,3 @@ describe('scheduled task types', () => {
     expect(ScheduledTaskStatus.ACTIVE).toBe('active');
   });
 });
-

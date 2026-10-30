@@ -1,7 +1,7 @@
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ScheduledTask } from '@my-copilot/shared';
+import type { ScheduledTaskListItem } from '@my-copilot/shared';
 import { ScheduledTasksPage } from './ScheduledTasksPage';
 import { api } from '../../api';
 
@@ -10,11 +10,12 @@ vi.mock('../../api', () => ({ api: {
   pauseScheduledTask: vi.fn(), resumeScheduledTask: vi.fn(), runScheduledTaskNow: vi.fn(),
 } }));
 
-const task: ScheduledTask = {
+const task: ScheduledTaskListItem = {
   id: 'task-1', name: '每日摘要', prompt: '生成摘要', scheduleType: 'cron', runAt: null,
   cronExpression: '0 9 * * *', timezone: 'Asia/Hong_Kong', targetType: 'new_session',
   targetSessionId: null, modelId: 'model-1', enforcedSkillIds: [], status: 'active',
   nextRunAt: 100, deletedAt: null, createdAt: 1, updatedAt: 1,
+  targetSessionTitle: '原对话', lastRunStatus: 'done', lastRunAt: 50, hasUnread: true,
 };
 
 describe('ScheduledTasksPage', () => {
@@ -29,6 +30,9 @@ describe('ScheduledTasksPage', () => {
   it('展示任务并支持暂停', async () => {
     render(<MemoryRouter><ScheduledTasksPage /></MemoryRouter>);
     expect(await screen.findByText('每日摘要')).toBeTruthy();
+    expect(screen.getByText(/下次执行/)).toBeTruthy();
+    expect(screen.getByText('最近：done')).toBeTruthy();
+    expect(screen.getByText('未读')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '暂停' }));
     await waitFor(() => expect(api.pauseScheduledTask).toHaveBeenCalledWith('task-1'));
   });

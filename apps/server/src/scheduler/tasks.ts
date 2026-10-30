@@ -1,4 +1,4 @@
-import type { ScheduledTask, ScheduledTaskInput } from '@my-copilot/shared';
+import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskListItem } from '@my-copilot/shared';
 import { generateId, now } from '../repo/base.js';
 import { getModel } from '../repo/model.js';
 import { getProvider } from '../repo/provider.js';
@@ -7,7 +7,7 @@ import { getSkillMeta } from '../repo/skill.js';
 import {
   getScheduledTaskRecord,
   insertScheduledTask,
-  listScheduledTaskRecords,
+  listScheduledTaskListItems,
   updateScheduledTaskRecord,
 } from '../repo/scheduled-task.js';
 import { getNextRunAt } from './calculate-next-run.js';
@@ -64,8 +64,8 @@ export function getScheduledTask(id: string): ScheduledTask | undefined {
   return getScheduledTaskRecord(id);
 }
 
-export function listScheduledTasks(): ScheduledTask[] {
-  return listScheduledTaskRecords();
+export function listScheduledTasks(): ScheduledTaskListItem[] {
+  return listScheduledTaskListItems();
 }
 
 export function setScheduledTaskStatus(id: string, status: 'active' | 'paused'): ScheduledTask | undefined {

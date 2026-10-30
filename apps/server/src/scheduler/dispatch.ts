@@ -119,4 +119,3 @@ export function runScheduledTaskNow(id: string): ScheduledTaskRunView {
   if (!result.run) throw new Error('scheduled_task_dispatch_failed');
   return result.run;
 }
-

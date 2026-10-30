@@ -1,6 +1,7 @@
-import type { ScheduledTask, ScheduledTaskRun, ScheduledTaskRunView } from '@my-copilot/shared';
+import type { ScheduledTask, ScheduledTaskListItem, ScheduledTaskRun, ScheduledTaskRunView } from '@my-copilot/shared';
 import { getDb } from '../db/index.js';
 import { getJob } from './job.js';
+import { getSession } from './session.js';
 
 interface ScheduledTaskRow {
   id: string; name: string; prompt: string; schedule_type: string; run_at: number | null;
@@ -139,4 +140,19 @@ export function countUnreadScheduledTaskRuns(): number {
 export function markScheduledTaskRunRead(id: string, at: number): ScheduledTaskRunView | undefined {
   getDb().prepare('UPDATE scheduled_task_runs SET read_at = ? WHERE id = ? AND read_at IS NULL').run(at, id);
   return getScheduledTaskRun(id);
+}
+
+export function listScheduledTaskListItems(): ScheduledTaskListItem[] {
+  return listScheduledTaskRecords().map((task) => {
+    const runs = listScheduledTaskRunViews(task.id);
+    const latest = runs[0];
+    const hasUnread = runs.some((run) => run.readAt === null && ['waiting_confirmation', 'done', 'failed', 'cancelled', 'skipped', 'dispatch_failed'].includes(run.status));
+    return {
+      ...task,
+      targetSessionTitle: task.targetSessionId ? getSession(task.targetSessionId)?.title ?? null : null,
+      lastRunStatus: latest?.status ?? null,
+      lastRunAt: latest?.createdAt ?? null,
+      hasUnread,
+    };
+  });
 }

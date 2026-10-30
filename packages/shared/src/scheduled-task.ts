@@ -39,6 +39,13 @@ export interface ScheduledTask extends ScheduledTaskInput {
   updatedAt: number;
 }
 
+export interface ScheduledTaskListItem extends ScheduledTask {
+  targetSessionTitle: string | null;
+  lastRunStatus: JobStatus | 'skipped' | 'dispatch_failed' | null;
+  lastRunAt: number | null;
+  hasUnread: boolean;
+}
+
 export interface ScheduledTaskRun {
   id: string;
   taskId: string;

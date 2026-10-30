@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
-import type { ScheduledTask } from '@my-copilot/shared';
+import type { ScheduledTaskListItem } from '@my-copilot/shared';
 
 interface Props {
-  tasks: ScheduledTask[];
+  tasks: ScheduledTaskListItem[];
   onPause: (id: string) => Promise<void>;
   onResume: (id: string) => Promise<void>;
   onRun: (id: string) => Promise<void>;
@@ -17,7 +17,7 @@ export function ScheduledTaskList({ tasks, onPause, onResume, onRun }: Props) {
           <Link to={`/scheduled/${task.id}`} className="text-base font-semibold text-text-primary hover:text-primary-500">{task.name}</Link>
           <p className="mt-1 line-clamp-2 text-sm text-text-secondary">{task.prompt}</p>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-tertiary">
-            <span>{statusText[task.status]}</span><span>·</span><span>{task.scheduleType === 'once' ? '单次' : task.cronExpression}</span><span>·</span><span>{task.targetType === 'new_session' ? '每次新对话' : '依附已有对话'}</span>
+            <span>{statusText[task.status]}</span><span>·</span><span>{task.scheduleType === 'once' ? '单次' : task.cronExpression}</span><span>·</span><span>{task.targetType === 'new_session' ? '每次新对话' : task.targetSessionTitle ?? '依附已有对话'}</span><span>·</span><span>下次执行：{task.nextRunAt ? new Date(task.nextRunAt).toLocaleString() : '无'}</span><span>·</span><span>最近：{task.lastRunStatus ?? '无'}</span>{task.hasUnread ? <span className="rounded-full bg-primary-50 px-2 py-0.5 text-primary-600">未读</span> : null}
           </div>
         </div>
         <div className="flex gap-2 text-sm">

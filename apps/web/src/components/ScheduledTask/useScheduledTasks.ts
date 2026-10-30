@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ScheduledTask } from '@my-copilot/shared';
+import type { ScheduledTaskListItem } from '@my-copilot/shared';
 import { api } from '../../api';
 
 export function useScheduledTasks() {
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [tasks, setTasks] = useState<ScheduledTaskListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {

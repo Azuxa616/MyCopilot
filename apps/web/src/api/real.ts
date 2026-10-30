@@ -13,7 +13,7 @@ import type {
   SkillMeta, SkillDetail, CreateSkillParams, UpdateSkillParams,
   Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
   PluginRecord, PluginLifecycleEvent,
-  ScheduledTask, ScheduledTaskInput, ScheduledTaskRunView, ScheduledTaskDraft,
+  ScheduledTask, ScheduledTaskInput, ScheduledTaskRunView, ScheduledTaskDraft, ScheduledTaskListItem,
   ProbeVisionResponse,
 } from '@my-copilot/shared';
 import { enhancedFetch, fetchWithAuth } from './request';
@@ -817,17 +817,17 @@ export async function uploadPlugin(file: File): Promise<PluginRecord> {
 }
 
 // ─── Scheduled tasks ───
-export async function fetchScheduledTasks(): Promise<ScheduledTask[]> {
-  return (await enhancedFetch<{ data: ScheduledTask[] }>('/api/scheduled-tasks')).data;
+export async function fetchScheduledTasks(): Promise<ScheduledTaskListItem[]> {
+  return (await enhancedFetch<{ data: ScheduledTaskListItem[] }>('/api/scheduled-tasks')).data;
 }
 export async function createScheduledTask(input: ScheduledTaskInput): Promise<ScheduledTask> {
-  return (await enhancedFetch<{ data: ScheduledTask }>('/api/scheduled-tasks', { method: 'POST', body: JSON.stringify(input) })).data;
+  return (await enhancedFetch<{ data: ScheduledTask }>('/api/scheduled-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })).data;
 }
 export async function getScheduledTask(id: string): Promise<ScheduledTask> {
   return (await enhancedFetch<{ data: ScheduledTask }>(`/api/scheduled-tasks/${id}`)).data;
 }
 export async function updateScheduledTask(id: string, input: ScheduledTaskInput): Promise<ScheduledTask> {
-  return (await enhancedFetch<{ data: ScheduledTask }>(`/api/scheduled-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(input) })).data;
+  return (await enhancedFetch<{ data: ScheduledTask }>(`/api/scheduled-tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })).data;
 }
 export async function deleteScheduledTask(id: string): Promise<void> {
   await enhancedFetch(`/api/scheduled-tasks/${id}`, { method: 'DELETE' });
@@ -858,12 +858,12 @@ export async function getScheduledTaskDraft(id: string): Promise<ScheduledTaskDr
   return (await enhancedFetch<{ data: ScheduledTaskDraft }>(`/api/scheduled-task-drafts/${id}`)).data;
 }
 export async function confirmScheduledTaskDraft(id: string, input: ScheduledTaskInput): Promise<{ draft: ScheduledTaskDraft; task: ScheduledTask }> {
-  return (await enhancedFetch<{ data: { draft: ScheduledTaskDraft; task: ScheduledTask } }>(`/api/scheduled-task-drafts/${id}/confirm`, { method: 'POST', body: JSON.stringify(input) })).data;
+  return (await enhancedFetch<{ data: { draft: ScheduledTaskDraft; task: ScheduledTask } }>(`/api/scheduled-task-drafts/${id}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })).data;
 }
 export async function cancelScheduledTaskDraft(id: string): Promise<ScheduledTaskDraft> {
   return (await enhancedFetch<{ data: ScheduledTaskDraft }>(`/api/scheduled-task-drafts/${id}/cancel`, { method: 'POST' })).data;
 }
 
 export async function previewScheduledTask(input: ScheduledTaskInput): Promise<number> {
-  return (await enhancedFetch<{ data: { nextRunAt: number } }>('/api/scheduled-tasks/preview', { method: 'POST', body: JSON.stringify(input) })).data.nextRunAt;
+  return (await enhancedFetch<{ data: { nextRunAt: number } }>('/api/scheduled-tasks/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })).data.nextRunAt;
 }

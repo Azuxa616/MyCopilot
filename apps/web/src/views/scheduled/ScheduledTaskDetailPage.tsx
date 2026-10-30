@@ -9,7 +9,17 @@ export function ScheduledTaskDetailPage() {
   const navigate = useNavigate();
   const [task, setTask] = useState<ScheduledTask | null>(null);
   const [runs, setRuns] = useState<ScheduledTaskRunView[]>([]);
-  useEffect(() => { void Promise.all([api.getScheduledTask(id), api.fetchScheduledTaskRuns(id)]).then(([nextTask, nextRuns]) => { setTask(nextTask); setRuns(nextRuns); }); }, [id]);
+  useEffect(() => {
+    void Promise.all([api.getScheduledTask(id), api.fetchScheduledTaskRuns(id)]).then(([nextTask, nextRuns]) => {
+      setTask(nextTask); setRuns(nextRuns);
+      const unread = nextRuns.filter((run) => run.readAt === null && ['done', 'failed', 'cancelled', 'skipped', 'dispatch_failed'].includes(run.status));
+      if (unread.length === 0) return;
+      void Promise.all(unread.map((run) => api.markScheduledTaskRunRead(run.id))).then((marked) => {
+        const readAtById = new Map(marked.map((run) => [run.id, run.readAt]));
+        setRuns((current) => current.map((run) => readAtById.has(run.id) ? { ...run, readAt: readAtById.get(run.id) ?? run.readAt } : run));
+      });
+    });
+  }, [id]);
   const remove = async () => {
     if (!window.confirm('确定删除这个定时任务吗？正在运行和历史记录会保留。')) return;
     await api.deleteScheduledTask(id);
