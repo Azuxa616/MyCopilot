@@ -1,4 +1,4 @@
-import type { Tool, ToolApproval } from '@my-copilot/shared';
+import type { ScheduledTaskDraft, Tool, ToolApproval } from '@my-copilot/shared';
 
 /** Uniform result shape produced by every tool executor (built-in or MCP). */
 export interface ToolExecutionResult {
@@ -14,6 +14,7 @@ export interface ToolExecutionContext {
   runId?: string;
   jobId?: string;
   advertisedTool?: Tool;
+  onScheduledTaskDraft?: (draft: ScheduledTaskDraft) => void | Promise<void>;
   onConfirmationRequired?: (approval: ToolApproval) => void | Promise<void>;
   onConfirmationSettled?: (approval: ToolApproval) => void | Promise<void>;
 }

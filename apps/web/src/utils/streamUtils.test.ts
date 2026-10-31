@@ -106,3 +106,15 @@ describe('parseSSEStream onReasoning', () => {
     expect(handlers.onError).not.toHaveBeenCalled()
   })
 })
+
+describe('parseSSEStream scheduled_task_draft', () => {
+  it('invokes onScheduledTaskDraft with draftId', async () => {
+    const onScheduledTaskDraft = vi.fn()
+    await parseSSEStream({
+      ...makeRequiredHandlers(),
+      onScheduledTaskDraft,
+      stream: sseStream('event: scheduled_task_draft\ndata: {"draftId":"draft-1"}\n\n'),
+    })
+    expect(onScheduledTaskDraft).toHaveBeenCalledWith('draft-1')
+  })
+})

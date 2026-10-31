@@ -1,4 +1,4 @@
-// Asider footer 测试：admin 仅一个「设置」入口；demo 隐藏。
+// Asider footer 测试：admin 显示「定时任务 + 设置」；demo 隐藏。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act } from 'react'
@@ -15,6 +15,7 @@ import { useConfigStore } from '../../store/configStore'
 vi.mock('../../assets/icon/collapsed-left.svg?react', () => ({ default: () => null }))
 vi.mock('../../assets/icon/collapsed-right.svg?react', () => ({ default: () => null }))
 vi.mock('../../assets/icon/plus.svg?react', () => ({ default: () => null }))
+vi.mock('./ScheduledTaskNavItem', () => ({ ScheduledTaskNavItem: () => <button>定时任务</button> }))
 
 async function renderAsync(ui: ReactElement): Promise<{
   container: HTMLElement
@@ -41,15 +42,16 @@ describe('Asider footer', () => {
     vi.clearAllMocks()
   })
 
-  it('admin：footer 仅一个设置入口，不再有四个一级导航', async () => {
+  it('admin：footer 包含定时任务和设置入口', async () => {
     const { container, unmount } = await renderAsync(
       <MemoryRouter>
         <Asider />
       </MemoryRouter>,
     )
     const footerButtons = Array.from(container.querySelectorAll('footer button'))
-    expect(footerButtons.length).toBe(1)
-    expect(footerButtons[0].textContent).toContain('设置')
+    expect(footerButtons.length).toBe(2)
+    expect(footerButtons[0].textContent).toContain('定时任务')
+    expect(footerButtons[1].textContent).toContain('设置')
     unmount()
   })
 

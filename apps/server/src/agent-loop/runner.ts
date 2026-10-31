@@ -27,6 +27,7 @@ import type {
   MessagePart,
   StopReason,
   StreamEvent,
+  ScheduledTaskDraft,
   Tool,
   ToolApproval,
   ToolCall,
@@ -95,6 +96,7 @@ export type AgentLoopEvent =
     }
   | { type: 'tool_confirmation_required'; approval: ToolApproval }
   | { type: 'tool_confirmation_settled'; approval: ToolApproval }
+  | { type: 'scheduled_task_draft'; draft: ScheduledTaskDraft }
   | { type: 'agent_loop_end'; endReason: AgentLoopStatus };
 
 /** Callback signature for `onEvent`. May be sync or async. */
@@ -671,6 +673,9 @@ export async function runAgentLoop(
             runId,
             signal: abortSignal,
             advertisedTool: toolsByName.get(tc.name),
+            onScheduledTaskDraft: (draft) => {
+              onEvent({ type: 'scheduled_task_draft', draft });
+            },
             onConfirmationRequired: (approval) => {
               if (runState.getStatus() === 'in_progress') {
                 runState.transition('await_confirmation');

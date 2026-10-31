@@ -48,6 +48,7 @@ export interface SSEStreamParams {
     onJobStatus?: (jobId: string, status: string, progress?: number, error?: string) => void;
     // Extended Thinking（RFC agent-loop-v2 §3）：推理文本增量，与 content delta 分开推送。
     onReasoning?: (text: string) => void;
+    onScheduledTaskDraft?: (draftId: string) => void;
 }
 
 /**
@@ -83,6 +84,7 @@ export async function parseSSEStream({
     onConfirmationRequired,
     onJobStatus,
     onReasoning,
+    onScheduledTaskDraft,
 }: SSEStreamParams): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -255,6 +257,13 @@ export async function parseSSEStream({
                 } catch {
                     // Ignore parse errors
                 }
+                break;
+            }
+            case 'scheduled_task_draft': {
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (typeof data.draftId === 'string') onScheduledTaskDraft?.(data.draftId);
+                } catch { /* Ignore parse errors */ }
                 break;
             }
             case 'job_status': {

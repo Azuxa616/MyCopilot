@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 // Components
 import ConversationNavItem from './ConversationNavItem'
+import { ScheduledTaskNavItem } from './ScheduledTaskNavItem'
 import EmptyState from '../EmptyState'
 // Assets
 import IconCollapsedLeft from '../../assets/icon/collapsed-left.svg?react'
@@ -126,6 +127,7 @@ export default function Asider({
 
       {/* footer: settings entry + app version */}
       <footer className="flex flex-col shrink-0 border-t border-border-base bg-bg-secondary">
+        {role !== 'demo' && <ScheduledTaskNavItem isCollapsed={isCollapsed} />}
         {role !== 'demo' && (
           <button
             onClick={() => navigate('/settings')}
