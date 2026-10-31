@@ -1,4 +1,4 @@
-// SettingsShell.test.tsx — 设置壳：五分类导航渲染、当前项高亮、demo 角色重定向。
+// SettingsShell.test.tsx — 设置壳：分类导航渲染、当前项高亮、demo 角色重定向。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act } from 'react'
@@ -36,6 +36,7 @@ function shellRoutes(): ReactElement {
     <MemoryRouter initialEntries={['/settings/mcps']}>
       <Routes>
         <Route path="/settings" element={<SettingsShell />}>
+          <Route path="general" element={<div data-testid="page">general</div>} />
           <Route path="providers" element={<div data-testid="page">providers</div>} />
           <Route path="tools" element={<div data-testid="page">tools</div>} />
           <Route path="skills" element={<div data-testid="page">skills</div>} />
@@ -53,13 +54,13 @@ describe('SettingsShell', () => {
     vi.clearAllMocks()
   })
 
-  it('渲染五个分类导航项并高亮当前路由', async () => {
+  it('渲染分类导航项并高亮当前路由', async () => {
     const { container, unmount } = await renderAsync(shellRoutes())
 
     const labels = Array.from(container.querySelectorAll('nav button span')).map(
       (s) => s.textContent,
     )
-    expect(labels).toEqual(['模型服务', '工具', '技能', 'MCP', '插件'])
+    expect(labels).toEqual(['通用', '模型服务', '工具', '技能', 'MCP', '插件'])
 
     // /settings/mcps → 「MCP」高亮
     const active = container.querySelector('nav button[aria-current="page"] span')

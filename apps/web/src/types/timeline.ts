@@ -54,4 +54,8 @@ export type TimelineEntry =
  * 前端本地的 assistant 消息扩展（同 reasoningText 的先例：仅存在于
  * messagesCache 用于渲染，不持久化、不上行 server，故不进 shared Message）。
  */
-export type MessageWithTimeline = Message & { timeline?: TimelineEntry[] };
+export interface MessageWithTimeline extends Message {
+  timeline?: TimelineEntry[];
+  /** true 表示本地 live 占位消息（已带过程时间线，重建时不再套 lead/条目）。 */
+  isLocal?: boolean;
+}
