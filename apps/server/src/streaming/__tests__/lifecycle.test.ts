@@ -59,10 +59,16 @@ vi.mock('../../llm/index.js', () => ({
 vi.mock('../../prompt/assembler.js', () => ({
   assembleMessages: mockAssembleMessages,
 }));
-vi.mock('../registry.js', () => ({
-  registerStream: mockRegisterStream,
-  unregisterStream: mockUnregisterStream,
-}));
+vi.mock('../registry.js', async (importOriginal) => {
+  // 保留真实的事件缓冲/waiting/sink 实现，仅替换主连接注册两个入口
+  // （lifecycle 新增依赖 appendRunEvent/setRunWaiting/isRunWaiting）。
+  const actual = await importOriginal<typeof import('../registry.js')>();
+  return {
+    ...actual,
+    registerStream: mockRegisterStream,
+    unregisterStream: mockUnregisterStream,
+  };
+});
 vi.mock('../../repo/tool.js', () => ({
   listEnabledTools: mockListEnabledTools,
 }));

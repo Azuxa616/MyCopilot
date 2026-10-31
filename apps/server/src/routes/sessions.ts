@@ -12,6 +12,7 @@ import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import type { CreateSessionParams } from '@my-copilot/shared';
 import { cancelToolApprovalsForSession } from '../tools/confirmation.js';
+import { attachEventsHandler } from '../streaming/attach.js';
 
 export const sessionsApp = new Hono();
 
@@ -68,4 +69,11 @@ sessionsApp.get('/:id/summaries', (c) => {
   const id = c.req.param('id');
   const data = listSummariesBySession(id);
   return successResponse(c, data);
+});
+
+// SSE 重连端点（问答卡片刷新存活设计）：无活动 Run → idle 事件后关闭；
+// 有活动 Run → 重放缓冲帧后转实时，终止事件后关闭。
+sessionsApp.get('/:id/events', (c) => {
+  const id = c.req.param('id');
+  return attachEventsHandler(c, { sessionId: id });
 });
