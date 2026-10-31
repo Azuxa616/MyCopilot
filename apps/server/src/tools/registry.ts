@@ -14,6 +14,7 @@ export interface ToolExecutionContext {
   runId?: string;
   jobId?: string;
   advertisedTool?: Tool;
+  toolCallId?: string;
   onConfirmationRequired?: (approval: ToolApproval) => void | Promise<void>;
   onConfirmationSettled?: (approval: ToolApproval) => void | Promise<void>;
 }

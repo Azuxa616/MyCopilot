@@ -5,8 +5,11 @@ import { join } from 'node:path';
 import type { ToolApproval } from '@my-copilot/shared';
 import { initDatabase, getDb } from '../../db/index.js';
 import { createSession } from '../../repo/session.js';
+import * as config from '../../repo/config.js';
+import { ASK_USER_TIMEOUT_CONFIG_KEY } from '@my-copilot/shared';
 import {
   requestToolApproval,
+  requestUserQuestion,
   resolveToolApproval,
   getPendingToolApproval,
   clearPendingConfirmations,
@@ -210,6 +213,41 @@ describe('confirmation store', () => {
     expect(isConfirmedThisSession('sess-1:cache')).toBe(true);
     clearPendingConfirmations();
     expect(isConfirmedThisSession('sess-1:cache')).toBe(false);
+  });
+
+  it('requestUserQuestion waits without a timer by default', async () => {
+    let approvalId = '';
+    const promise = requestUserQuestion({
+      approval: makeApprovalParams({ tool: { ...makeApprovalParams().tool, name: 'ask_user' }, safetyLevel: 'safe' }),
+      onRequired: approval => { approvalId = approval.approvalId; },
+    });
+    await vi.waitFor(() => expect(approvalId).not.toBe(''));
+    expect(getPendingToolApproval(approvalId)?.expiresAt).toBe(0);
+    await vi.advanceTimersByTimeAsync(10_000_000);
+    expect(getPendingToolApproval(approvalId)?.state).toBe('pending');
+    resolveToolApproval(approvalId, true, '{"status":"answered","answers":[]}');
+    expect(await promise).toBe('{"status":"answered","answers":[]}');
+  });
+
+  it('requestUserQuestion resolves the expired payload at the configured timeout', async () => {
+    config.set(ASK_USER_TIMEOUT_CONFIG_KEY, '1000');
+    const promise = requestUserQuestion({
+      approval: makeApprovalParams(),
+      onRequired: () => undefined,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await promise).toBe('{"status":"expired","answers":[]}');
+  });
+
+  it('requestUserQuestion resolves the cancelled payload when aborted', async () => {
+    const controller = new AbortController();
+    const promise = requestUserQuestion({
+      approval: makeApprovalParams(),
+      signal: controller.signal,
+      onRequired: () => undefined,
+    });
+    controller.abort();
+    expect(await promise).toBe('{"status":"cancelled","answers":[]}');
   });
 
   it('confirmation is isolated per approvalId — one call cannot resolve another', async () => {

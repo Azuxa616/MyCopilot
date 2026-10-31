@@ -107,6 +107,13 @@ export function getToolApproval(approvalId: string): ToolApproval | undefined {
   return row ? rowToApproval(row) : undefined;
 }
 
+export function listPendingToolApprovals(sessionId: string): ToolApproval[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM tool_approvals WHERE session_id = ? AND state = 'pending' ORDER BY created_at")
+    .all(sessionId) as ToolApprovalRow[];
+  return rows.map(rowToApproval);
+}
+
 export function settleToolApproval(
   approvalId: string,
   state: Exclude<ToolApprovalState, 'pending'>,
