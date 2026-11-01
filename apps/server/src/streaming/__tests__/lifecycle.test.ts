@@ -18,8 +18,6 @@ const mockAdapter = {
 
 const mockGetAdapter = vi.fn();
 
-const mockAssembleMessages = vi.fn();
-
 const mockRegisterStream = vi.fn();
 const mockUnregisterStream = vi.fn();
 
@@ -55,9 +53,6 @@ vi.mock('../../repo/model.js', () => ({
 }));
 vi.mock('../../llm/index.js', () => ({
   getAdapter: mockGetAdapter,
-}));
-vi.mock('../../prompt/assembler.js', () => ({
-  assembleMessages: mockAssembleMessages,
 }));
 vi.mock('../registry.js', async (importOriginal) => {
   // 保留真实的事件缓冲/waiting/sink 实现，仅替换主连接注册两个入口
@@ -158,7 +153,6 @@ function setupNormalCompletion(chunks: string[] = ['Hello', ' ', 'World']) {
   mockRepo.createMessage.mockClear();
   mockRepo.updateMessage.mockClear();
   mockRepo.updateMessageContent.mockClear();
-  mockAssembleMessages.mockClear();
   mockGetAdapter.mockClear();
   mockRegisterStream.mockClear();
   mockUnregisterStream.mockClear();

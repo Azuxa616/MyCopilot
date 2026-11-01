@@ -7,28 +7,42 @@ Hono 4 + better-sqlite3 backend with SSE streaming, serving the web build and pr
 src/
 ├── index.ts        # Hono app entry, route mounting, static serve, graceful shutdown
 ├── config.ts       # Env-based config (PORT, AUTH_TOKEN, DB_PATH, defaults)
-├── db/             # SQLite init + migrations (better-sqlite3)
+├── db/             # SQLite init (schema.sql baseline) + migrations
+├── migration/      # SQL migrations (sql/0001..0010) + runner.ts, run on boot
 ├── repo/           # Data access layer, one module per entity
-├── routes/         # Hono REST handlers (health, models, providers, sessions, messages)
-├── middleware/     # auth, CORS, logger, error
-├── llm/            # OpenAI-compatible client (chat, embeddings, streaming)
-├── streaming/      # SSE response writers for chat tokens
-├── prompt/         # Prompt assembly before LLM calls
-├── attachment/     # File upload parse (Word via mammoth, never throws)
-└── utils/          # Shared helpers
+├── routes/         # Hono REST handlers: health, auth, assets, debug, jobs, mcps,
+│                   #   messages, models, plugins, providers, sessions, settings, skills, tools
+├── middleware/     # tokenAuth, CORS, logger, error
+├── llm/            # OpenAI-compatible clients (openai.ts, ollama.ts, base, tester)
+├── streaming/      # SSE lifecycle, agent-event bridge, registry, stop, sse-protocol
+├── agent-loop/     # Multi-turn agent loop: runner, summarize, types, run-state,
+│                   #   stop-router, loop-guard
+├── prompt/         # Prompt assembly (assembler.ts, Context v2 only), truncator,
+│                   #   summarizer, budget, skill-injections, token-counter
+├── attachment/     # Upload parse (Word via mammoth, never throws), resolve, storage
+├── tools/          # Registry, executor, confirmation + builtins/ (ask-user, web-search, ...)
+├── skills/         # Skill scanner, parser, sync, GitHub/zip import, limits
+├── plugin/         # Plugin loader, store, validate, capabilities (-mcp/-skills/combined), upload
+├── mcp/            # MCP server manager, transport-factory, sync
+├── jobs/           # Background job worker + agent-loop handler
+├── capability/     # Model capability classification, probe, learning
+├── demo/           # Demo seed + demo tools
+└── utils/          # mask, response, schema-adapter
 ```
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
 | Add an API endpoint | `routes/<entity>.ts` then mount in `index.ts` | One file per resource |
-| Change DB schema | `db/index.ts` | Migrations run on boot |
+| Change DB schema | `migration/sql/00NN_*.sql` (new migration) | `db/schema.sql` is the baseline only; `migration/runner.ts` applies on boot |
 | Query/mutate data | `repo/<entity>.ts` | `base.ts` holds shared SQL helpers |
+| Change the agent loop | `agent-loop/runner.ts` | Types in `types.ts`, summarize helpers in `summarize.ts`; stop routing in `stop-router.ts` |
+| Add a builtin tool | `tools/builtins/` | Register in `tools/builtins/index.ts` |
 | Wire a new LLM provider | `llm/` | Keep OpenAI-compatible request shape |
-| Tweak request pipeline | `index.ts` middleware order | auth → CORS → logger → error |
-| Edit SSE behavior | `streaming/` | Token deltas only; full text comes from repo |
+| Tweak request pipeline | `index.ts` middleware order | tokenAuth → CORS → logger → error |
+| Edit SSE behavior | `streaming/lifecycle.ts` | Per-event bridge lives in `streaming/agent-event.ts` |
+| Assemble prompts | `prompt/assembler.ts` | `assembleMessagesV2` only (v1 retired); budget/truncation degrade chain inside |
 | Parse uploads | `attachment/parser.ts` | Returns `AttachmentParseResult`, never throws |
-| Assemble prompts | `prompt/` | Runs after attachment parse, before LLM call |
 
 ## CONVENTIONS
 - **Flat functional modules**, not layered `services/`. Each folder owns one concern and exports functions, not classes.

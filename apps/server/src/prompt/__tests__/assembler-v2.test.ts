@@ -8,10 +8,8 @@ import type {
   ProviderAdapter,
 } from '../../llm/base.js';
 import {
-  assembleMessages,
   assembleMessagesV2,
   DEFAULT_SYSTEM_PROMPT,
-  type AttachmentText,
   type SkillInjection,
 } from '../assembler.js';
 import { listMemories } from '../../repo/memory.js';
@@ -359,59 +357,6 @@ describe('assembleMessagesV2', () => {
     expect(ctx.degraded).toBe(false);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
-  });
-
-  // ===== 与原 assembleMessages 的一致性（RFC C6） =====
-
-  it('与原 assembleMessages 一致：无预算压力时两者 messages 深度相等', async () => {
-    const history: Message[] = [
-      createMessage({ id: '1', role: 'user', content: 'Prior question' }),
-      createMessage({ id: '2', role: 'assistant', content: 'Prior answer' }),
-      createMessage({
-        id: 'a1',
-        role: 'assistant',
-        content: '',
-        toolCalls: [
-          { id: 'call_1', name: 'calc', arguments: '{"x":1}' },
-        ],
-      }),
-      createMessage({
-        id: 't1',
-        role: 'tool',
-        content: '42',
-        toolCallId: 'call_1',
-      }),
-      // 非 sent 状态被两者同等过滤
-      createMessage({
-        id: 'x1',
-        role: 'assistant',
-        content: 'aborted...',
-        status: 'aborted',
-      }),
-    ];
-    const skills: SkillInjection[] = [
-      { name: 'skill-a', description: 'Skill A', triggers: ['a'], body: 'A instructions.', always: false },
-    ];
-    const summary = { text: 'Earlier the user greeted the assistant.' };
-    const attachments: AttachmentText[] = [{ name: 'note.txt', content: 'NOTE' }];
-
-    const v1 = assembleMessages({
-      history,
-      userContent: 'Now',
-      skills,
-      summary,
-      attachments,
-    });
-    const v2 = await assembleMessagesV2({
-      history,
-      userContent: 'Now',
-      skills,
-      summary,
-      attachments,
-    });
-
-    expect(v2.messages).toEqual(v1);
-    expect(v2.degraded).toBe(false);
   });
 });
 

@@ -7,7 +7,6 @@ import type {
   BudgetConfig,
   Message,
   MessagePart,
-  MessageStatus,
   RunChatMessage,
   RunContext,
   StrategyName,
@@ -21,7 +20,7 @@ import {
   estimateTokenUsage,
 } from './budget.js';
 import { summarizeHistory } from './summarizer.js';
-import { truncateHistory, truncateWithStrategy } from './truncator.js';
+import { truncateWithStrategy } from './truncator.js';
 
 /** Parsed attachment text (full content, not metadata). */
 export interface AttachmentText {
@@ -43,7 +42,7 @@ export interface SummaryInjection {
   text: string;
 }
 
-/** 清单 + always 全文段（v1/v2 共用）。字节序确定：清单在前、always 全文在后。 */
+/** 清单 + always 全文段。字节序确定：清单在前、always 全文在后。 */
 export function buildSkillsSection(skills: SkillInjection[]): string {
   const manifest = skills.filter((s) => !s.always && s.body.trim().length > 0);
   const full = skills.filter((s) => s.always && s.body.trim().length > 0);
@@ -79,7 +78,7 @@ export function buildSkillsSection(skills: SkillInjection[]): string {
  * 演示型请求（"调用一下某工具"）没有天然完成条件，若不显式定义
  * "任务完成 = 输出最终回答"，弱指令遵循模型会持续选择"再调用一轮"
  * 直至步数上限（回归：会话 ee176efb / a2dcd2d0 十轮耗尽无回答）。
- * v1（assembleMessages）与 v2（assembleMessagesV2）共用本常量。
+ * v2（assembleMessagesV2）使用本常量。
  */
 export const DEFAULT_SYSTEM_PROMPT = `你是一个乐于助人的 AI 助手，请用中文回答用户问题。
 
@@ -92,104 +91,6 @@ export const DEFAULT_SYSTEM_PROMPT = `你是一个乐于助人的 AI 助手，�
 - 简单问答：直接回答，不调用任何工具。
 - 信息型请求（用户需要某个知识或数据）：获取必要信息后立即作答。
 - 演示/试用型请求（如"调用一下某工具"）：调用 1-2 次后，展示调用参数与结果摘要并收尾；不要轮换对象重复演示同一流程，除非用户明确要求。`;
-
-/**
- * Assemble a complete message list for the LLM API call.
- *
- * Assembly order:
- * 1. Default system prompt
- * 2. Enabled skills (as additional system message, sorted by createdAt upstream)
- * 3. Prior conversation summary (T26, optional third system message)
- * 4. History messages:
- *    a. filter to `status === 'sent'`
- *    b. truncate to `maxTokens` budget when provided (T24, preserves tool chains)
- *    c. convert to ChatMessage (tool-role handling)
- * 5. Attachment text blocks (prepended to user message)
- * 6. Current user message
- *
- * Skills are pre-sorted (by createdAt) by the caller. The assembler only
- * filters out empty bodies and joins them into a single system message.
- *
- * `summary` and `maxTokens` are optional. When omitted, behavior is
- * byte-identical to the pre-T26 assembler (backward compatible).
- */
-export function assembleMessages(params: {
-  history: Message[];
-  userContent: string;
-  attachments?: AttachmentText[];
-  skills?: SkillInjection[];
-  summary?: SummaryInjection;
-  maxTokens?: number;
-}): ChatMessage[] {
-  const messages: ChatMessage[] = [];
-
-  // 1. Default system prompt
-  messages.push({ role: 'system', content: DEFAULT_SYSTEM_PROMPT });
-
-  // 2. Inject enabled skills (if provided) as an additional system message.
-  const skillsText = buildSkillsSection(params.skills ?? []);
-  if (skillsText) {
-    messages.push({ role: 'system', content: skillsText });
-  }
-
-  // 3. Inject prior conversation summary (T26) as a third system message.
-  //    Placed AFTER default prompt and skills so the LLM reads framing →
-  //    capabilities → recent context. Backward-compatible: omitted when no summary.
-  if (params.summary && params.summary.text.trim().length > 0) {
-    messages.push({
-      role: 'system',
-      content: `[Previous conversation summary]\n\n${params.summary.text}`,
-    });
-  }
-
-  // 4a. History — filter to only `status === 'sent'` messages first. Splitting
-  //     filtering from conversion (T26) lets truncateHistory run on a clean
-  //     Message[] view, before role/toolCallId reshaping.
-  const validStatus: MessageStatus = 'sent';
-  const validMessages: Message[] = params.history.filter(
-    (msg) => msg.status !== 'aborted' && msg.status === validStatus,
-  );
-
-  // 4b. Truncate to the token budget when provided. truncateHistory operates
-  //     on DB Message[] and preserves assistant+tool chains.
-  const finalHistory =
-    typeof params.maxTokens === 'number' && params.maxTokens > 0
-      ? truncateHistory({ history: validMessages, maxTokens: params.maxTokens }).truncated
-      : validMessages;
-
-  // 4c. Convert filtered (and possibly truncated) Message[] → ChatMessage[].
-  //     Tool-role messages keep their toolCallId; others forward toolCalls.
-  for (const msg of finalHistory) {
-    if (msg.role === 'tool') {
-      // Tool-result messages must reference their parent tool call.
-      if (!msg.toolCallId) continue;
-      messages.push({
-        role: 'tool',
-        content: msg.content,
-        toolCallId: msg.toolCallId,
-      });
-    } else {
-      // user / assistant / system — forward toolCalls when present
-      messages.push({
-        role: msg.role,
-        content: msg.content,
-        ...(msg.toolCalls ? { toolCalls: msg.toolCalls } : {}),
-      });
-    }
-  }
-
-  // 5 & 6. Attachments + user message (in same user message)
-  let userContent = '';
-  if (params.attachments && params.attachments.length > 0) {
-    for (const att of params.attachments) {
-      userContent += `[附件:${att.name}]\n${att.content}\n[/附件]\n`;
-    }
-  }
-  userContent += params.userContent;
-  messages.push({ role: 'user', content: userContent });
-
-  return messages;
-}
 
 // ===========================================================================
 // Context Management v2（T7）：assembleMessagesV2 核心装配管线
@@ -205,8 +106,8 @@ const TOOL_OUTPUT_MAX_CHARS = 2000;
 const TOOL_OUTPUT_TRUNCATED_SUFFIX = '…[truncated]';
 
 /**
- * assembleMessagesV2 的输入参数：在原 assembleMessages 参数基础上扩展 v2 字段。
- * 对应 RFC《Context Management v2》§1/§3/§4/§6/§7（docs/rfc/context-management-v2.md）。
+ * assembleMessagesV2 的输入参数（对应 RFC《Context Management v2》§1/§3/§4/§6/§7，
+ * docs/rfc/context-management-v2.md）。
  */
 export interface AssembleV2Params {
   history: Message[];
@@ -241,8 +142,8 @@ export interface AssembleV2Params {
 }
 
 /**
- * 将 DB Message[] 转换为 ChatMessage[]。与原 assembleMessages 的 history
- * 转换逻辑保持一致：tool 消息必须携带 toolCallId，其余角色透传 toolCalls。
+ * 将 DB Message[] 转换为 ChatMessage[]：tool 消息必须携带 toolCallId，
+ * 其余角色透传 toolCalls。
  */
 function historyToChatMessages(messages: Message[]): ChatMessage[] {
   const out: ChatMessage[] = [];
@@ -464,7 +365,7 @@ export async function assembleMessagesV2(
   }
 
   // (9) 最终拼装（稳定前缀顺序：system → skills → memory → summary →
-  //     history → user），附件 + 用户消息按原 assembleMessages 逻辑拼装。
+  //     history → user），附件 + 用户消息拼进最终 user 消息。
   const messages: ChatMessage[] = [];
   messages.push({ role: 'system', content: systemPrompt });
   if (skillsText) {
