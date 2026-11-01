@@ -50,11 +50,11 @@ describe('runMigrations', () => {
     // Asset layer (0008)
     expect(tableNames).toContain('assets');
 
-    // applied_migrations has exactly 9 rows (0001..0009)
+    // applied_migrations has exactly 10 rows (0001..0010)
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(9);
+    expect(row.count).toBe(10);
 
     db.close();
   });
@@ -113,7 +113,7 @@ describe('runMigrations', () => {
     const row = db
       .prepare('SELECT COUNT(*) as count FROM applied_migrations')
       .get() as { count: number };
-    expect(row.count).toBe(9);
+    expect(row.count).toBe(10);
 
     db.close();
   });

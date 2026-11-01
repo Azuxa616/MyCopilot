@@ -57,6 +57,37 @@ describe('attachTimelines', () => {
     expect(out[1]!.content).toBe('最终回答')
   })
 
+  it('live 占位消息（isLocal）重建中间轮 timeline（用于 answer 回填）', () => {
+    const input = asTimelineMessages([
+      msg({ id: 'u1', role: 'user', content: 'q' }),
+      msg({ id: 'a1', role: 'assistant', content: 'live 占位', status: 'sending', isLocal: true } as Partial<MessageWithTimeline> & Message),
+      msg({ id: 'a2', role: 'assistant', content: 'lead', toolCalls: [tc('t1', 'x', '{}')] }),
+    ])
+    const out = attachTimelines(input)
+    expect(out.map((m) => m.id)).toEqual(['u1', 'a1'])
+    expect(out[1]!.timeline?.some((e) => e.kind === 'tool')).toBe(true)
+    expect(out[1]!.content).toBe('')
+  })
+
+  it('live 占位消息在工具轮之后时，从 tool 消息回填 answer', () => {
+    const answer = JSON.stringify([
+      { type: 'text', text: JSON.stringify({ status: 'answered', answers: [{ index: 0, status: 'answered', selections: ['方案 A'] }] }) },
+    ]);
+    const input = asTimelineMessages([
+      msg({ id: 'u1', role: 'user', content: 'q' }),
+      msg({ id: 'term', role: 'assistant', content: '', status: 'sending', createdAt: 1001, isLocal: true } as Partial<MessageWithTimeline> & Message),
+      msg({
+        id: 'ask-round', role: 'assistant', content: '先确认选择', createdAt: 1002,
+        toolCalls: [tc('call-ask-1', 'ask_user', '{"questions":[{"question":"选择数据库","mode":"single","options":["A","B"]}]}')],
+      }),
+      msg({ id: 'tool-1', role: 'tool', toolCallId: 'call-ask-1', content: answer, createdAt: 1003 }),
+    ]);
+    const out = attachTimelines(input);
+    const timeline = out.find((m) => m.id === 'term')?.timeline ?? out.find((m) => m.id === 'ask-round')?.timeline;
+    expect(timeline?.find((e) => e.kind === 'tool')?.result).toBe(answer);
+    expect(timeline?.find((e) => e.kind === 'tool')?.status).toBe('done');
+  })
+
   it('live 消息已带 timeline 字段时沿用，不被覆盖', () => {
     const liveTimeline: TimelineEntry[] = [
       { kind: 'reasoning', id: 'r', text: '思考', done: true },
@@ -66,7 +97,7 @@ describe('attachTimelines', () => {
       { ...msg({ id: 'final', role: 'assistant', content: 'a' }), timeline: liveTimeline },
     ]
     const out = attachTimelines(input)
-    expect(out[1]!.timeline).toBe(liveTimeline)
+    expect(out[1]!.timeline).toStrictEqual(liveTimeline)
   })
 
   it('无中间消息的普通对话原样通过，不带 timeline', () => {
@@ -106,6 +137,36 @@ describe('attachTimelines', () => {
 })
 
 describe('attachTimelines 真实落库形状（终态占位消息排在中间轮之前）', () => {
+  it('ask_user 等待期：占位 assistant 在前时保留卡片条目且不吞中间消息', () => {
+    const input = asTimelineMessages([
+      msg({ id: 'u1', role: 'user', content: 'start', createdAt: 1000 }),
+      msg({ id: 'term', role: 'assistant', content: '', status: 'sending', createdAt: 1001 }),
+      msg({
+        id: 'ask-round', role: 'assistant', content: '先确认选择', createdAt: 1002,
+        toolCalls: [tc('call-ask-1', 'ask_user', '{"questions":[{"question":"选择数据库","mode":"single","options":["A","B"]}]}')],
+      }),
+    ])
+    const out = attachTimelines(input)
+    expect(out.map((m) => m.id)).toEqual(['u1', 'term'])
+    expect(timelineOf(out[1]).filter((e) => e.kind === 'tool').map((e) => e.id)).toEqual(['call-ask-1'])
+    expect(timelineOf(out[1]).find((e) => e.kind === 'tool')?.status).toBe('running')
+  })
+
+  it('ask_user 等待期：占位 assistant 在工具轮之后时同样保留卡片条目', () => {
+    const input = asTimelineMessages([
+      msg({ id: 'u1', role: 'user', content: 'start', createdAt: 1000 }),
+      msg({
+        id: 'ask-round', role: 'assistant', content: '先确认选择', createdAt: 1001,
+        toolCalls: [tc('call-ask-1', 'ask_user', '{"questions":[{"question":"选择数据库","mode":"single","options":["A","B"]}]}')],
+      }),
+      msg({ id: 'term', role: 'assistant', content: '', status: 'sending', createdAt: 1002 }),
+    ])
+    const out = attachTimelines(input)
+    expect(out.map((m) => m.id)).toEqual(['u1', 'term'])
+    expect(timelineOf(out[1]).filter((e) => e.kind === 'tool').map((e) => e.id)).toEqual(['call-ask-1'])
+    expect(timelineOf(out[1]).find((e) => e.kind === 'tool')?.status).toBe('running')
+  })
+
   // 服务端 streaming/lifecycle.ts 在 run 开始时创建占位 assistant（终态），
   // 中间轮在其后落库 → ORDER BY created_at 下终态永远在前。
   // 聚组必须与消息顺序无关（形状取自真实会话 2d3d13f5）。

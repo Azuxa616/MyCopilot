@@ -8,6 +8,7 @@ import { ToolsPage } from './views/settings/ToolsPage';
 import { SkillsPage } from './views/settings/SkillsPage';
 import { McpsPage } from './views/settings/McpsPage';
 import { PluginsPage } from './views/settings/PluginsPage';
+import { GeneralSettingsPage } from './views/settings/GeneralSettingsPage';
 
 export const router = createBrowserRouter([
   {
@@ -20,7 +21,8 @@ export const router = createBrowserRouter([
     element: <SettingsShell />,
     children: [
       // 直访 /settings 重定向到首个分类，保证「点设置必见内容」。
-      { index: true, element: <Navigate to="/settings/providers" replace /> },
+      { index: true, element: <Navigate to="/settings/general" replace /> },
+      { path: 'general', element: <GeneralSettingsPage /> },
       { path: 'providers', element: <ProvidersPage /> },
       { path: 'providers/:id', element: <ProviderDetailPage /> },
       { path: 'tools', element: <ToolsPage /> },

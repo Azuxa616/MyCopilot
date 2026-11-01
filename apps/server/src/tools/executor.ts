@@ -110,7 +110,7 @@ export async function executeToolCall(
     }
 
     if (context.signal?.aborted) return errorResult('Tool execution was cancelled');
-    return await target.execute(args, context);
+    return await target.execute(args, toolCall.name === 'ask_user' ? { ...context, toolCallId: toolCall.id } : context);
   } catch (error) {
     return errorResult(error instanceof Error ? error.message : String(error));
   }

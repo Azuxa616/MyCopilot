@@ -23,6 +23,7 @@ import { mcpsApp } from './routes/mcps.js';
 import { pluginsApp } from './routes/plugins.js';
 import { jobsApp } from './routes/jobs.js';
 import { authApp } from './routes/auth.js';
+import { settingsApp } from './routes/settings.js';
 import { debugRoutes } from './routes/debug.js';
 import { listAllEnabledModels } from './repo/model.js';
 import { registerTool } from './tools/registry.js';
@@ -83,6 +84,7 @@ app.route('/api/mcps', mcpsApp);
 app.route('/api/plugins', pluginsApp);
 app.route('/api/jobs', jobsApp);
 app.route('/api/auth', authApp);
+app.route('/api/settings/ask-user', settingsApp);
 
 // Debug route — mounted ONLY when MYCOPILOT_DEBUG === '1' (explicit opt-in).
 // Docker/prod never sets this flag, so the endpoint is fully absent (404),

@@ -1,6 +1,6 @@
 // Zustand - Session state management
 import { create } from 'zustand';
-import type { Session, SessionSummary, CreateSessionParams, Message } from '@my-copilot/shared';
+import type { Session, SessionSummary, CreateSessionParams, Message, QuestionAnswerEntry } from '@my-copilot/shared';
 import { api } from '../api';
 import { parseSSEStream, type ConfirmationEventData } from '../utils/streamUtils';
 import type { MessageWithTimeline, TimelineEntry } from '../types/timeline';
@@ -97,6 +97,32 @@ function toolCallKey(messageId: string, index: number): string {
     return `${messageId}:${index}`;
 }
 
+/**
+ * 根据 toolCallId 在消息缓存中定位宿主 assistant 消息 id。
+ * 依次查消息的 toolCalls[] 与本地时间线条目（刷新恢复路径使用）。
+ */
+function findMessageIdByToolCall(messages: Message[], toolCallId: string): string | undefined {
+    for (const m of messages) {
+        if (m.role === 'assistant' && m.toolCalls?.some((c) => c.id === toolCallId)) return m.id;
+        const timeline = (m as MessageWithTimeline).timeline;
+        if (timeline?.some((e) => e.kind === 'tool' && e.id === toolCallId)) return m.id;
+    }
+    return undefined;
+}
+
+/**
+ * Pending ask_user 提问（整卡等待用户作答）。restoreSessionLiveState 或
+ * confirmation_required(toolName='ask_user') 事件设置；submitQuestionAnswer
+ * 提交后清除（后续 tool_result 事件把结果回填进时间线）。
+ */
+export interface PendingQuestion {
+    approvalId: string;
+    toolCallId: string;
+    messageId: string;
+    /** 到期时间戳（ms）；0 = 无超时。 */
+    expiresAt: number;
+}
+
 interface SessionStore {
     // State - layered loading architecture
     sessionSummaries: SessionSummary[];
@@ -119,6 +145,8 @@ interface SessionStore {
      * When non-null, the ToolConfirmationDialog is shown.
      */
     pendingConfirmation: ConfirmationEventData | null;
+    /** 当前等待用户作答的 ask_user 提问（问答卡片）；null = 无。 */
+    pendingQuestion: PendingQuestion | null;
     /** 当前 Agent 状态机状态（初始 idle；终态侧边状态为 error / cancelled）。 */
     agentState: AgentState;
     /** 当前轮工具调用进度（T13 渲染用；终态触发时清空）。 */
@@ -165,6 +193,13 @@ interface SessionStore {
     cancelStream: () => void;
     /** Resolve a pending tool confirmation (user clicked allow/deny). */
     resolveConfirmation: (approvalId: string, approved: boolean) => Promise<void>;
+    /** 提交 ask_user 问答卡片的回答（整卡一次提交），成功后清除 pendingQuestion。 */
+    submitQuestionAnswer: (
+        approvalId: string,
+        answer: { status: 'answered' | 'skipped'; answers: QuestionAnswerEntry[] },
+    ) => Promise<void>;
+    /** 刷新恢复：还原 pending 提问/确认并重连会话事件流（SSE 重放缓冲帧）。 */
+    restoreSessionLiveState: (sessionId: string) => Promise<void>;
 }
 
 export const useSessionStore = create<SessionStore>()((set, get) => {
@@ -237,6 +272,200 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         );
     };
 
+    /**
+     * SSE 回调工厂：sendMessage（在线流）与 restoreSessionLiveState（刷新后
+     * 重连 /api/sessions/:id/events 重放流）共用同一套 reducer 逻辑 —— 占位
+     * 消息、正文/推理累积、时间线条目、activeToolCalls、状态机转移、确认与
+     * 提问挂起全部收敛于此，两条路径行为严格一致。
+     *
+     * 注意流引用与 AbortSignal 不在工厂内：由调用方（各自路径）持有。
+     */
+    const createStreamHandlers = (sessionId: string) => ({
+        onPlaceholder: (msgId: string) => {
+            // 幂等：刷新重连的重放流会对已持久化的占位消息重发 placeholder ——
+            // 缓存里已有同 id 消息时跳过，避免重复追加。
+            const existing = (get().messagesCache[sessionId] || []).some((m) => m.id === msgId);
+            if (existing) return;
+            const assistantMessage: Message = {
+                id: msgId,
+                sessionId,
+                role: 'assistant',
+                content: '',
+                attachments: [],
+                status: 'sending',
+                createdAt: Date.now(),
+            };
+            get().addMessage(sessionId, assistantMessage);
+        },
+        onDelta: (deltaContent: string) => {
+            transition('content_delta');
+            const messages = get().messagesCache[sessionId] || [];
+            const sendingId = findSendingAssistantId(messages);
+            if (sendingId) {
+                const lastMsg = messages.find((m) => m.id === sendingId)!;
+                get().updateMessage(sessionId, sendingId, { content: lastMsg.content + deltaContent });
+                closeOpenReasoning(sessionId);
+            }
+        },
+        onReasoning: (reasoningDelta: string) => {
+            updateTimeline(sessionId, (entries) => {
+                const last = entries[entries.length - 1];
+                if (last?.kind === 'reasoning' && !last.done) {
+                    return [...entries.slice(0, -1), { ...last, text: last.text + reasoningDelta }];
+                }
+                return [...entries, {
+                    kind: 'reasoning',
+                    id: `reason-${Date.now()}-${entries.length}`,
+                    text: reasoningDelta,
+                    done: false,
+                }];
+            });
+        },
+        onToolCallStart: (msgId: string, index: number) => {
+            // 前导文本快照：本轮首个 tool_call_start 时，把气泡中累积的当前轮
+            // 文本移入时间线 lead 条目并清空气泡（正文只承载最终回答）。
+            const messages = get().messagesCache[sessionId] || [];
+            const sendingId = findSendingAssistantId(messages);
+            if (sendingId) {
+                const lastMsg = messages.find((m) => m.id === sendingId)!;
+                if (lastMsg.content.trim().length > 0) {
+                    const leadText = lastMsg.content;
+                    closeOpenReasoning(sessionId);
+                    updateTimeline(sessionId, (entries) => [...entries, {
+                        kind: 'lead',
+                        id: `lead-${Date.now()}-${entries.length}`,
+                        text: leadText,
+                    }]);
+                    get().updateMessage(sessionId, sendingId, { content: '' });
+                } else {
+                    closeOpenReasoning(sessionId);
+                }
+                updateTimeline(sessionId, (entries) => [...entries, {
+                    kind: 'tool',
+                    id: `${msgId}:${index}`,
+                    name: '',
+                    status: 'running',
+                    startedAt: Date.now(),
+                }]);
+            }
+            set((state) => ({
+                activeToolCalls: [
+                    ...state.activeToolCalls,
+                    { id: toolCallKey(msgId, index), name: '', status: 'running' },
+                ],
+                agentState: transitionAgentState(state.agentState, 'tool_call_start'),
+            }));
+        },
+        onToolCallDelta: (msgId: string, index: number, _id?: string, name?: string) => {
+            if (name === undefined) return;
+            if (name) {
+                updateTimeline(sessionId, (entries) => entries.map((e) =>
+                    e.kind === 'tool' && e.status === 'running' && !e.name
+                        ? { ...e, name }
+                        : e,
+                ));
+            }
+            set((state) => ({
+                activeToolCalls: state.activeToolCalls.map((call) =>
+                    call.id === toolCallKey(msgId, index) && call.status === 'running'
+                        ? { ...call, name }
+                        : call
+                ),
+            }));
+        },
+        onToolCallDone: (msgId: string, index: number, id: string, name: string, args?: string) => {
+            if (args !== undefined) {
+                updateTimeline(sessionId, (entries) => entries.map((e) =>
+                    e.kind === 'tool' && e.id === `${msgId}:${index}`
+                        ? { ...e, id, name, args }
+                        : e,
+                ));
+            }
+            set((state) => ({
+                activeToolCalls: state.activeToolCalls.map((call) =>
+                    call.id === toolCallKey(msgId, index)
+                        ? { ...call, id, name, status: 'done' }
+                        : call
+                ),
+                agentState: transitionAgentState(state.agentState, 'tool_call_done'),
+            }));
+        },
+        onToolResult: (_msgId: string, toolCallId: string, result: string, isError: boolean) => {
+            updateTimeline(sessionId, (entries) => entries.map((e) =>
+                e.kind === 'tool' && e.id === toolCallId
+                    ? {
+                        ...e,
+                        status: isError ? 'error' : 'done',
+                        result,
+                        isError,
+                        endedAt: Date.now(),
+                    }
+                    : e,
+            ));
+            set((state) => ({
+                activeToolCalls: state.activeToolCalls.map((call) =>
+                    call.id === toolCallId ? { ...call, status: 'done' } : call
+                ),
+                // ask_user 提问的结果已到达（作答/跳过/超时）：清除挂起提问。
+                ...(state.pendingQuestion?.toolCallId === toolCallId
+                    ? { pendingQuestion: null }
+                    : {}),
+            }));
+        },
+        onDone: (title: string, content?: string) => {
+            transition('stream_done');
+            const messages = get().messagesCache[sessionId] || [];
+            const sendingId = findSendingAssistantId(messages);
+            if (sendingId) {
+                finalizeTimeline(sessionId, false);
+                get().updateMessage(sessionId, sendingId, {
+                    status: 'sent',
+                    ...(content !== undefined ? { content } : {}),
+                });
+            }
+            if (title && title !== 'New Session') {
+                get().updateSessionSummary(sessionId, { title });
+            }
+        },
+        onError: (errorMsg: string) => {
+            if (get().abortController?.signal.aborted) return;
+            transition('stream_error');
+            const messages = get().messagesCache[sessionId] || [];
+            const sendingId = findSendingAssistantId(messages);
+            if (sendingId) {
+                finalizeTimeline(sessionId, true);
+                get().updateMessage(sessionId, sendingId, {
+                    status: 'failed',
+                    error: errorMsg,
+                });
+            }
+        },
+        onAborted: () => {
+            transition('stream_aborted');
+            const messages = get().messagesCache[sessionId] || [];
+            const sendingId = findSendingAssistantId(messages);
+            if (sendingId) {
+                finalizeTimeline(sessionId, false);
+                get().updateMessage(sessionId, sendingId, { status: 'aborted' });
+            }
+        },
+        onConfirmationRequired: (data: ConfirmationEventData) => {
+            if (data.toolName === 'ask_user') {
+                // 提问不弹确认窗：渲染为时间线内的问答卡片。
+                set({
+                    pendingQuestion: {
+                        approvalId: data.approvalId,
+                        toolCallId: data.toolCallId,
+                        messageId: data.messageId,
+                        expiresAt: data.expiresAt,
+                    },
+                });
+            } else {
+                set({ pendingConfirmation: data });
+            }
+        },
+    });
+
     return {
         // Initial state - layered loading architecture
         sessionSummaries: [],
@@ -250,6 +479,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         pendingModelId: null,
         activeJobId: null,
         pendingConfirmation: null,
+        pendingQuestion: null,
         agentState: 'idle',
         activeToolCalls: [],
 
@@ -450,7 +680,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         // If sessionId is the sentinel, lazily create the session first.
         sendMessage: async ({ sessionId, content, assetIds, enforcedSkillIds, referencedSessionIds, attachments }) => {
             transition('send');
-            const { addMessage, updateMessage, updateSessionSummary, createSession, pendingModelId } = get();
+            const { addMessage, updateMessage, createSession, pendingModelId } = get();
 
             // Lazy-create session if needed
             let realSessionId = sessionId;
@@ -512,191 +742,9 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                 await parseSSEStream({
                     stream: result.stream,
                     signal: abortController.signal,
-                    onPlaceholder: (msgId) => {
-                        // Create assistant placeholder message with server's msgId
-                        const assistantMessage: Message = {
-                            id: msgId,
-                            sessionId: realSessionId,
-                            role: 'assistant',
-                            content: '',
-                            attachments: [],
-                            status: 'sending',
-                            createdAt: Date.now(),
-                        };
-                        addMessage(realSessionId, assistantMessage);
-                    },
-                    onDelta: (deltaContent) => {
-                        transition('content_delta');
-                        // Find the last assistant message that is still 'sending' and update its content
-                        const messages = get().messagesCache[realSessionId] || [];
-                        const sendingId = findSendingAssistantId(messages);
-                        if (sendingId) {
-                            const lastMsg = messages.find(m => m.id === sendingId)!;
-                            updateMessage(realSessionId, sendingId, { content: lastMsg.content + deltaContent });
-                            // 回答开始 → 收尾 reasoning 条目（"思考中…" → "思考过程"）
-                            closeOpenReasoning(realSessionId);
-                        }
-                    },
-                    // Extended Thinking（RFC §3）：推理增量累积为时间线 reasoning 条目
-                    // （连续 delta 归并进同一条目；回答/工具开始时收尾为 done）。
-                    onReasoning: (reasoningDelta) => {
-                        updateTimeline(realSessionId, (entries) => {
-                            const last = entries[entries.length - 1];
-                            if (last?.kind === 'reasoning' && !last.done) {
-                                return [...entries.slice(0, -1), { ...last, text: last.text + reasoningDelta }];
-                            }
-                            return [...entries, {
-                                kind: 'reasoning',
-                                id: `reason-${Date.now()}-${entries.length}`,
-                                text: reasoningDelta,
-                                done: false,
-                            }];
-                        });
-                    },
-                    // tool_call_* / tool_result 事件：维护时间线条目 + activeToolCalls
-                    // （后者仅驱动 agentState 状态机）并驱动状态机
-                    onToolCallStart: (msgId, index) => {
-                        // 前导文本快照：本轮首个 tool_call_start 时，把气泡中累积的
-                        // 当前轮文本移入时间线 lead 条目并清空气泡——正文只承载最终
-                        // 回答，消灭"思考/前导写进气泡又被 onDone 覆盖删除"的闪动。
-                        const messages = get().messagesCache[realSessionId] || [];
-                        const sendingId = findSendingAssistantId(messages);
-                        if (sendingId) {
-                            const lastMsg = messages.find(m => m.id === sendingId)!;
-                            if (lastMsg.content.trim().length > 0) {
-                                const leadText = lastMsg.content;
-                                closeOpenReasoning(realSessionId);
-                                updateTimeline(realSessionId, (entries) => [...entries, {
-                                    kind: 'lead',
-                                    id: `lead-${Date.now()}-${entries.length}`,
-                                    text: leadText,
-                                }]);
-                                updateMessage(realSessionId, sendingId, { content: '' });
-                            } else {
-                                closeOpenReasoning(realSessionId);
-                            }
-                            // 工具条目（组合键占位，tool_call_done 后换真实 id）
-                            updateTimeline(realSessionId, (entries) => [...entries, {
-                                kind: 'tool',
-                                id: `${msgId}:${index}`,
-                                name: '',
-                                status: 'running',
-                                startedAt: Date.now(),
-                            }]);
-                        }
-                        set((state) => ({
-                            activeToolCalls: [
-                                ...state.activeToolCalls,
-                                { id: toolCallKey(msgId, index), name: '', status: 'running' },
-                            ],
-                            agentState: transitionAgentState(state.agentState, 'tool_call_start'),
-                        }));
-                    },
-                    onToolCallDelta: (msgId, index, _id, name) => {
-                        // 只补全运行中的工具名，不影响状态机
-                        if (name === undefined) return;
-                        if (name) {
-                            updateTimeline(realSessionId, (entries) => entries.map((e) =>
-                                e.kind === 'tool' && e.status === 'running' && !e.name
-                                    ? { ...e, name }
-                                    : e,
-                            ));
-                        }
-                        set((state) => ({
-                            activeToolCalls: state.activeToolCalls.map(call =>
-                                call.id === toolCallKey(msgId, index) && call.status === 'running'
-                                    ? { ...call, name }
-                                    : call
-                            ),
-                        }));
-                    },
-                    onToolCallDone: (msgId, index, id, name, args) => {
-                        // 时间线：组合键 → 真实 id，回填名称与参数（执行仍在进行，
-                        // tool_result 到达才算 done——修复旧 UI 在参数到齐时就打 ✓）
-                        if (args !== undefined) {
-                            updateTimeline(realSessionId, (entries) => entries.map((e) =>
-                                e.kind === 'tool' && e.id === `${msgId}:${index}`
-                                    ? { ...e, id, name, args }
-                                    : e,
-                            ));
-                        }
-                        set((state) => ({
-                            activeToolCalls: state.activeToolCalls.map(call =>
-                                call.id === toolCallKey(msgId, index)
-                                    ? { ...call, id, name, status: 'done' }
-                                    : call
-                            ),
-                            agentState: transitionAgentState(state.agentState, 'tool_call_done'),
-                        }));
-                    },
-                    onToolResult: (_msgId, toolCallId, result, isError) => {
-                        // 工具结果回填：状态 done/error + 结果文本 + 结束时间（耗时）
-                        updateTimeline(realSessionId, (entries) => entries.map((e) =>
-                            e.kind === 'tool' && e.id === toolCallId
-                                ? {
-                                    ...e,
-                                    status: isError ? 'error' : 'done',
-                                    result,
-                                    isError,
-                                    endedAt: Date.now(),
-                                }
-                                : e,
-                        ));
-                        // 工具结果到达时保持 done 状态（幂等）
-                        set((state) => ({
-                            activeToolCalls: state.activeToolCalls.map(call =>
-                                call.id === toolCallId ? { ...call, status: 'done' } : call
-                            ),
-                        }));
-                    },
-                    onDone: (title, content) => {
-                        transition('stream_done');
-                        // Mark the last assistant message as sent
-                        const messages = get().messagesCache[realSessionId] || [];
-                        const sendingId = findSendingAssistantId(messages);
-                        if (sendingId) {
-                            // 终态收尾时间线（running 条目落定），时间线本身保留在消息上
-                            finalizeTimeline(realSessionId, false);
-                            updateMessage(realSessionId, sendingId, {
-                                status: 'sent',
-                                // Override locally-accumulated SSE deltas with the
-                                // authoritative final content from the runner. Without
-                                // this, multi-iteration agent loops (tool call →
-                                // retry → retry) show every iteration's streamed text
-                                // concatenated in the placeholder message.
-                                ...(content !== undefined ? { content } : {}),
-                            });
-                        }
-                        // Update session title if provided
-                        if (title && title !== 'New Session') {
-                            updateSessionSummary(realSessionId, { title });
-                        }
-                    },
-                    onError: (errorMsg) => {
-                        if (abortController.signal.aborted) return;
-                        transition('stream_error');
-                        const messages = get().messagesCache[realSessionId] || [];
-                        const sendingId = findSendingAssistantId(messages);
-                        if (sendingId) {
-                            finalizeTimeline(realSessionId, true);
-                            updateMessage(realSessionId, sendingId, {
-                                status: 'failed',
-                                error: errorMsg,
-                            });
-                        }
-                    },
-                    onAborted: () => {
-                        transition('stream_aborted');
-                        const messages = get().messagesCache[realSessionId] || [];
-                        const sendingId = findSendingAssistantId(messages);
-                        if (sendingId) {
-                            finalizeTimeline(realSessionId, false);
-                            updateMessage(realSessionId, sendingId, { status: 'aborted' });
-                        }
-                    },
-                    onConfirmationRequired: (data) => {
-                        set({ pendingConfirmation: data });
-                    },
+                    // 与刷新恢复路径共用同一套 reducer（问答卡片/确认挂起、
+                    // 时间线维护、状态机转移见 createStreamHandlers）。
+                    ...createStreamHandlers(realSessionId),
                 });
 
                 // 流已结束但终态回调（onDone/onError/onAborted）一个都没触发：
@@ -766,6 +814,82 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
                 console.error('Failed to resolve tool confirmation:', error);
             } finally {
                 set({ pendingConfirmation: null });
+            }
+        },
+
+        // 提交 ask_user 问答卡片（整卡一次提交）。成功后清除 pendingQuestion，
+        // 后续 tool_result 事件把 QuestionCardAnswer 回填进时间线（已答态）。
+        // 失败时保留挂起态，由调用方（QuestionCard）反馈错误。
+        submitQuestionAnswer: async (approvalId, answer) => {
+            await api.submitQuestionAnswer(approvalId, answer);
+            if (get().pendingQuestion?.approvalId === approvalId) {
+                set({ pendingQuestion: null });
+            }
+        },
+
+        // 刷新恢复：还原 pending 提问/确认；若有挂起项则重连会话事件流，
+        // 重放缓冲帧后接续直播（终止事件后服务端关闭连接）。
+        restoreSessionLiveState: async (sessionId) => {
+            try {
+                // messageId 解析与占位幂等依赖消息缓存。
+                if (!get().messagesCache[sessionId]) {
+                    await get().loadSessionMessages(sessionId);
+                }
+                const approvals = await api.fetchPendingApprovals(sessionId);
+                if (approvals.length === 0) return;
+
+                const messages = get().messagesCache[sessionId] || [];
+                for (const approval of approvals) {
+                    const messageId =
+                        findMessageIdByToolCall(messages, approval.toolCallId) ?? '';
+                    if (approval.toolName === 'ask_user') {
+                        set({
+                            pendingQuestion: {
+                                approvalId: approval.approvalId,
+                                toolCallId: approval.toolCallId,
+                                messageId,
+                                expiresAt: approval.expiresAt,
+                            },
+                        });
+                    } else {
+                        set({
+                            pendingConfirmation: {
+                                approvalId: approval.approvalId,
+                                messageId,
+                                toolCallId: approval.toolCallId,
+                                toolName: approval.toolName,
+                                arguments: approval.arguments,
+                                resourceScope: '',
+                                source: approval.source,
+                                sourceMcpId: approval.sourceMcpId,
+                                safetyLevel: approval.safetyLevel,
+                                expiresAt: approval.expiresAt,
+                            },
+                        });
+                    }
+                }
+
+                // 重连事件流：重放缓冲帧（placeholder/tool_call_*/confirmation_required…）
+                // 后接续直播；idle 事件被解析器忽略，流自然结束即无活动 Run。
+                const response = await api.attachSessionEvents(sessionId);
+                if (!response.body) return;
+                const controller = new AbortController();
+                set({ abortController: controller, isSending: true });
+                await parseSSEStream({
+                    stream: response.body,
+                    signal: controller.signal,
+                    ...createStreamHandlers(sessionId),
+                });
+                // 重放/直播结束但占位消息仍 sending：服务端异常断流，收尾为 aborted。
+                const leftoverMessages = get().messagesCache[sessionId] || [];
+                if (findSendingAssistantId(leftoverMessages)) {
+                    transition('stream_aborted');
+                    markSendingAssistantAborted(sessionId);
+                }
+            } catch (error) {
+                console.error('Failed to restore session live state:', error);
+            } finally {
+                set({ isSending: false, abortController: null });
             }
         },
     };

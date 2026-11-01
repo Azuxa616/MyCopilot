@@ -8,6 +8,10 @@
 
 import { useState } from 'react'
 import type { TimelineEntry } from '../../types/timeline'
+import QuestionCard, { parseQuestionCardAnswer, parseQuestionCardSpec } from '../QuestionCard'
+import type { QuestionCardState } from '../QuestionCard'
+import { useSessionStore } from '../../store/sessionStore'
+import { showMessageAlert } from './Alert/alertUtils'
 import PluginCardHost from '../PluginCardHost'
 import { extractCardPayload } from '../PluginCardHost/parse'
 
@@ -92,6 +96,67 @@ function LeadEntry({ entry }: { entry: Extract<TimelineEntry, { kind: 'lead' }> 
 /** 结果展示文本：超过约 2000 字符截断并追加标记。 */
 function truncateResult(result: string): string {
   return result.length > 2000 ? `${result.slice(0, 2000)}\n…（结果已截断）` : result
+}
+
+/** ask_user 条目：以工具参数为卡片数据源，审批状态决定能否交互。 */
+function AskUserEntry({ entry }: { entry: Extract<TimelineEntry, { kind: 'tool' }> }) {
+  const spec = parseQuestionCardSpec(entry.args)
+  const answer = parseQuestionCardAnswer(entry.result)
+  const pendingQuestion = useSessionStore((s) => s.pendingQuestion)
+  const submitQuestionAnswer = useSessionStore((s) => s.submitQuestionAnswer)
+  const [submitting, setSubmitting] = useState(false)
+
+  if (!spec) return <ToolEntry entry={entry} live={false} />
+
+  const pending = pendingQuestion?.toolCallId === entry.id
+  const state: QuestionCardState = answer
+    ? answer.status
+    : submitting
+      ? 'submitting'
+      : pending
+        ? 'interactive'
+        : entry.status === 'running'
+          ? 'generating'
+          : 'stale'
+
+  const submit = async (payload: { status: 'answered'; answers: Parameters<typeof submitQuestionAnswer>[1]['answers'] }) => {
+    if (!pending) return
+    setSubmitting(true)
+    try {
+      await submitQuestionAnswer(pendingQuestion.approvalId, payload)
+    } catch {
+      showMessageAlert.error('提交回答失败，请重试')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const skip = async () => {
+    if (!pending) return
+    setSubmitting(true)
+    try {
+      await submitQuestionAnswer(pendingQuestion.approvalId, {
+        status: 'skipped',
+        answers: spec.questions.map((_, index) => ({ index, status: 'skipped', selections: [] })),
+      })
+    } catch {
+      showMessageAlert.error('跳过提问失败，请重试')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <QuestionCard
+      spec={spec}
+      answer={answer}
+      state={state}
+      expiresAt={pending ? pendingQuestion.expiresAt : 0}
+      submitting={submitting}
+      onSubmit={(payload) => { void submit(payload) }}
+      onSkip={() => { void skip() }}
+    />
+  )
 }
 
 /** tool 条目：可折叠。折叠摘要 = 🔧 + 工具名 + 状态图标 + 耗时；展开 = 参数 + 结果。 */
@@ -193,7 +258,9 @@ export default function AgentTimeline({ entries, live = false }: AgentTimelinePr
           case 'lead':
             return <LeadEntry key={entry.id} entry={entry} />
           case 'tool':
-            return <ToolEntry key={entry.id} entry={entry} live={live} />
+            return entry.name === 'ask_user'
+              ? <AskUserEntry key={entry.id} entry={entry} />
+              : <ToolEntry key={entry.id} entry={entry} live={live} />
         }
       })}
     </div>

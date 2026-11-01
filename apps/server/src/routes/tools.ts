@@ -7,6 +7,8 @@ import {
 import { successResponse } from '../utils/response.js';
 import { HttpError } from '../middleware/error.js';
 import { executeToolCall } from '../tools/executor.js';
+import { normalizeQuestionAnswer } from '../tools/question-answer.js';
+import { listPendingToolApprovals } from '../repo/tool-approval.js';
 import { listRegisteredTools } from '../tools/registry.js';
 import {
   resolveToolApproval,
@@ -39,6 +41,23 @@ toolsApp.post('/', () => {
     405,
     'Tools cannot be created manually; register built-ins in code or sync an MCP server',
   );
+});
+
+toolsApp.get('/pending', (c) => {
+  const sessionId = c.req.query('sessionId');
+  if (!sessionId) throw new HttpError(400, 'sessionId 必填。');
+  const approvals = listPendingToolApprovals(sessionId).map(approval => ({
+    approvalId: approval.approvalId,
+    toolCallId: approval.toolCallId,
+    toolName: approval.tool.name,
+    arguments: approval.arguments,
+    safetyLevel: approval.safetyLevel,
+    source: approval.tool.source,
+    sourceMcpId: approval.tool.sourceMcpId,
+    expiresAt: approval.expiresAt,
+    createdAt: approval.createdAt,
+  }));
+  return successResponse(c, { approvals });
 });
 
 toolsApp.get('/:id', (c) => {
@@ -168,11 +187,20 @@ toolsApp.post('/execute', async (c) => {
  */
 toolsApp.post('/confirm/:approvalId', async (c) => {
   const approvalId = c.req.param('approvalId');
-  const body = await c.req.json<{ approved: boolean }>();
-  if (typeof body.approved !== 'boolean') {
+  const body = await c.req.json<{ approved?: boolean; answer?: unknown }>();
+  const pending = getPendingToolApproval(approvalId);
+  if (!pending) throw new HttpError(404, 'No pending confirmation for this approvalId');
+  let payload: string | undefined;
+  if (pending.tool.name === 'ask_user') {
+    try {
+      payload = JSON.stringify(normalizeQuestionAnswer(pending.arguments, body.answer));
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : String(error));
+    }
+  } else if (typeof body.approved !== 'boolean') {
     throw new HttpError(400, 'approved must be a boolean');
   }
-  const approval = resolveToolApproval(approvalId, body.approved);
+  const approval = resolveToolApproval(approvalId, pending.tool.name === 'ask_user' || body.approved === true, payload);
   if (!approval) {
     throw new HttpError(404, 'No pending confirmation for this approvalId');
   }

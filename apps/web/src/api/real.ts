@@ -14,6 +14,7 @@ import type {
   Mcp, CreateMcpParams, UpdateMcpParams, McpConfig, TestMcpConfigResult,
   PluginRecord, PluginLifecycleEvent,
   ProbeVisionResponse,
+  QuestionAnswerEntry,
 } from '@my-copilot/shared';
 import { enhancedFetch, fetchWithAuth } from './request';
 import { StreamError } from './errors';
@@ -403,6 +404,100 @@ export async function executeTool(params: {
         timeout: 60000,
     });
     return response.data as { content: Array<{ type: string; text: string }>; isError?: boolean };
+}
+
+/**
+ * Pending approval record returned by GET /api/tools/pending（仅 state='pending'）。
+ */
+export interface PendingApproval {
+    approvalId: string;
+    toolCallId: string;
+    toolName: string;
+    arguments: string;
+    safetyLevel: string;
+    source: string;
+    sourceMcpId: string | null;
+    /** 到期时间戳（ms）；0 = 无超时（挂起）。 */
+    expiresAt: number;
+    createdAt: number;
+}
+
+/**
+ * Fetch a session's pending tool approvals（含 ask_user 提问）。
+ * GET /api/tools/pending?sessionId=<id>
+ */
+export async function fetchPendingApprovals(sessionId: string): Promise<PendingApproval[]> {
+    const response = await enhancedFetch<{ data: { approvals: PendingApproval[] } }>(
+        `/api/tools/pending?sessionId=${encodeURIComponent(sessionId)}`,
+        {
+            method: 'GET',
+            timeout: 30000,
+        }
+    );
+    return response.data.approvals;
+}
+
+/**
+ * Submit a structured ask_user answer（整卡一次提交，status answered/skipped）。
+ * POST /api/tools/confirm/:approvalId with `{ answer }`（既有布尔批准不受影响）。
+ */
+export async function submitQuestionAnswer(
+    approvalId: string,
+    answer: { status: 'answered' | 'skipped'; answers: QuestionAnswerEntry[] },
+): Promise<{ resolved: boolean }> {
+    const response = await enhancedFetch<{ data: { resolved: boolean } }>(
+        `/api/tools/confirm/${encodeURIComponent(approvalId)}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answer }),
+            timeout: 30000,
+        }
+    );
+    return response.data;
+}
+
+/**
+ * Fetch the ask_user wait timeout setting（null = 不超时）。
+ * GET /api/settings/ask-user
+ */
+export async function fetchAskUserSettings(): Promise<{ timeoutMs: number | null }> {
+    const response = await enhancedFetch<{ data: { timeoutMs: number | null } }>(
+        '/api/settings/ask-user',
+        {
+            method: 'GET',
+            timeout: 30000,
+        }
+    );
+    return response.data;
+}
+
+/**
+ * Save the ask_user wait timeout setting（null/0 = 关闭超时）。
+ * PUT /api/settings/ask-user
+ */
+export async function saveAskUserSettings(timeoutMs: number | null): Promise<{ timeoutMs: number | null }> {
+    const response = await enhancedFetch<{ data: { timeoutMs: number | null } }>(
+        '/api/settings/ask-user',
+        {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timeoutMs }),
+            timeout: 30000,
+        }
+    );
+    return response.data;
+}
+
+/**
+ * Attach to a live run's buffered SSE event stream（刷新恢复路径）。
+ * GET /api/sessions/:id/events — 服务端先重放缓冲帧再实时推送，
+ * 无活动 Run 时发 `event: idle` 后关闭；终态事件后关闭。
+ * 返回原始 Response 供 parseSSEStream 消费。
+ */
+export async function attachSessionEvents(sessionId: string): Promise<Response> {
+    const response = await fetchWithAuth(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
+    return response;
 }
 
 /**

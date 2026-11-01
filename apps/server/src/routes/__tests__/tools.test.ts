@@ -1,4 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { initDatabase, getDb } from '../../db/index.js';
+import { createSession } from '../../repo/session.js';
+import { createToolApproval } from '../../repo/tool-approval.js';
 import { Hono } from 'hono';
 import type { Tool } from '@my-copilot/shared';
 import { errorMiddleware } from '../../middleware/error.js';
@@ -105,5 +111,72 @@ describe('tools route registration model', () => {
     });
     expect(editResponse.status).toBe(400);
     expect(deleteResponse.status).toBe(405);
+  });
+});
+
+describe('question card confirmation routes', () => {
+  let testDir: string;
+  let sessionId: string;
+  const spec = JSON.stringify({ questions: [{ question: '选择', mode: 'single', options: ['A', 'B'], allowCustomOption: true }] });
+
+  beforeEach(() => {
+    testDir = mkdtempSync(join(tmpdir(), 'my-copilot-tools-route-'));
+    initDatabase(testDir);
+    sessionId = createSession({}).id;
+  });
+
+  afterEach(() => {
+    getDb().close();
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  function createApproval(name = 'ask_user') {
+    return createToolApproval({
+      runId: 'run-1', jobId: null, sessionId, agentId: 'default',
+      tool: { id: 'builtin-ask-user', name, source: 'built-in', sourceMcpId: null, policyVersion: 'v1' },
+      toolCallId: 'call-1', arguments: spec, argumentsDigest: 'digest', resourceScope: 'tool',
+      safetyLevel: name === 'ask_user' ? 'safe' : 'danger', policyVersion: 'v1', expiresAt: 0,
+    });
+  }
+
+  function confirm(approvalId: string, body: unknown) {
+    return createTestApp().request(`/confirm/${approvalId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  }
+
+  it('accepts and normalizes an answered question card', async () => {
+    const approval = createApproval();
+    const response = await confirm(approval.approvalId, { answer: { status: 'answered', answers: [{ index: 0, status: 'answered', selections: ['A'] }] } });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { data: { state: string } };
+    expect(body.data.state).toBe('approved');
+  });
+
+  it('rejects invalid selections and duplicate submissions', async () => {
+    const approval = createApproval();
+    const invalid = await confirm(approval.approvalId, { answer: { status: 'answered', answers: [{ index: 0, status: 'answered', selections: ['C'] }] } });
+    expect(invalid.status).toBe(400);
+    const valid = { answer: { status: 'answered', answers: [{ index: 0, status: 'answered', selections: ['B'] }] } };
+    expect((await confirm(approval.approvalId, valid)).status).toBe(200);
+    expect((await confirm(approval.approvalId, valid)).status).toBe(404);
+  });
+
+  it('keeps the legacy approved body for other tools', async () => {
+    const approval = createApproval('dangerous_action');
+    expect((await confirm(approval.approvalId, { approved: true })).status).toBe(200);
+  });
+
+  it('lists only pending approvals in the mapped shape', async () => {
+    const approval = createApproval();
+    const response = await createTestApp().request(`/pending?sessionId=${sessionId}`);
+    const body = await response.json() as { data: { approvals: Array<Record<string, unknown>> } };
+    expect(body.data.approvals).toEqual([expect.objectContaining({
+      approvalId: approval.approvalId, toolCallId: 'call-1', toolName: 'ask_user', arguments: spec,
+      safetyLevel: 'safe', source: 'built-in', sourceMcpId: null, expiresAt: 0,
+    })]);
+    await confirm(approval.approvalId, { answer: { status: 'answered', answers: [{ index: 0, status: 'answered', selections: ['A'] }] } });
+    const settled = await createTestApp().request(`/pending?sessionId=${sessionId}`);
+    expect((await settled.json() as { data: { approvals: unknown[] } }).data.approvals).toEqual([]);
   });
 });

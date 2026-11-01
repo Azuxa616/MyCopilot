@@ -25,12 +25,27 @@ export function attachTimelines(
   let terminals: MessageWithTimeline[] = [];
   let runMessages: MessageWithTimeline[] = [];
 
+  const pendingToolResults = new Map<string, string>();
+
   const flushRun = () => {
     const [terminal] = terminals;
     if (terminals.length === 1 && terminal !== undefined) {
       const attached: MessageWithTimeline = { ...terminal };
-      if (entries.length > 0 && attached.timeline === undefined) {
-        attached.timeline = entries;
+      // 先决定用哪组 timeline：live 占位（isLocal）即使空也优先用 entries 重建，
+      // 然后从 pendingToolResults 回填 answer（卡片只读回放依赖 result）。
+      const baseTimeline = attached.timeline && attached.timeline.length > 0 ? attached.timeline : entries;
+      if (baseTimeline.length > 0) {
+        attached.timeline = baseTimeline.map((e) => {
+          if (e.kind === 'tool' && e.result === undefined && pendingToolResults.has(e.id)) {
+            return { ...e, result: pendingToolResults.get(e.id), status: 'done' };
+          }
+          return e;
+        });
+      }
+      // live 占位消息（isLocal）的 content 是 lead 文本快照，不应作为正文重复展示；
+      // 清空以避免 lead + 正文重复（卡片/时间线仍保留 lead）。
+      if (attached.isLocal) {
+        attached.content = '';
       }
       out.push(attached);
     } else {
@@ -56,7 +71,7 @@ export function attachTimelines(
     // 中间轮：assistant 带 toolCalls → lead 条目（content 非空时）+ 工具条目
     if (msg.role === 'assistant') {
       if (msg.toolCalls && msg.toolCalls.length > 0) {
-        if (msg.content.trim().length > 0) {
+        if (msg.content.trim().length > 0 && (msg.timeline ?? []).length === 0) {
           entries.push({
             kind: 'lead',
             id: `lead-${msg.id}`,
@@ -68,7 +83,7 @@ export function attachTimelines(
             kind: 'tool',
             id: call.id,
             name: call.name,
-            status: 'done',
+            status: 'running',
             args: call.arguments,
             startedAt: msg.createdAt,
             endedAt: msg.createdAt,
@@ -83,15 +98,17 @@ export function attachTimelines(
 
     // 工具结果：按 toolCallId 回填结果，并把结束时间修正为结果落库时刻
     if (msg.role === 'tool' && msg.toolCallId) {
+      pendingToolResults.set(msg.toolCallId, msg.content);
       entries = entries.map((e) =>
         e.kind === 'tool' && e.id === msg.toolCallId
-          ? { ...e, result: msg.content, endedAt: msg.createdAt }
+          ? { ...e, result: msg.content, endedAt: msg.createdAt, status: 'done' }
           : e,
       );
     }
     // 其他角色：留在 runMessages 中原样透传（防御性兜底）
   }
   flushRun();
+  pendingToolResults.clear();
 
   return out;
 }

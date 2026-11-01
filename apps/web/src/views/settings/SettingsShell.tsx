@@ -10,6 +10,7 @@ import { Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
   Settings,
   ArrowLeft,
+  SlidersHorizontal,
   Server,
   Wrench,
   ScrollText,
@@ -20,6 +21,7 @@ import { useConfigStore } from '../../store/configStore'
 
 /** 设置分类清单：新增分类在此追加一行（竖向导航天然可扩展）。 */
 const SECTIONS = [
+  { path: 'general', label: '通用', icon: SlidersHorizontal },
   { path: 'providers', label: '模型服务', icon: Server },
   { path: 'tools', label: '工具', icon: Wrench },
   { path: 'skills', label: '技能', icon: ScrollText },

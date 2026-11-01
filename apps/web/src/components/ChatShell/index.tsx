@@ -25,6 +25,7 @@ import { showMessageAlert } from '../common/Alert/alertUtils'
 
 export default function ChatShell() {
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId)
+  const setSelectedSessionId = useSessionStore((state) => state.setSelectedSessionId)
   const currentSession = useSessionStore((state) => state.currentSession)
   const messagesCache = useSessionStore((state) => state.messagesCache)
   const isLoadingMessages = useSessionStore((state) => state.isLoadingMessages)
@@ -145,6 +146,21 @@ export default function ChatShell() {
       loadSessionMessages(selectedSessionId)
     }
   }, [selectedSessionId, currentSession, loadSessionMessages])
+
+  // 仅 QA/dev：URL ?sid=<sessionId> 直接选中该会话，避免点错会话项。
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const sid = new URLSearchParams(window.location.search).get('sid')
+    if (sid && sid !== selectedSessionId) {
+      setSelectedSessionId(sid)
+    }
+  }, [selectedSessionId, setSelectedSessionId])
+
+  // 页面刷新或切换会话：从 pending 审批还原提问/确认，重连本 Run 的事件缓冲。
+  useEffect(() => {
+    if (!currentSession || !authToken) return
+    void useSessionStore.getState().restoreSessionLiveState(currentSession.id)
+  }, [currentSession, authToken])
 
   // When the background job reaches a terminal state, refresh the session's
   // messages from the server and clear the active job id. The cache is dropped
