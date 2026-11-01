@@ -11,6 +11,7 @@ import type { TimelineEntry } from '../../types/timeline'
 import QuestionCard, { parseQuestionCardAnswer, parseQuestionCardSpec } from '../QuestionCard'
 import type { QuestionCardState } from '../QuestionCard'
 import { useSessionStore } from '../../store/sessionStore'
+import IconChevronRight from '../../assets/icon/chevron-right.svg?react'
 import { showMessageAlert } from './Alert/alertUtils'
 import PluginCardHost from '../PluginCardHost'
 import { extractCardPayload } from '../PluginCardHost/parse'
@@ -18,14 +19,10 @@ import { extractCardPayload } from '../PluginCardHost/parse'
 /** 折叠指示箭头（与 ToolCallsBlock 的 chevron 同款，旋转过渡）。 */
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
-    <svg
+    <IconChevronRight
       className={`ml-auto shrink-0 w-3 h-3 text-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
-      viewBox="0 0 12 12"
-      fill="none"
       aria-hidden
-    >
-      <path d="M4 2.5L8 6L4 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    />
   )
 }
 

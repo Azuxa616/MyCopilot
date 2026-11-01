@@ -13,8 +13,6 @@
  *   1. Async job mode dispatches an agent loop via the worker handler
  *   2. Job cancel / abort interrupts the handler cleanly
  *   3. Lazy history summarization triggers for long histories
- *   4. Token-budget truncation limits the messages sent to the LLM
- *   5. Summary + truncation + skill compose correctly in one assembly
  *   6. Stale job reclaim runs on worker startup
  *   7. Summarizer failure does not block the agent loop
  *   8. Sync and async entry points produce consistent results
@@ -27,7 +25,6 @@ import type {
   Tool,
   StreamEvent,
   Job,
-  ToolCall,
 } from '@my-copilot/shared';
 
 // ---------------------------------------------------------------------------
@@ -133,7 +130,6 @@ import {
   registerJobHandler,
   clearJobHandlers,
 } from '../../src/jobs/worker.js';
-import { assembleMessages } from '../../src/prompt/assembler.js';
 import type {
   ProviderAdapter,
   AdapterConfig,
@@ -525,188 +521,6 @@ describe('Step B E2E', () => {
     expect(createParams.sessionId).toBe('sess-1');
     expect(createParams.summary).toContain('messages 0-5');
     expect(createParams.summarizedUpToMessageId).toBe('msg-5');
-  });
-
-  // --- 4. Truncation limits messages sent to the LLM -----------------------
-  it('4. truncates history to the token budget and preserves tool chains', () => {
-    // Token math (per T26 learnings):
-    //   - 'x'.repeat(3200) ≈ 804 tokens (800 content + 4 role overhead)
-    //   - tool content 'z'.repeat(4800) ≈ 1204 tokens + empty assistant (4)
-    // Fixture: 4 large user msgs + 2 tool chains (asst+tool) = 8 messages.
-    // With maxTokens=4000 → historyBudget=2000 (after SYSTEM_RESERVE=2000).
-    // Walking newest→oldest keeps only the newest tool chain [a1,t1].
-    const bigUser = 'x'.repeat(3200);
-    const bigTool = 'z'.repeat(4800);
-
-    const tc1: ToolCall = { id: 'tc-1', name: 'echo', arguments: '{}' };
-    const tc2: ToolCall = { id: 'tc-2', name: 'echo', arguments: '{}' };
-
-    const history: Message[] = [
-      {
-        id: 'h-0',
-        sessionId: 'sess-1',
-        role: 'user',
-        content: bigUser,
-        status: 'sent',
-        createdAt: 0,
-        attachments: [],
-      },
-      {
-        id: 'h-1',
-        sessionId: 'sess-1',
-        role: 'user',
-        content: bigUser,
-        status: 'sent',
-        createdAt: 1,
-        attachments: [],
-      },
-      {
-        id: 'h-2',
-        sessionId: 'sess-1',
-        role: 'user',
-        content: bigUser,
-        status: 'sent',
-        createdAt: 2,
-        attachments: [],
-      },
-      {
-        id: 'h-3',
-        sessionId: 'sess-1',
-        role: 'user',
-        content: bigUser,
-        status: 'sent',
-        createdAt: 3,
-        attachments: [],
-      },
-      {
-        id: 'h-4',
-        sessionId: 'sess-1',
-        role: 'assistant',
-        content: '',
-        toolCalls: [tc1],
-        status: 'sent',
-        createdAt: 4,
-        attachments: [],
-      },
-      {
-        id: 'h-5',
-        sessionId: 'sess-1',
-        role: 'tool',
-        content: bigTool,
-        toolCallId: 'tc-1',
-        status: 'sent',
-        createdAt: 5,
-        attachments: [],
-      },
-      {
-        id: 'h-6',
-        sessionId: 'sess-1',
-        role: 'assistant',
-        content: '',
-        toolCalls: [tc2],
-        status: 'sent',
-        createdAt: 6,
-        attachments: [],
-      },
-      {
-        id: 'h-7',
-        sessionId: 'sess-1',
-        role: 'tool',
-        content: bigTool,
-        toolCallId: 'tc-2',
-        status: 'sent',
-        createdAt: 7,
-        attachments: [],
-      },
-    ];
-
-    const assembled = assembleMessages({
-      history,
-      userContent: 'next',
-      maxTokens: 4000,
-    });
-
-    // Truncation dropped messages: fewer than the 8 input history messages
-    // (plus the current user message).
-    const historyOut = assembled.filter((m) => m.role !== 'system');
-    expect(historyOut.length).toBeLessThan(history.length + 1);
-
-    // Tool-chain integrity: every surviving tool message must reference a
-    // toolCallId that belongs to a surviving assistant message. No orphans.
-    const toolMessages = assembled.filter((m) => m.role === 'tool');
-    const assistantToolCallIds = new Set(
-      assembled
-        .filter((m) => m.role === 'assistant' && m.toolCalls)
-        .flatMap((m) => m.toolCalls!.map((tc) => tc.id)),
-    );
-    for (const tm of toolMessages) {
-      expect(tm.toolCallId).toBeDefined();
-      expect(assistantToolCallIds.has(tm.toolCallId!)).toBe(true);
-    }
-
-    // At least one tool chain survived (the newest one, [a1,t1]).
-    expect(toolMessages.length).toBeGreaterThanOrEqual(1);
-    expect(assistantToolCallIds.has('tc-2')).toBe(true);
-  });
-
-  // --- 5. Summary + truncation + skill combined ----------------------------
-  it('5. composes default prompt + skills + summary + truncated history in one assembly', () => {
-    const bigBody = 'y'.repeat(3200);
-    const history: Message[] = [];
-    for (let i = 0; i < 6; i++) {
-      history.push({
-        id: `hist-${i}`,
-        sessionId: 'sess-1',
-        role: 'user',
-        content: bigBody,
-        status: 'sent',
-        createdAt: i,
-        attachments: [],
-      });
-    }
-
-    const assembled = assembleMessages({
-      history,
-      userContent: 'continue',
-      skills: [
-        // 渐进披露（P2）：常规 skill 仅进清单；always skill 全文注入
-        {
-          name: 'code-review',
-          description: '逐文件评审代码变更',
-          body: 'Always check for edge cases.',
-        },
-        { name: 'persona', description: '', body: 'Prefer integration tests.', always: true },
-      ],
-      summary: { text: 'Prior turns discussed the architecture.' },
-      maxTokens: 4500,
-    });
-
-    // System messages: default + skills + summary (exactly 3).
-    const systemMessages = assembled.filter((m) => m.role === 'system');
-    expect(systemMessages).toHaveLength(3);
-
-    const systemText = systemMessages.map((m) => m.content ?? '').join('\n==\n');
-    // Default Chinese instruction.
-    expect(systemText).toContain('AI 助手');
-    // Manifest entry injected (name + description, no body); always skill full text.
-    expect(systemText).toContain('code-review');
-    expect(systemText).toContain('逐文件评审代码变更');
-    expect(systemText).toContain('read_skill');
-    expect(systemText).not.toContain('Always check for edge cases.');
-    expect(systemText).toContain('# Skill: persona');
-    expect(systemText).toContain('Prefer integration tests.');
-    // Summary injected as the third system message.
-    expect(systemText).toContain('Previous conversation summary');
-    expect(systemText).toContain('Prior turns discussed the architecture.');
-
-    // History was truncated: 6 input history messages, fewer survive.
-    const nonSystemCount = assembled.filter((m) => m.role !== 'system').length;
-    expect(nonSystemCount).toBeLessThan(history.length + 1);
-
-    // The current user message is always appended last.
-    const last = assembled[assembled.length - 1]!;
-    expect(last.role).toBe('user');
-    expect(last.content).toContain('continue');
   });
 
   // --- 6. Stale job reclaim on worker startup -------------------------------

@@ -22,9 +22,13 @@ import {
   isRunWaiting,
   type RunEventFrame,
 } from './registry.js';
+import { handleAgentEvent, writeRunResultEvent } from './agent-event.js';
+
+// Agent 事件 → SSE 桥接已抽取至 agent-event.ts，保持既有导出路径。
+export { handleAgentEvent };
 
 /** Parameters for the stream message handler. */
-export interface StreamMessageParams {
+interface StreamMessageParams {
   sessionId: string;
   userMessage: Message;
   provider: Provider;
@@ -232,45 +236,11 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
       }
 
       // Map loop status → terminal SSE event.
-      if (result.status === 'aborted') {
-        try {
-          await writeEvent(
-            'aborted',
-            JSON.stringify({
-              messageId: assistantMsg.id,
-              partialContent: result.content,
-            }),
-          );
-        } catch {
-          // stream already closed, ignore
-        }
-      } else if (result.status === 'error') {
-        try {
-          await writeEvent(
-            'error',
-            JSON.stringify({
-              code: 'stream_error',
-              message: result.error ?? 'unknown',
-            }),
-          );
-        } catch {
-          // stream already closed, ignore
-        }
-      } else {
-        await writeEvent(
-          'done',
-          JSON.stringify({
-            messageId: assistantMsg.id,
-            title,
-            // Authoritative final content from the runner (last iteration's
-            // text only). The client uses this to override the locally-
-            // accumulated SSE deltas, which would otherwise concatenate
-            // text from every agent-loop iteration into the placeholder
-            // message (e.g. "好的，我来调用一下…好的，我再调用一次…”).
-            content: result.content,
-          }),
-        );
-      }
+      await writeRunResultEvent(result, {
+        write: writeEvent,
+        assistantMsgId: assistantMsg.id,
+        title,
+      });
     } catch (err) {
       // Errors thrown by runAgentLoop itself (not caught internally).
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -298,92 +268,4 @@ export function streamMessageHandler(c: Context, params: StreamMessageParams): R
       unregisterStream(sessionId);
     }
   });
-}
-
-// ---------------------------------------------------------------------------
-// Agent event → SSE bridge
-// ---------------------------------------------------------------------------
-
-interface HandlerDeps {
-  write: (event: string, data: string) => Promise<void>;
-  assistantMsgId: string;
-  onContent: (text: string) => void;
-}
-
-/**
- * Translate an AgentLoopEvent into the SSE wire format.
- *
- * Kept as a free function (not a method) so it can be unit-tested in isolation
- * once we add direct tests for the SSE mapping.
- */
-async function handleAgentEvent(
-  event: AgentLoopEvent,
-  deps: HandlerDeps,
-): Promise<void> {
-  switch (event.type) {
-    case 'llm_event': {
-      const e = event.event;
-      if (!e) return;
-
-      if (e.type === 'content') {
-        deps.onContent(e.text);
-        await deps.write('delta', JSON.stringify({ content: e.text }));
-      } else if (e.type === 'tool_call_start') {
-        await deps.write(
-          'tool_call_start',
-          JSON.stringify({ messageId: deps.assistantMsgId, index: e.index }),
-        );
-      } else if (e.type === 'tool_call_delta') {
-        await deps.write(
-          'tool_call_delta',
-          JSON.stringify({ messageId: deps.assistantMsgId, ...e }),
-        );
-      } else if (e.type === 'tool_call_done') {
-        await deps.write(
-          'tool_call_done',
-          JSON.stringify({ messageId: deps.assistantMsgId, ...e }),
-        );
-      } else if (e.type === 'reasoning') {
-        await deps.write('reasoning', JSON.stringify({ text: e.text }));
-      }
-      // 'finish' events drive loop termination; nothing to forward to the client.
-      break;
-    }
-    case 'tool_result': {
-      if (!event.toolResult) return;
-      await deps.write(
-        'tool_result',
-        JSON.stringify({
-          messageId: deps.assistantMsgId,
-          toolCallId: event.toolResult.callId,
-          result: event.toolResult.result,
-          isError: event.toolResult.isError,
-        }),
-      );
-      break;
-    }
-    case 'tool_confirmation_required': {
-      await deps.write(
-        'confirmation_required',
-        JSON.stringify({
-          approvalId: event.approval.approvalId,
-          messageId: deps.assistantMsgId,
-          toolCallId: event.approval.toolCallId,
-          toolName: event.approval.tool.name,
-          arguments: event.approval.arguments,
-          resourceScope: event.approval.resourceScope,
-          source: event.approval.tool.source,
-          sourceMcpId: event.approval.tool.sourceMcpId,
-          safetyLevel: event.approval.safetyLevel,
-          expiresAt: event.approval.expiresAt,
-        }),
-      );
-      break;
-    }
-    case 'tool_confirmation_settled':
-      break;
-    case 'agent_loop_end':
-      // Terminal — handled in the main flow after runAgentLoop returns.
-      break;
-  }
 }
