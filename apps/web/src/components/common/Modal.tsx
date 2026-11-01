@@ -2,6 +2,7 @@
 // 提供受控/非受控模式，支持ESC关闭、遮罩层关闭等功能
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import IconClose from '../../assets/icon/close.svg?react'
 
 export interface ModalProps {
   /** 是否可见（受控模式） */
@@ -119,19 +120,7 @@ export default function Modal({
                 className="ml-auto text-text-secondary hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-hover"
                 aria-label="关闭"
               >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
+                <IconClose className="w-5 h-5" />
               </button>
             )}
           </div>
